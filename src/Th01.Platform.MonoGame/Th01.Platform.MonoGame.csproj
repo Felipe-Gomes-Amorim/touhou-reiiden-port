@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Th01.Core\Th01.Core.csproj" />
+    <ProjectReference Include="..\Th01.Assets\Th01.Assets.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.6" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- Release builds have no console window; errors go to a message box and crash.local.log. -->
+    <OutputType Condition="'$(Configuration)' == 'Release'">WinExe</OutputType>
+    <OutputType Condition="'$(Configuration)' != 'Release'">Exe</OutputType>
+    <AssemblyName>ReiidenPort</AssemblyName>
+    <RootNamespace>Th01.Platform.MonoGame</RootNamespace>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon></ApplicationIcon>
+  </PropertyGroup>
+
+</Project>

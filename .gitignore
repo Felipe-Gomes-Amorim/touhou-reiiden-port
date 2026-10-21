@@ -1,0 +1,10 @@
+reference/
+*.hdi
+*.HDI
+*.local.json
+bin/
+obj/
+.vs/
+
+game-data/
+TestResults/

@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Graphics\Fonts\spleen-8x16.bdf" LogicalName="Th01.Core.Fonts.spleen-8x16.bdf" />
+  </ItemGroup>
+
+</Project>

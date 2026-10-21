@@ -1,0 +1,472 @@
+using Th01.Core.Game;
+using Th01.Core.Graphics;
+using Th01.Core.Input;
+using Th01.Core.Sim;
+
+namespace Th01.Platform.MonoGame;
+
+public enum Screen { Logo, Title, InGame, GameOver, NameEntry, Ranking }
+
+/// <summary>Loads a full-screen picture by file name (e.g. "REIIDEN2.GRP"). Returns false if it is not available.</summary>
+public interface IScreenImages
+{
+    bool TryLoad(string fileName, out ArtFrame image);
+}
+
+public sealed class NoScreenImages : IScreenImages
+{
+    public bool TryLoad(string fileName, out ArtFrame image) { image = default; return false; }
+}
+
+/// <summary>
+/// The screen state machine: logo, title/menu, stages (with their bonus), game over / continue, name entry and ranking.
+/// Lives in the platform, never in the Core. One <see cref="Tick"/> = one VSync; <see cref="Render"/> only draws.
+/// Deterministic: the same input per tick gives the same flow (frame_rand is the tick count when the game starts,
+/// as the original uses the title screen's frame counter).
+/// </summary>
+public sealed class GameFlow
+{
+    public const int LogoTicks = 170;
+    public const int LastStage = 19;
+    public const int FadeTicks = 15;
+    const string NameChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.";
+    static readonly string[] RankNames = ["EASY", "NORMAL", "HARD", "LUNATIC"];
+    const GameButtons Dirs = GameButtons.Up | GameButtons.Down | GameButtons.Left | GameButtons.Right;
+
+    readonly IStageProvider _stages;
+    readonly IScreenImages _images;
+    readonly IFontSource _font;
+    readonly Action<GameSettings>? _saveSettings;
+    readonly HiScoreTable[] _tables = [new(), new(), new(), new()];
+    readonly ButtonRepeater _repeat = new(delayTicks: 14, intervalTicks: 4);
+    readonly Framebuffer _overlay = new();
+    readonly Framebuffer _stageBackground = new();
+    readonly PaletteFader _fader = new();
+
+    GameButtons _prevInput;
+    long _tick;
+    long _screenStart;
+
+    // title
+    bool _inOptions;
+    int _menuSel;
+    ArtFrame _titleBase, _titleTop;
+    bool _hasTitle;
+
+    // in game
+    GameStart? _start;
+    GameSession? _game;
+    bool _hasStageBackground;
+    int _stageId;
+    int _route;
+    int _missTicks;
+    GameOverResult? _continue;
+    SessionCarryOver? _lastCarry;
+
+    // game over / name entry / ranking
+    int _gameOverSel;
+    NameEntry? _entry;
+    int _charIdx;
+    int _entryPlace;
+    uint _entryScore;
+    int _entryStage;
+    ScoreRoute _entryRoute;
+    int _rankingHighlight = -1;
+    HiScoreTable? _rankingTable;
+
+    public GameSettings Settings { get; }
+    public Screen Screen { get; private set; } = Screen.Logo;
+    public GameSession? Game => _game;
+    public bool QuitRequested { get; private set; }
+    public long Ticks => _tick;
+
+    /// <summary>True where Esc should close the window (logo, main title menu); elsewhere Esc is only "cancel".</summary>
+    public bool EscapeQuits => Screen == Screen.Logo || (Screen == Screen.Title && !_inOptions);
+
+    /// <param name="startStage">If set (0-based), skips logo and title and starts that stage directly.</param>
+    public GameFlow(IStageProvider stages, IScreenImages images, IFontSource font, GameSettings settings,
+        Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0)
+    {
+        _stages = stages;
+        _images = images;
+        _font = font;
+        Settings = settings;
+        _saveSettings = saveSettings;
+        _route = route;
+        if (startStage is int s) StartNewGame(s);
+    }
+
+    public HiScoreTable TableFor(Rank rank) => _tables[(int)rank];
+
+    // ---------------------------------------------------------------- ticks
+
+    public void Tick(GameButtons input)
+    {
+        _tick++;
+        var pressed = input & ~_prevInput;
+        var dirs = _repeat.Update(input) & Dirs;
+        _prevInput = input;
+        bool ok = (pressed & (GameButtons.Ok | GameButtons.Shot)) != 0;
+        bool cancel = (pressed & (GameButtons.Cancel | GameButtons.Bomb)) != 0;
+
+        switch (Screen)
+        {
+            case Screen.Logo:
+                if (_tick - _screenStart >= LogoTicks || ok || cancel) GoTo(Screen.Title);
+                break;
+            case Screen.Title: TickTitle(dirs, ok, cancel); break;
+            case Screen.InGame: TickGame(input); break;
+            case Screen.GameOver: TickGameOver(dirs, ok); break;
+            case Screen.NameEntry: TickNameEntry(dirs, ok, cancel); break;
+            case Screen.Ranking:
+                if (ok || cancel) GoTo(Screen.Title);
+                break;
+        }
+    }
+
+    void GoTo(Screen s)
+    {
+        Screen = s;
+        _screenStart = _tick;
+        if (s == Screen.Title)
+        {
+            _inOptions = false;
+            _menuSel = 0;
+            _hasTitle = _images.TryLoad("REIIDEN2.GRP", out _titleBase);
+            if (_hasTitle) _images.TryLoad("REIIDEN3.GRP", out _titleTop);
+        }
+    }
+
+    // ---- title / menu. ref: th01/op_01.cpp (MAIN_CHOICES, OPTION_CHOICES)
+    const int MainStart = 0, MainContinue = 1, MainOption = 2, MainQuit = 3;
+    const int OptRank = 0, OptMusic = 1, OptPlayer = 2, OptQuit = 3;
+
+    void TickTitle(GameButtons dirs, bool ok, bool cancel)
+    {
+        int count = _inOptions ? 4 : 4;
+        if ((dirs & GameButtons.Up) != 0) _menuSel = (_menuSel + count - 1) % count;
+        if ((dirs & GameButtons.Down) != 0) _menuSel = (_menuSel + 1) % count;
+
+        if (_inOptions)
+        {
+            int step = (dirs & GameButtons.Right) != 0 ? 1 : (dirs & GameButtons.Left) != 0 ? -1 : 0;
+            if (step != 0) ChangeOption(step);
+            if (cancel || (ok && _menuSel == OptQuit))
+            {
+                _inOptions = false;
+                _menuSel = MainOption;
+                _saveSettings?.Invoke(Settings);
+            }
+            return;
+        }
+        if (cancel) { _menuSel = MainQuit; return; }
+        if (!ok) return;
+        switch (_menuSel)
+        {
+            case MainStart: StartNewGame(0); break;
+            case MainContinue:
+                if (_continue is not null) StartContinue();
+                break;
+            case MainOption: _inOptions = true; _menuSel = 0; break;
+            case MainQuit: QuitRequested = true; break;
+        }
+    }
+
+    void ChangeOption(int step)
+    {
+        switch (_menuSel)
+        {
+            case OptRank: Settings.Rank = (Rank)(((int)Settings.Rank + step + 4) % 4); break;
+            case OptMusic: Settings.Music = !Settings.Music; break;
+            case OptPlayer:
+                Settings.LivesExtra = (Settings.LivesExtra + step + GameSettings.LivesExtraMax + 1) % (GameSettings.LivesExtraMax + 1);
+                break;
+        }
+    }
+
+    // ---- stages
+    void StartNewGame(int stageId)
+    {
+        _continue = null;
+        _lastCarry = null;
+        uint frameRand = (uint)_tick;
+        LoadStage(stageId, setup => new GameOptions
+        {
+            Stage = setup, Rank = Settings.Rank, Lives = Settings.LivesExtra + 2, Bombs = Settings.Bombs,
+            FrameRand = frameRand, Entrance = true,
+        });
+    }
+
+    void StartContinue()
+    {
+        var r = _continue!;
+        int stage = r.StageNum - 1;
+        int route = r.Route == ScoreRoute.Jigoku ? 1 : 0;
+        _route = route;
+        _lastCarry = null;
+        LoadStage(stage, setup => r.ContinueOptions(setup, Settings.LivesExtra, entrance: true), route);
+    }
+
+    void LoadStage(int stageId, Func<StageSetup, GameOptions> make, int? route = null)
+    {
+        _stageId = stageId;
+        if (route is int rt) _route = rt;
+        _start = _stages.Create(stageId, _route, make);
+        _game = _start.Session as GameSession
+            ?? throw new InvalidOperationException("The stage provider must return a GameSession.");
+        _hasStageBackground = false;
+        if (_start.Art.TryGetBackground(out var bg))
+        {
+            _stageBackground.Clear();
+            _stageBackground.ApplyPalette(bg);
+            _stageBackground.Draw(bg, 0, 0);
+            _hasStageBackground = true;
+        }
+        _missTicks = 0;
+        GoTo(Screen.InGame);
+    }
+
+    void TickGame(GameButtons input)
+    {
+        var g = _game!;
+        g.Step(input);
+        _missTicks = g.Phase == SessionPhase.MissAnimation ? _missTicks + 1 : 0;
+
+        if (g.Outcome == SessionOutcome.Cleared)
+        {
+            var carry = g.CarryOver!;
+            if (_stageId >= LastStage) { FinishRun(carry.Score, _route == 1 ? HiScoreTable.ClearedJigoku : HiScoreTable.ClearedMakai, ScoreRoute.Clear); return; }
+            _lastCarry = carry;
+            int next = _stageId + 1;
+            LoadStage(next, setup => new GameOptions { Stage = setup, Rank = Settings.Rank, CarryOver = carry, Entrance = true });
+        }
+        else if (g.Outcome == SessionOutcome.GameOver)
+        {
+            _continue = g.GameOverResult;
+            _gameOverSel = 0;
+            GoTo(Screen.GameOver);
+        }
+    }
+
+    // ---- game over: CONTINUE or END
+    void TickGameOver(GameButtons dirs, bool ok)
+    {
+        if ((dirs & (GameButtons.Up | GameButtons.Down)) != 0) _gameOverSel ^= 1;
+        if (!ok) return;
+        if (_gameOverSel == 0) StartContinue();
+        else
+        {
+            var r = _continue!;
+            FinishRun(r.Score, r.RegistStage, r.Route, cleared: false);
+        }
+    }
+
+    /// <summary>Ends a run: if the score makes the table, ask for a name; otherwise show the ranking.</summary>
+    void FinishRun(uint score, int stage, ScoreRoute route, bool cleared = true)
+    {
+        var table = _tables[(int)Settings.Rank];
+        _rankingTable = table;
+        _entryScore = score;
+        _entryStage = stage;
+        _entryRoute = route;
+        _entryPlace = table.FindPlace((int)Math.Min(score, int.MaxValue));
+        if (_entryPlace >= HiScoreTable.Places)
+        {
+            _rankingHighlight = -1;
+            GoTo(Screen.Ranking);
+            return;
+        }
+        _entry = new NameEntry(cleared);
+        _charIdx = 1;
+        GoTo(Screen.NameEntry);
+    }
+
+    void TickNameEntry(GameButtons dirs, bool ok, bool cancel)
+    {
+        var e = _entry!;
+        if ((dirs & GameButtons.Up) != 0) _charIdx = (_charIdx + 1) % NameChars.Length;
+        if ((dirs & GameButtons.Down) != 0) _charIdx = (_charIdx + NameChars.Length - 1) % NameChars.Length;
+        if ((dirs & GameButtons.Left) != 0) e.CursorLeft();
+        if ((dirs & GameButtons.Right) != 0) e.CursorRight();
+        if (ok)
+        {
+            char c = NameChars[_charIdx];
+            if (e.Put(c == ' ' ? NameEntry.Blank : c)) e.Confirm();
+        }
+        if (cancel) e.Confirm();
+        if (e.Confirmed || e.TimedOut)
+        {
+            var table = _rankingTable!;
+            table.Insert(_entryPlace, e.Name, (int)Math.Min(_entryScore, int.MaxValue), _entryStage, _entryRoute);
+            _rankingHighlight = _entryPlace;
+            _entry = null;
+            GoTo(Screen.Ranking);
+        }
+    }
+
+    /// <summary>Name cell to text. TODO(Japanese font): the table stores Shift-JIS kanji codes; only ASCII is shown until a font is chosen.</summary>
+    public static char DecodeNameCell(ushort code) => code == NameEntry.Blank ? ' ' : code is >= 0x20 and < 0x7F ? (char)code : '?';
+
+    // ---------------------------------------------------------------- drawing
+
+    public void Render(Framebuffer fb)
+    {
+        fb.ScrollY = 0;
+        switch (Screen)
+        {
+            case Screen.Logo: RenderLogo(fb); break;
+            case Screen.Title: RenderTitle(fb); break;
+            case Screen.InGame: RenderGame(fb); break;
+            case Screen.GameOver: RenderGame(fb); RenderGameOver(fb); break;
+            case Screen.NameEntry: RenderNameEntry(fb); break;
+            case Screen.Ranking: RenderRanking(fb); break;
+        }
+        ApplyFadeIn(fb);
+        if (Screen == Screen.InGame) fb.ScrollY = ShakeLine();
+    }
+
+    /// <summary>Palette fade from black at the start of each screen: replays the fader for the ticks elapsed, so it needs no state.</summary>
+    void ApplyFadeIn(Framebuffer fb)
+    {
+        long elapsed = _tick - _screenStart;
+        if (elapsed >= FadeTicks) return;
+        _fader.FadeFrom(fb, 0, 0, 0);
+        for (long i = 0; i < elapsed; i++) _fader.Step();
+    }
+
+    /// <summary>
+    /// Screen shake of the miss animation: 16 iterations of 2 ticks, odd iterations scrolled to line 392 (RES_Y - 8), then 0.
+    /// The session does not expose the shake, so it is derived from the miss phase length.
+    /// ref: th01/main/player/player.cpp player_miss_animate_and_update()
+    /// </summary>
+    int ShakeLine()
+    {
+        if (_game is null || _game.Phase != SessionPhase.MissAnimation || _missTicks >= GameSession.MissShakeTicks) return 0;
+        return (_missTicks / 2) % 2 == 1 ? Framebuffer.Height - 8 : 0;
+    }
+
+    void Grayscale(Framebuffer fb)
+    {
+        for (int i = 0; i < Framebuffer.ColorCount; i++) fb.SetPalette4(i, i, i, i);
+    }
+
+    (byte Dark, byte Dim, byte Light) Colors(Framebuffer fb) => (
+        (byte)SceneCompositor.NearestColor(fb, 0, 0, 0),
+        (byte)SceneCompositor.NearestColor(fb, 7, 7, 7),
+        (byte)SceneCompositor.NearestColor(fb, 15, 15, 15));
+
+    int Text(Framebuffer fb, string s, int x, int y, byte color) => TextRenderer.DrawString(fb, _font, s, x, y, color);
+
+    void TextCentered(Framebuffer fb, string s, int y, byte color) =>
+        Text(fb, s, (Framebuffer.Width - TextRenderer.Measure(_font, s)) / 2, y, color);
+
+    void RenderLogo(Framebuffer fb)
+    {
+        Grayscale(fb);
+        fb.Clear(0);
+        TextCentered(fb, "TH01 - UNOFFICIAL FAN PORT", 168, 15);
+        TextCentered(fb, "REQUIRES YOUR OWN COPY OF THE ORIGINAL GAME", 196, 8);
+    }
+
+    void RenderTitle(Framebuffer fb)
+    {
+        if (_hasTitle)
+        {
+            fb.Clear(0);
+            fb.ApplyPalette(_titleBase);
+            fb.Draw(_titleBase, 0, 0);
+            fb.Draw(_titleTop, 0, 0);
+        }
+        else { Grayscale(fb); fb.Clear(0); TextCentered(fb, "TH01", 60, 15); }
+
+        var (dark, dim, light) = Colors(fb);
+        string[] main = ["START", _continue is null ? "CONTINUE (NO GAME)" : "CONTINUE", "OPTION", "QUIT"];
+        string[] opts =
+        [
+            $"RANK    {RankNames[(int)Settings.Rank]}",
+            $"MUSIC   {(Settings.Music ? "ON" : "OFF")}",
+            $"PLAYER  {Settings.LivesExtra + 2} LIVES",
+            "QUIT",
+        ];
+        var items = _inOptions ? opts : main;
+        int w = 0;
+        foreach (var s in items) w = Math.Max(w, TextRenderer.Measure(_font, s));
+        int boxW = w + 48, boxX = (Framebuffer.Width - boxW) / 2, boxY = 280;
+        fb.FillRect(boxX - 2, boxY - 2, boxW + 4, items.Length * 22 + 20, light);
+        fb.FillRect(boxX, boxY, boxW, items.Length * 22 + 16, dark);
+        for (int i = 0; i < items.Length; i++)
+        {
+            byte col = i == _menuSel ? light : dim;
+            if (i == _menuSel) Text(fb, ">", boxX + 12, boxY + 8 + i * 22, light);
+            Text(fb, items[i], boxX + 32, boxY + 8 + i * 22, col);
+        }
+        if (_inOptions) TextCentered(fb, "LEFT/RIGHT: CHANGE   CANCEL: BACK", boxY + items.Length * 22 + 28, dim);
+    }
+
+    void RenderGame(Framebuffer fb)
+    {
+        if (_game is null) return;
+        if (_hasStageBackground)
+        {
+            _game.Render(_overlay);
+            SceneCompositor.Compose(fb, _stageBackground, _overlay);
+        }
+        else _game.Render(fb);
+
+        if (_game.Phase == SessionPhase.StageBonus && _game.Bonus is StageBonus b)
+        {
+            SceneCompositor.DrawMessage(fb, _font,
+                $"STAGE {_stageId + 1} CLEAR",
+                $"TIME      {b.Time * 10}",
+                $"COMBO     {b.CardCombo * 10}",
+                $"RESOURCES {b.Resources * 10}",
+                $"STAGE     {b.StageNumber * 10}",
+                $"TOTAL     {b.Total}",
+                "SHOT / OK: CONTINUE");
+        }
+    }
+
+    void RenderGameOver(Framebuffer fb)
+    {
+        var r = _continue;
+        string[] lines = ["GAME OVER", $"SCORE {r?.Score ?? 0}", "", _gameOverSel == 0 ? "> CONTINUE" : "  CONTINUE", _gameOverSel == 1 ? "> END" : "  END"];
+        SceneCompositor.DrawMessage(fb, _font, lines);
+    }
+
+    void RenderNameEntry(Framebuffer fb)
+    {
+        Grayscale(fb);
+        fb.Clear(0);
+        TextCentered(fb, $"RANK {RankNames[(int)Settings.Rank]}   PLACE {_entryPlace + 1}", 90, 15);
+        TextCentered(fb, $"SCORE {_entryScore}", 120, 15);
+        TextCentered(fb, "ENTER YOUR NAME", 160, 8);
+        var e = _entry!;
+        int x0 = (Framebuffer.Width - HiScoreTable.NameKanji * 24) / 2;
+        for (int i = 0; i < HiScoreTable.NameKanji; i++)
+        {
+            char c = i == e.Cursor ? NameChars[_charIdx] : DecodeNameCell(e.Name[i]);
+            if (i == e.Cursor) fb.FillRect(x0 + i * 24 - 4, 196, 20, 24, 8);
+            Text(fb, c.ToString(), x0 + i * 24, 200, 15);
+        }
+        TextCentered(fb, "UP/DOWN: LETTER   LEFT/RIGHT: MOVE   OK: PUT   CANCEL: DONE", 260, 8);
+        TextCentered(fb, "(ASCII ONLY: JAPANESE FONT NOT CHOSEN YET)", 290, 6);
+    }
+
+    void RenderRanking(Framebuffer fb)
+    {
+        Grayscale(fb);
+        fb.Clear(0);
+        var table = _rankingTable ?? _tables[(int)Settings.Rank];
+        TextCentered(fb, $"HIGH SCORES - {RankNames[(int)Settings.Rank]}", 40, 15);
+        for (int i = 0; i < HiScoreTable.Places; i++)
+        {
+            var e = table.Entries[i];
+            var name = new string(e.Name.Select(DecodeNameCell).ToArray());
+            string stage = e.Stage >= HiScoreTable.Cleared ? "CLEAR" : e.Stage > 0 ? $"STAGE {e.Stage}" : "";
+            string route = e.Route switch { ScoreRoute.Shrine => "SHRINE", ScoreRoute.Makai => "MAKAI", ScoreRoute.Jigoku => "JIGOKU", ScoreRoute.Clear => "", _ => "" };
+            string line = $"{i + 1,2}  {name}  {e.Score,9}  {stage,-8} {route}";
+            Text(fb, line, 100, 90 + i * 24, (byte)(i == _rankingHighlight ? 15 : 9));
+        }
+        TextCentered(fb, "OK: BACK TO TITLE", 360, 8);
+    }
+}

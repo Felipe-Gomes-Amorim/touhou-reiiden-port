@@ -1,0 +1,14 @@
+# Stage 1 opening: wait, start with Shot, move left/right, swing, then idle (let the Orb fall and miss).
+seed 1
+ticks 600
+0   none
+40  shot          # leave the "wait for shot" state (irand_init(frame_rand) in the original)
+44  none
+70  left
+110 none
+130 right
+170 right shot
+178 right
+230 none
+300 left shot
+306 none
