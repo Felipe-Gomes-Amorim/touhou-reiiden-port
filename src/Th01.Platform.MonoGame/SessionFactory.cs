@@ -89,10 +89,13 @@ public sealed class SessionFactory
                     ".PTN" => pack.GetPtn(name),
                     ".BOS" => pack.GetBos(name),
                     ".GRC" => pack.GetGrc(name),
+                    ".GRF" => name.Equals("MASK.GRF", StringComparison.OrdinalIgnoreCase) ? new SpriteSheet([pack.GetHudMask()]) : null,
+                    // No extension: a monochrome table embedded in REIIDEN.EXE (EmbeddedSprites.KnownNames: "pellet", "laser_s"...).
+                    "" => pack.GetEmbeddedSprites() is { } emb && emb.Has(name) ? emb.Get(name) : null,
                     _ => null,
                 };
             }
-            catch (Exception e) when (e is FileNotFoundException or InvalidDataException or EndOfStreamException) { return null; }
+            catch (Exception e) when (e is FileNotFoundException or InvalidDataException or EndOfStreamException or KeyNotFoundException) { return null; }
         };
     }
 

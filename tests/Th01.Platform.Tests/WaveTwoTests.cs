@@ -158,6 +158,14 @@ public class WaveTwoTests
         Assert.Equal(mima.Palette.ToArray()[..45], bg.Palette.ToArray()[..45]); // colour 15 is the transparency key
     }
 
+    [SkippableTheory]
+    [InlineData("MASK.GRF"), InlineData("pellet"), InlineData("pellet_c"), InlineData("laser_s")]
+    public void RealData_HudMaskAndEmbeddedSpritesAreAvailableToTheRenderer(string sheet)
+    {
+        var start = new SessionFactory(new Th01.Assets.FolderAssetSource(DataFolder()), 0, 0).Create();
+        Assert.True(start.Art.FrameCount(sheet) > 0, $"'{sheet}' is not served by the art");
+    }
+
     [SkippableFact]
     public void RealData_RenderedStageUsesSprites_NotFlatBoxes()
     {
