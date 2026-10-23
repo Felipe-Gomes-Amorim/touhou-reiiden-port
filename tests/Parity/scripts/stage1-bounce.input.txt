@@ -1,0 +1,6 @@
+# Stage 1: no input after the first swing; checks Orb gravity/bounce (OrbYAxis) and the miss/respawn sequence.
+seed 7
+ticks 900
+0   none
+30  shot
+36  none

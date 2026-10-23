@@ -1,0 +1,14 @@
+# Stage 1: bomb use and movement mix (Bomb button), for bomb_frame and rem_bombs columns.
+seed 3
+ticks 700
+0   none
+30  shot
+36  none
+90  right
+130 right shot
+136 right
+200 bomb
+206 right
+260 left
+320 left shot
+326 none
