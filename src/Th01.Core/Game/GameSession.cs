@@ -115,7 +115,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         bool resets = options.CarryOver == null || options.Stage == null || options.Stage.StageId % StageSetup.StagesPerScene == 0
             || options.Stage.IsBoss;
         BeginStage(resetPlayerLeft: resets);
-        if (_w.Boss != null)
+        if (_w.CurrentBoss != null)
         {
             Phase = SessionPhase.BossEntrance;
         }
@@ -157,7 +157,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         w.Stage?.ObstaclesUpdate(true);
         // The original runs the boss once more at every life start (outside the main loop), except the very first
         // time, when that call is the entrance animation.
-        if (w.Boss is { Phase: not 0 }) w.Boss.Update();
+        if (w.CurrentBoss is { Phase: not 0 } boss) boss.Update();
         w.Input.Reset();
         w.BombDoubletapFrame = InputLatch.BombDoubletapWindow * 3;
         if (w.PlayerInvincibilityTime > 1) w.PlayerInvincible = true;
@@ -179,15 +179,20 @@ public sealed class GameSession : IGameSession, ITraceSource
         switch (Phase)
         {
             case SessionPhase.BossEntrance:
-                if (w.Boss!.EntranceFrame()) StartPlaying();
+                if (w.CurrentBoss!.EntranceFrame()) StartPlaying();
                 return;
             case SessionPhase.BossDefeat:
-                if (--_defeatWait <= 0)
+                if (--_defeatWait > 0) return;
+                if (w.StageId != StageSetup.BossStage)
                 {
-                    Phase = SessionPhase.RouteSelect;
-                    _routeDelay = RouteSelectDelayTicks;
-                    _routePrevUp = _routePrevDown = _routePrevOk = false;
+                    // Only the stage 5 boss is followed by the Makai / Jigoku menu.
+                    w.StageCleared = true;
+                    BeginBonus();
+                    return;
                 }
+                Phase = SessionPhase.RouteSelect;
+                _routeDelay = RouteSelectDelayTicks;
+                _routePrevUp = _routePrevDown = _routePrevOk = false;
                 return;
             case SessionPhase.RouteSelect:
                 StepRouteSelect(input);
@@ -252,16 +257,16 @@ public sealed class GameSession : IGameSession, ITraceSource
         w.BombFrame++;
         w.BombDoubletapFrame++;
         bool harryUp = w.HasStage && (w.FrameRand & 3) == 0 && w.Timer.TickDown(w);
-        if (w.Boss != null)
+        if (w.CurrentBoss is { } boss)
         {
-            if (w.Boss.Defeated)
+            if (boss.Defeated)
             {
                 BeginBossDefeat();
                 return;
             }
-            w.Boss.Update();
+            boss.Update();
         }
-        // boss_main(), shootout lasers -- boss port
+        w.Lasers.Update();
 
         // orb_and_pellets_and_stage_unput_update_render__vsync_wait()
         w.Orb.Move();
@@ -318,7 +323,7 @@ public sealed class GameSession : IGameSession, ITraceSource
     {
         var w = _w;
         w.Pellets.ResetNonClouds();
-        int startY = w.Boss!.Top + SinGyoku.H / 2;
+        int startY = w.CurrentBoss!.CenterY;
         _defeatWait = Math.Max(startY + 1, Playfield.Bottom - startY) + BossDefeatFadeTicks;
         Phase = SessionPhase.BossDefeat;
     }
@@ -342,7 +347,7 @@ public sealed class GameSession : IGameSession, ITraceSource
     void BeginBonus()
     {
         var w = _w;
-        bool boss = w.Boss != null;
+        bool boss = w.CurrentBoss != null;
         var b = boss
             ? StageBonus.ComputeTotle(w.StageId + 1, w.Timer.Value, w.CardComboMax, w.RemLives, w.RemBombs)
             : StageBonus.Compute(w.StageId + 1, w.Timer.Value, w.CardComboMax, w.RemLives, w.RemBombs);
@@ -481,7 +486,7 @@ public sealed class GameSession : IGameSession, ITraceSource
             ["cardcombo_cur"] = w.CardComboCur,
             ["cardcombo_max"] = w.CardComboMax,
         };
-        if (w.Boss is { } b)
+        if (w.CurrentBoss is { } b)
         {
             d["boss_hp"] = b.Hp;
             d["boss_phase"] = b.Phase;
@@ -518,7 +523,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         h.Add(w.BombFrame); h.Add(w.BombDoubletapFrame);
         h.Add(w.PelletSpeed);
         h.Add(_harryUpWait); h.Add(_defeatWait); h.Add(_routeDelay); h.Add(_routePrevUp); h.Add(_routePrevDown); h.Add(_routePrevOk); h.Add(w.RouteChosen);
-        w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk);
+        w.CurrentBoss?.Hash(ref h); w.Missiles.Hash(ref h); w.Lasers.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk);
         if (Bonus is { } bn) { h.Add(bn.Time); h.Add(bn.CardCombo); h.Add(bn.Resources); h.Add(bn.StageNumber); h.Add(bn.Total); }
         foreach (var v in w.BonusPerStage) h.Add(v); h.Add(w.StageCleared); h.Add(w.CardFlipCycle); h.Add(w.PointValue);
         w.Items.Hash(ref h); w.Pellets.Hash(ref h); w.Timer.Hash(ref h); w.Stage?.Hash(ref h);

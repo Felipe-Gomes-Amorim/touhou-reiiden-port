@@ -55,8 +55,11 @@ internal sealed class GameRenderer
             DrawObstacles(fb, w.Stage);
         }
         if (w.Boss != null) DrawBoss(fb, w.Boss);
+        if (w.Mima != null) DrawMima(fb, w.Mima);
         DrawItems(fb, w.Items);
         DrawPellets(fb, w.Pellets);
+        DrawMissiles(fb, w.Missiles);
+        DrawLasers(fb, w.Lasers);
         DrawShots(fb, w.Shots);
         DrawOrb(fb, w);
         DrawPlayer(fb, w);
@@ -224,6 +227,50 @@ internal sealed class GameRenderer
         if (!drawn) fb.FillRect(x, y, SinGyoku.W, SinGyoku.H, (byte)(b.Invincible ? 15 : 12));
         // HP bar (provisional position: the original's hud/hp.cpp layout is not ported)
         for (int i = 0; i < b.Hp; i++) fb.FillRect(128 + i * 12, 40, 10, 8, 9);
+    }
+
+    void DrawMima(Framebuffer fb, Mima b)
+    {
+        if (b.Phase == 0 && _s.Phase != SessionPhase.BossEntrance) return;
+        if (b.Vanished || b.Phase == 0 && b.PhaseFrame < 10) return;
+        if (!Draw(fb, "BOSS3_1.BOS", 0, b.Left, b.Top))
+            fb.FillRect(b.Left, b.Top, Mima.W, Mima.H, (byte)(b.Invincible ? 15 : 12));
+        Draw(fb, "BOSS3_2.BOS", b.AnimCel, b.Left, b.Top + Mima.AnimTop);
+        for (int i = 0; i < b.Hp; i++) fb.FillRect(128 + i * 12, 40, 10, 8, 9);
+        for (int i = 0; i < 8; i++)
+        {
+            int t = b.PillarTimeAt(i);
+            if (b.Phase != 3 || b.PatternCur != 0 || t > 32 || t <= 0) continue;
+            int h = 16 * (34 - t);   // growing column, bottom-anchored (provisional height)
+            fb.FillRect(b.PillarCenterXAt(i) - 16, Playfield.Bottom - Math.Min(h, Playfield.Height), 32, Math.Min(h, Playfield.Height), 9);
+        }
+    }
+
+    void DrawMissiles(Framebuffer fb, Missiles m)
+    {
+        // Sprites are in BOSS3_M.PTN; boxes until the angle-to-cel mapping is drawn.
+        for (int i = 0; i < Missiles.Count; i++)
+        {
+            if (m.Flag[i] == Missiles.FlagFree) continue;
+            if (m.Flag[i] == Missiles.FlagMoving) fb.FillRect(m.CurLeft[i] >> 4, m.CurTop[i] >> 4, Missiles.W, Missiles.H, 14);
+            else fb.FillRect(m.HitLeft[i], m.HitTop[i], Missiles.W, Missiles.H, 13);
+        }
+    }
+
+    void DrawLasers(Framebuffer fb, ShootoutLasers lasers)
+    {
+        foreach (var l in lasers.Lasers)
+        {
+            if (!l.Alive) continue;
+            int x = l.RayStartLeft, y = l.RayStartY;
+            int n = l.RayLength;
+            for (int k = 0; k < n; k++, x += l.StepX, y += l.StepY)
+            {
+                int px = x >> 8, py = y >> 8;
+                if (px < Playfield.Left || px >= Playfield.Right - 2 || py < Playfield.Top || py >= Playfield.Bottom) break;
+                fb.FillRect(px, py, ShootoutLaser.LaserW, 1, 15);
+            }
+        }
     }
 
     // ---- player ----

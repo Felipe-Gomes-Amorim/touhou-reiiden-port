@@ -6,7 +6,7 @@ namespace Th01.Core.Game;
 /// renderer. Phase 0 (the 200-frame entrance) is run by the session as its own phase.
 /// ref: th01/main/boss/b05.cpp, boss.cpp, entity_a.cpp
 /// </summary>
-public sealed class SinGyoku
+public sealed class SinGyoku : IBoss
 {
     // ---- constants ----
     public const int W = 96, H = 96;
@@ -33,13 +33,14 @@ public sealed class SinGyoku
     readonly GameWorld _w;
 
     // ---- state (statics of b05.cpp) ----
-    public int Phase;               // boss_phase: 0 entrance, 1, 2, 8 = defeated
-    public int PhaseFrame;          // boss_phase_frame
-    public int InvincibilityFrame;
-    public int Hp = HpTotal;
+    public int Phase { get; set; }               // boss_phase: 0 entrance, 1, 2, 8 = defeated
+    public int PhaseFrame { get; set; }          // boss_phase_frame
+    public int InvincibilityFrame { get; set; }
+    public int Hp { get; set; } = HpTotal;
     public bool Invincible;         // hit.invincible
-    public int PatternCur;
-    public int Left = BaseLeft, Top = BaseTop;   // ent.cur_left / cur_top
+    public int PatternCur { get; set; }
+    public int Left { get; set; } = BaseLeft;    // ent.cur_left / cur_top
+    public int Top { get; set; } = BaseTop;
     public int SphereImage;         // ent_sphere.image()
     public int PersonImage;         // ent_person.image()
     public bool HitboxOrbInactive;

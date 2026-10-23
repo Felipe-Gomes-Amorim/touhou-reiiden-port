@@ -42,6 +42,11 @@ public sealed class GameWorld
     public readonly Pellets Pellets;
     public readonly StageObjects? Stage;
     public readonly SinGyoku? Boss;
+    public readonly Mima? Mima;
+    public readonly Missiles Missiles;
+    public readonly ShootoutLasers Lasers;
+    /// <summary>The boss of the loaded stage, whichever it is.</summary>
+    public IBoss? CurrentBoss => (IBoss?)Boss ?? Mima;
     /// <summary>True when a stage (card or boss) is loaded, i.e. the timer runs.</summary>
     public readonly bool HasStage;
 
@@ -95,6 +100,8 @@ public sealed class GameWorld
         Player = new Player(this);
         Items = new Items(this);
         Pellets = new Pellets(this);
+        Missiles = new Missiles(this);
+        Lasers = new ShootoutLasers(this);
         PelletSpeed = o.PelletSpeed;
         PointValue = o.PointValue;
         if (o.CarryOver is { } c)
@@ -119,6 +126,7 @@ public sealed class GameWorld
             if (o.Stage.IsBoss)
             {
                 if (o.Stage.StageId == StageSetup.BossStage) Boss = new SinGyoku(this);
+                else if (o.Stage.StageId == StageSetup.MimaStage && o.Stage.Route == StageSetup.RouteJigoku) Mima = new Mima(this);
             }
             else
             {
