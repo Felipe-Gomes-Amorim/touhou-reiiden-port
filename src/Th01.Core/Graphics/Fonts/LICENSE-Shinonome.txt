@@ -1,0 +1,10 @@
+Shinonome 16 dot font for JIS X 0208 (shnmk16.bdf), from shinonome-0.9.11.
+Designed by Yasuyuki Furukawa, 2000. Maintained by the Electronic Font Open Laboratory (/efont/), 2001.
+http://openlab.ring.gr.jp/efont/
+
+The font file states: COPYRIGHT "Public Domain". The distribution's LICENSE says that all font data and
+documents in it are provided as Public Domain, with free modification, conversion to other formats,
+embedding and redistribution, and no warranty.
+
+Modification in this repository: only the ENCODING numbers (JIS X 0208 codes converted to Unicode code points)
+and the font name's registry (JISX0208.1990-0 -> ISO10646-1). The glyph bitmaps are unchanged.

@@ -22,6 +22,14 @@ public sealed class BdfFont : IFontSource
         return Parse(new StreamReader(s));
     }
 
+    /// <summary>The Shinonome 16 dot font embedded in this assembly (JIS X 0208: kana, kanji, symbols; Unicode-encoded, 16 px cells).</summary>
+    public static BdfFont LoadShinonome16()
+    {
+        using var s = typeof(BdfFont).Assembly.GetManifestResourceStream("Th01.Core.Fonts.shinonome-16.bdf")
+            ?? throw new InvalidOperationException("Embedded Shinonome font resource is missing.");
+        return Parse(new StreamReader(s));
+    }
+
     public static BdfFont Parse(TextReader reader)
     {
         var font = new BdfFont();

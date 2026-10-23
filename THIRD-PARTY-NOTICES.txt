@@ -7,21 +7,25 @@ This project includes or depends on the following third-party components.
    https://github.com/fcambus/spleen
    Included unmodified in src/Th01.Core/Graphics/Fonts/ together with its license text (LICENSE-Spleen.txt).
 
-2. MonoGame Framework (DesktopGL), 3.8.x
+2. Shinonome 16 dot font (JIS X 0208), shinonome-0.9.11, Public Domain
+   Designed by Yasuyuki Furukawa, maintained by the Electronic Font Open Laboratory, http://openlab.ring.gr.jp/efont/
+   Included in src/Th01.Core/Graphics/Fonts/ with only the character encodings converted to Unicode (see LICENSE-Shinonome.txt).
+
+3. MonoGame Framework (DesktopGL), 3.8.x
    Microsoft Public License (Ms-PL) and MIT, https://monogame.net
    Provides the window, input and graphics output. Distributed through NuGet.
 
-3. SDL2 (SDL2.dll, shipped next to the executable in the release)
+4. SDL2 (SDL2.dll, shipped next to the executable in the release)
    zlib license, https://www.libsdl.org
 
-4. OpenAL Soft (openal.dll, shipped next to the executable in the release)
+5. OpenAL Soft (openal.dll, shipped next to the executable in the release)
    GNU LGPL v2, https://openal-soft.org
    It is shipped unmodified as a separate dynamic library, so it can be replaced by the user.
 
-5. .NET runtime (bundled in the release executable)
+6. .NET runtime (bundled in the release executable)
    MIT License, Copyright (c) .NET Foundation and Contributors, https://github.com/dotnet/runtime
 
-6. ReC98 (https://github.com/nmlgc/ReC98) is used only as a reference for understanding the original game's behaviour.
+7. ReC98 (https://github.com/nmlgc/ReC98) is used only as a reference for understanding the original game's behaviour.
    No ReC98 source code is included in this repository.
 
 Touhou Reiiden: The Highly Responsive to Prayers is the work of ZUN (Team Shanghai Alice / ZUN Soft).
