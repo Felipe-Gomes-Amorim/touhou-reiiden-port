@@ -40,6 +40,17 @@ dotnet run --project src/Th01.Tools -- inspect-assets "<folder with your game fi
 Projects: `Th01.Core` (deterministic game logic), `Th01.Assets` (format readers), `Th01.Platform.MonoGame` (window, input, launcher),
 `Th01.Tools` (CLI). Tests that need the real game files skip themselves unless `TH01_DATA_PATH` points at them.
 
+## Credits
+
+- **[ReC98](https://github.com/nmlgc/ReC98)** by [nmlgc](https://github.com/nmlgc) and contributors: this port exists because of that decompilation and
+  reverse-engineering work. It is the reference for the game's behaviour and file formats (the `ref:` comments in the code point to the
+  corresponding ReC98 files). Thank you, and thank you for permitting this project to be published.
+- **ZUN / Team Shanghai Alice**: creator of Touhou Reiiden. Touhou Project belongs to them.
+
+## AI assistance
+
+This port is developed with the help of AI coding tools (Claude Code, by Anthropic), directed and reviewed by the maintainer.
+
 ## License
 
 Code: MIT (see `LICENSE`). Third-party components keep their own licenses (`THIRD-PARTY-NOTICES.txt`).

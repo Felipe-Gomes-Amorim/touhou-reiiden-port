@@ -8,3 +8,7 @@ obj/
 
 game-data/
 TestResults/
+
+# Coordenação local de sessões Claude (nunca subir)
+.claude/
+CLAUDE.md
