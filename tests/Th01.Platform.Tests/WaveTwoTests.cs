@@ -150,6 +150,15 @@ public class WaveTwoTests
     }
 
     [SkippableFact]
+    public void RealData_MimaStageBackgroundSharesThePaletteOfHerSprites()
+    {
+        var start = new SessionFactory(new Th01.Assets.FolderAssetSource(DataFolder()), StageSetup.MimaStage, StageSetup.RouteJigoku).Create();
+        Assert.True(start.Art.TryGetBackground(out var bg));
+        Assert.True(start.Art.TryGetFrame("BOSS3_1.BOS", 0, out var mima));
+        Assert.Equal(mima.Palette.ToArray()[..45], bg.Palette.ToArray()[..45]); // colour 15 is the transparency key
+    }
+
+    [SkippableFact]
     public void RealData_RenderedStageUsesSprites_NotFlatBoxes()
     {
         var factory = new SessionFactory(new Th01.Assets.FolderAssetSource(DataFolder()), 0, 0);

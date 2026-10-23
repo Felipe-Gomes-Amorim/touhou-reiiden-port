@@ -39,8 +39,6 @@ public sealed class GameFlow
     readonly Action<GameSettings>? _saveSettings;
     readonly HiScoreTable[] _tables = [new(), new(), new(), new()];
     readonly ButtonRepeater _repeat = new(delayTicks: 14, intervalTicks: 4);
-    readonly Framebuffer _overlay = new();
-    readonly Framebuffer _stageBackground = new();
     readonly PaletteFader _fader = new();
 
     GameButtons _prevInput;
@@ -56,7 +54,6 @@ public sealed class GameFlow
     // in game
     GameStart? _start;
     GameSession? _game;
-    bool _hasStageBackground;
     int _stageId;
     int _route;
     int _missTicks;
@@ -214,14 +211,6 @@ public sealed class GameFlow
         _start = _stages.Create(stageId, _route, make);
         _game = _start.Session as GameSession
             ?? throw new InvalidOperationException("The stage provider must return a GameSession.");
-        _hasStageBackground = false;
-        if (_start.Art.TryGetBackground(out var bg))
-        {
-            _stageBackground.Clear();
-            _stageBackground.ApplyPalette(bg);
-            _stageBackground.Draw(bg, 0, 0);
-            _hasStageBackground = true;
-        }
         _missTicks = 0;
         GoTo(Screen.InGame);
     }
@@ -406,12 +395,9 @@ public sealed class GameFlow
     void RenderGame(Framebuffer fb)
     {
         if (_game is null) return;
-        if (_hasStageBackground)
-        {
-            _game.Render(_overlay);
-            SceneCompositor.Compose(fb, _stageBackground, _overlay);
-        }
-        else _game.Render(fb);
+        // The renderer draws the stage background itself. Do not composite through a colour-0 key: black is a real
+        // sprite colour.
+        _game.Render(fb);
 
         if (_game.Phase == SessionPhase.StageBonus && _game.Bonus is StageBonus b)
         {

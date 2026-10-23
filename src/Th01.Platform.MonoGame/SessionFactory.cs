@@ -60,8 +60,11 @@ public sealed class SessionFactory
 
         var setup = ToStageSetup(layouts[inScene], _stageId, _route);
         var art = new GameAssetArt(SheetLoader());
-        // The original loads BOSS1.GRP for the first boss stage and ST<scene>.GRP otherwise; other bosses are not ported yet.
-        string grp = _stageId == StageSetup.BossStage ? "BOSS1.GRP" : $"ST{scene}.GRP";
+        // The original loads the boss's own picture on boss stages (its palette matches the boss sprites) and
+        // ST<scene>.GRP otherwise. Only the bosses ported so far are listed; the others fall back to ST<scene>.GRP.
+        string grp = _stageId == StageSetup.BossStage ? "BOSS1.GRP"
+            : _stageId == StageSetup.MimaStage && _route == StageSetup.RouteJigoku ? "BOSS3.GRP"
+            : $"ST{scene}.GRP";
         if (_assets.Exists(grp)) art.SetBackground(Load(grp, GrpImage.Load));
         // frame_rand is the title screen's frame counter in the original; callers pass a deterministic value.
         var session = new GameSession(makeOptions(setup), art: art);
