@@ -86,6 +86,10 @@ public sealed class GameAssets
     public EmbeddedSprites GetEmbeddedSprites(string exeName = "REIIDEN.EXE") =>
         Cached("exe:" + exeName, () => EmbeddedSprites.Locate(FromFolder(exeName)));
 
+    /// <summary>Shift-JIS text (dialogue, endings, menus) found in an executable, by default the main game.</summary>
+    public CutsceneText GetExeText(string exeName = "REIIDEN.EXE") =>
+        Cached("text:" + exeName, () => ExeText.Scan(exeName, FromFolder(exeName)));
+
     /// <summary>Raw decoded bytes of an archive entry (for readers this facade does not wrap).</summary>
     public byte[] GetPackBytes(string name) => FromPack(name);
 

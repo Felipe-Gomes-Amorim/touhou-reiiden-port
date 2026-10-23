@@ -8,7 +8,7 @@ namespace Th01.Tools.Commands;
 /// <summary>Asset-format commands (T2). Output never contains game bytes, only names, sizes and parse results.</summary>
 public static class AssetsCommands
 {
-    public static bool Handles(string command) => command is "list-pack" or "dump-image" or "extract-pack" or "inspect-exe" or "contact-sheets";
+    public static bool Handles(string command) => command is "list-pack" or "dump-image" or "extract-pack" or "inspect-exe" or "contact-sheets" or "inspect-text";
 
     public static int Run(string[] args)
     {
@@ -16,6 +16,7 @@ public static class AssetsCommands
         if (args[0] == "extract-pack") return ExtractPack(args);
         if (args[0] == "inspect-exe") return AssetsExe.Run(args);
         if (args[0] == "contact-sheets") return AssetsSheets.Run(args);
+        if (args[0] == "inspect-text") return InspectText(args);
         string? folder = args.Length > 1 ? args[1] : GameDataConfig.Resolve();
         if (folder is null || !Directory.Exists(folder))
         {
@@ -97,6 +98,35 @@ public static class AssetsCommands
             return true;
         }
         catch (InvalidDataException e) { Console.WriteLine($"Archive {ExpectedFiles.ArchiveName}: invalid ({e.Message})"); return false; }
+    }
+
+    /// <summary>
+    /// inspect-text [folder]: per executable, how many Shift-JIS text runs it holds (total / with Japanese characters,
+    /// offsets and lengths only, never the text itself), plus which cutscene images are present.
+    /// </summary>
+    private static int InspectText(string[] args)
+    {
+        string? folder = args.Length > 1 ? args[1] : GameDataConfig.Resolve();
+        if (folder is null || !Directory.Exists(folder)) { Console.Error.WriteLine("Game data folder not found or not configured."); return 2; }
+        PrintTextSummary(folder);
+        return 0;
+    }
+
+    /// <summary>Prints the text/cutscene summary (also meant to be called from inspect-assets). Output has no game text.</summary>
+    public static void PrintTextSummary(string folder)
+    {
+        foreach (string exe in ExpectedFiles.TextExecutables)
+        {
+            string path = Path.Combine(folder, exe);
+            if (!File.Exists(path)) { Console.WriteLine($"Text in {exe}: file missing"); continue; }
+            var text = ExeText.Scan(exe, File.ReadAllBytes(path));
+            var jp = text.Japanese.ToList();
+            Console.WriteLine($"Text in {exe}: {text.Runs.Count} run(s), {jp.Count} with Japanese");
+            foreach (var r in jp.Take(8)) Console.WriteLine($"    @0x{r.Offset:X} {r.Length} byte(s), {r.Text.Length} char(s)");
+            if (jp.Count > 8) Console.WriteLine($"    ... {jp.Count - 8} more");
+        }
+        var present = ExpectedFiles.CutsceneImages.Where(n => File.Exists(Path.Combine(folder, n))).ToList();
+        Console.WriteLine($"Cutscene images: {present.Count} of {ExpectedFiles.CutsceneImages.Count} present");
     }
 
     private static int ListPack(string folder)
