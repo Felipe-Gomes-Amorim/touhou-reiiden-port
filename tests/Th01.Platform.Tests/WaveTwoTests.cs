@@ -1,3 +1,4 @@
+using Th01.Core.Game;
 using Th01.Assets.Config;
 using Th01.Assets.Model;
 using Th01.Core.Graphics;
@@ -136,6 +137,31 @@ public class WaveTwoTests
         Assert.Equal((640, 400), (bg.Width, bg.Height));
         for (int i = 0; i < 120; i++) start.Session.Step(i % 7 == 0 ? GameButtons.Shot : GameButtons.Left);
         start.Session.Render(new Framebuffer());
+    }
+
+    [SkippableTheory]
+    [InlineData(0, 0, "STG.PTN"), InlineData(0, 0, "MIKO.PTN"), InlineData(9, 1, "BOSS3_1.BOS"), InlineData(4, 0, "BOSS1.BOS")]
+    public void RealData_SpriteSheetsLoadFromTheArchive(int stage, int route, string sheet)
+    {
+        var start = new SessionFactory(new Th01.Assets.FolderAssetSource(DataFolder()), stage, route).Create();
+        Assert.True(start.Art.FrameCount(sheet) > 0, $"{sheet} has no frames: the game would draw flat boxes");
+        Assert.True(start.Art.TryGetFrame(sheet, 0, out var f));
+        Assert.True(f.Width > 0 && f.Height > 0);
+    }
+
+    [SkippableFact]
+    public void RealData_RenderedStageUsesSprites_NotFlatBoxes()
+    {
+        var factory = new SessionFactory(new Th01.Assets.FolderAssetSource(DataFolder()), 0, 0);
+        StageSetup? setup = null;
+        var start = factory.Create(s => { setup = s; return new GameOptions { Stage = s, FrameRand = 0 }; });
+        var boxesOnly = new GameSession(new GameOptions { Stage = setup!, FrameRand = 0 });
+        for (int i = 0; i < 60; i++) { start.Session.Step(GameButtons.None); boxesOnly.Step(GameButtons.None); }
+        var a = new Framebuffer();
+        var b = new Framebuffer();
+        start.Session.Render(a);
+        boxesOnly.Render(b);
+        Assert.False(a.Pixels.SequenceEqual(b.Pixels), "the session was rendered without sprites (flat boxes only)");
     }
 
     [SkippableFact]

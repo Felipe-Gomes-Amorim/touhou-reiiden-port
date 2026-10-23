@@ -59,13 +59,38 @@ public sealed class SessionFactory
             throw new InvalidOperationException($"STAGE{scene}.DAT has {layouts.Count} stage(s) but stage {_stageId + 1} was asked for.");
 
         var setup = ToStageSetup(layouts[inScene], _stageId, _route);
-        var art = new GameAssetArt();
+        var art = new GameAssetArt(SheetLoader());
         // The original loads BOSS1.GRP for the first boss stage and ST<scene>.GRP otherwise; other bosses are not ported yet.
         string grp = _stageId == StageSetup.BossStage ? "BOSS1.GRP" : $"ST{scene}.GRP";
         if (_assets.Exists(grp)) art.SetBackground(Load(grp, GrpImage.Load));
         // frame_rand is the title screen's frame counter in the original; callers pass a deterministic value.
-        var session = new GameSession(makeOptions(setup));
+        var session = new GameSession(makeOptions(setup), art: art);
         return new GameStart(session, art);
+    }
+
+    /// <summary>
+    /// Loads .PTN/.BOS/.GRC sheets from the game archive on first use. A missing or unreadable sheet is just "not
+    /// available": the renderer falls back to flat boxes for it.
+    /// </summary>
+    Func<string, SpriteSheet?>? SheetLoader()
+    {
+        GameAssets pack;
+        try { pack = new GameAssets(_assets); }
+        catch (Exception e) when (e is FileNotFoundException or InvalidDataException) { return null; }
+        return name =>
+        {
+            try
+            {
+                return Path.GetExtension(name).ToUpperInvariant() switch
+                {
+                    ".PTN" => pack.GetPtn(name),
+                    ".BOS" => pack.GetBos(name),
+                    ".GRC" => pack.GetGrc(name),
+                    _ => null,
+                };
+            }
+            catch (Exception e) when (e is FileNotFoundException or InvalidDataException or EndOfStreamException) { return null; }
+        };
     }
 
     IReadOnlyList<StageLayout> LoadStageDat(int scene)

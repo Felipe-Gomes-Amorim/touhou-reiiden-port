@@ -8,7 +8,18 @@ public sealed class GameAssetArt : IGameArt
 {
     readonly Dictionary<string, SpriteSheet> _sheets = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, ArtFrame[]> _frames = new(StringComparer.OrdinalIgnoreCase);
+    readonly HashSet<string> _unavailable = new(StringComparer.OrdinalIgnoreCase);
+    readonly Func<string, SpriteSheet?>? _loader;
     ArtFrame? _background;
+
+    /// <param name="loader">Loads a sheet by file name the first time it is asked for; null when it is not available.</param>
+    public GameAssetArt(Func<string, SpriteSheet?>? loader = null) => _loader = loader;
+
+    void Ensure(string name)
+    {
+        if (_loader is null || _frames.ContainsKey(name) || !_unavailable.Add(name)) return;
+        if (_loader(name) is { } sheet) { AddSheet(name, sheet); _unavailable.Remove(name); }
+    }
 
     public void AddSheet(string name, SpriteSheet sheet)
     {
@@ -18,10 +29,15 @@ public sealed class GameAssetArt : IGameArt
 
     public void SetBackground(IndexedImage image) => _background = ToFrame(image, null);
 
-    public int FrameCount(string sheet) => _frames.TryGetValue(sheet, out var f) ? f.Length : 0;
+    public int FrameCount(string sheet)
+    {
+        Ensure(sheet);
+        return _frames.TryGetValue(sheet, out var f) ? f.Length : 0;
+    }
 
     public bool TryGetFrame(string sheet, int frame, out ArtFrame art)
     {
+        Ensure(sheet);
         if (_frames.TryGetValue(sheet, out var f) && (uint)frame < (uint)f.Length) { art = f[frame]; return true; }
         art = default;
         return false;
