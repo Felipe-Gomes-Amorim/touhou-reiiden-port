@@ -62,15 +62,20 @@ public class CaptionTests
     }
 
     [Fact]
-    public void Caption_PaintsInTheBrightestPaletteColour_BelowThePicture()
+    public void Caption_PaintsInColour15_CentredAndByteAligned_32RowsApart()
     {
-        var show = new Slideshow(new Images(), [new LoadPics("A.GRP"), new ShowPic(0, 1), new Caption("S.GRP", 0, 1, 316), new Wait(5)], new RecordingFont(), new Letters());
+        var show = new Slideshow(new Images(), [new LoadPics("A.GRP"), new ShowPic(0, 1), new Caption("S.GRP", 0, 2, 316), new Wait(5)], new RecordingFont(), new Letters());
         show.Tone = 0;
         show.Tick();
         var fb = new Framebuffer();
         show.Render(fb);
-        Assert.Equal(7, fb.GetPixel(316 + 0, 320));       // 'a' is centred: (640 - 8) / 2 = 316
-        Assert.Equal(0, fb.GetPixel(10, 320));
+        // one 8 dot glyph: x = (320 - 4 + 7) & ~7 = 320; the lines start at rows 316 and 348
+        Assert.Equal(15, fb.GetPixel(320, 320));
+        Assert.Equal(15, fb.GetPixel(327, 331));
+        Assert.Equal(0, fb.GetPixel(319, 320));
+        Assert.Equal(0, fb.GetPixel(328, 320));
+        Assert.Equal(15, fb.GetPixel(320, 350));          // second line
+        Assert.Equal(0, fb.GetPixel(320, 336));           // nothing between them
     }
 
     [Fact]

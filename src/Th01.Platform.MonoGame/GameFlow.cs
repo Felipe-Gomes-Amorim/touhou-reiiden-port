@@ -54,6 +54,10 @@ public sealed class GameFlow
     readonly IScoreStore _scores;
     readonly ISoundSink? _sound;
     Slideshow? _show;
+    /// <summary>What to do when the running slideshow ends (default: back to the title). The ending goes on to the ranking.</summary>
+    Action? _afterShow;
+    /// <summary>Continues used in each scene (shrine, then the three later scenes) of the current run; the ending's verdict shows them.</summary>
+    readonly int[] _continues = new int[4];
     string? _endNote;
     readonly ButtonRepeater _repeat = new(delayTicks: 14, intervalTicks: 4);
     readonly PaletteFader _fader = new();
@@ -110,7 +114,12 @@ public sealed class GameFlow
         Settings = settings;
         _saveSettings = saveSettings;
         _route = route;
-        if (startCutscene is int c) StartCutscene(c == 1 ? Cutscenes.EndingOne() : Cutscenes.BossSlides(c == 3 ? 1 : 0));
+        if (startCutscene is int c)
+        {
+            // 1 = ED1A..E, 2/3 = boss slides Makai/Jigoku, 4/5 = whole good ending Makai/Jigoku, 6/7 = whole bad ending Makai/Jigoku (with the verdict).
+            if (c >= 4) { _continues[1] = c >= 6 ? 3 : 0; StartEnding(c is 5 or 7 ? 1 : 0, 0); }
+            else StartCutscene(c == 1 ? Cutscenes.EndingOne() : Cutscenes.BossSlides(c == 3 ? 1 : 0));
+        }
         else if (startStage is int s) StartNewGame(s);
     }
 
@@ -120,7 +129,31 @@ public sealed class GameFlow
     public void StartCutscene(IReadOnlyList<SlideStep> steps)
     {
         _show = new Slideshow(_images, steps, _font, _images as ICaptionSource);
+        _afterShow = null;
         GoTo(Screen.Cutscene);
+    }
+
+    /// <summary>
+    /// The ending of a cleared game: the pictures (good ending without continues, bad one with them), the boss slides, the verdict screen,
+    /// then the name entry / ranking. <paramref name="route"/> 0 = Makai, 1 = Jigoku.
+    /// </summary>
+    public void StartEnding(int route, uint score)
+    {
+        var steps = new List<SlideStep>(Cutscenes.Ending(route, _continues.Sum()));
+        if ((_images as IVerdictSource)?.Verdict is { } verdict)
+        {
+            uint highest = Math.Max(score, (uint)Math.Max(0, TableFor(Settings.Rank).Entries[0].Score));
+            steps.AddRange(VerdictScreen.Steps(verdict, RankNames[(int)Settings.Rank], score, highest, _continues, route, _font));
+        }
+        StartCutscene(steps);
+        _afterShow = () => FinishRun(score, route == 1 ? HiScoreTable.ClearedJigoku : HiScoreTable.ClearedMakai, ScoreRoute.Clear);
+    }
+
+    void EndCutscene()
+    {
+        var after = _afterShow;
+        _afterShow = null;
+        if (after is not null) after(); else GoTo(Screen.Title);
     }
 
     // ---------------------------------------------------------------- ticks
@@ -148,7 +181,7 @@ public sealed class GameFlow
                 break;
             case Screen.Cutscene:
                 _show!.Tick();
-                if (_show.Finished || ok || cancel) GoTo(Screen.Title);
+                if (_show.Finished || ok || cancel) EndCutscene();
                 break;
         }
     }
@@ -224,6 +257,7 @@ public sealed class GameFlow
     // ---- stages
     void StartNewGame(int stageId)
     {
+        Array.Clear(_continues);
         _continue = null;
         _lastCarry = null;
         _endNote = null;
@@ -239,6 +273,7 @@ public sealed class GameFlow
     {
         var r = _continue!;
         int stage = r.StageNum - 1;
+        _continues[Math.Clamp(stage / StageSetup.StagesPerScene, 0, 3)]++;
         int route = r.Route == ScoreRoute.Jigoku ? 1 : 0;
         _route = route;
         _lastCarry = null;
@@ -269,7 +304,7 @@ public sealed class GameFlow
             var carry = g.CarryOver!;
             // The menu after the stage 5 boss decides the route of every later scene.
             if (_stageId == StageSetup.BossStage) _route = carry.RouteChosen;
-            if (_stageId >= LastStage) { FinishRun(carry.Score, _route == 1 ? HiScoreTable.ClearedJigoku : HiScoreTable.ClearedMakai, ScoreRoute.Clear); return; }
+            if (_stageId >= LastStage) { StartEnding(_route, carry.Score); return; }
             if (!IsPlayable(_stageId + 1, _route))
             {
                 _endNote = "END OF THE STAGES PORTED SO FAR (THE NEXT BOSS IS NOT DONE YET)";

@@ -7,7 +7,8 @@ using Th01.Platform.MonoGame.Launcher;
 //   no arguments: the first run asks for your .hdi (remembered afterwards), then logo -> title/menu.
 //   --select: ask for the game file again (holding Shift at startup does the same on Windows).
 //   --game: use this .hdi/folder instead of asking (remembered). --data: use this folder as is (not remembered).
-//   --cutscene 1|2|3 plays ending pictures (1 = ED1A..E, 2/3 = boss slides Makai/Jigoku) and then goes to the title.
+//   --cutscene 1|2|3 plays ending pictures (1 = ED1A..E, 2/3 = boss slides Makai/Jigoku); 4/5 = good ending Makai/Jigoku,
+//   6/7 = bad ending Makai/Jigoku (with the verdict screen). Then it goes to the title.
 //   --log-missing-art prints every art lookup that fails, as it happens (F9 / closing the game write missing-art.local.txt).
 //   --stage N (1..20) starts that stage directly, skipping the title; route 0 = Makai, 1 = Jigoku.
 int? stage = null, cutscene = null;
@@ -18,7 +19,7 @@ bool forceSelect = UserPrompts.ShiftHeld();
 for (int i = 0; i < args.Length; i++)
 {
     if (args[i] == "--stage" && i + 1 < args.Length && int.TryParse(args[++i], out int s) && s is >= 1 and <= 20) stage = s - 1;
-    else if (args[i] == "--cutscene" && i + 1 < args.Length && int.TryParse(args[++i], out int cs) && cs is >= 1 and <= 3) cutscene = cs;
+    else if (args[i] == "--cutscene" && i + 1 < args.Length && int.TryParse(args[++i], out int cs) && cs is >= 1 and <= 7) cutscene = cs;
     else if (args[i] == "--route" && i + 1 < args.Length && int.TryParse(args[++i], out int r) && r is 0 or 1) route = r;
     else if (args[i] == "--data" && i + 1 < args.Length) dataArg = args[++i];
     else if (args[i] == "--game" && i + 1 < args.Length) gameArg = args[++i];
