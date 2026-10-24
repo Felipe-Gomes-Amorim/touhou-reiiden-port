@@ -61,6 +61,9 @@ public sealed class GameSession : IGameSession, ITraceSource
     public const int MissEffectTicks = 50;
     public const int MissTotalTicks = MissShakeTicks + MissEffectTicks;
 
+    /// <summary>The original sets bomb_frame to 200 right after the main loop ends (player hit or stage cleared). ref: th01/main_01.cpp</summary>
+    const uint BombFrameAfterLoop = 200;
+
     readonly GameWorld _w;
 
     public SessionPhase Phase { get; private set; } = SessionPhase.WaitForShot;
@@ -359,6 +362,7 @@ public sealed class GameSession : IGameSession, ITraceSource
     void BeginBonus()
     {
         var w = _w;
+        w.BombFrame = BombFrameAfterLoop;
         bool boss = w.Boss != null;
         var b = boss
             ? StageBonus.ComputeTotle(w.StageId + 1, w.Timer.Value, w.CardComboMax, w.RemLives, w.RemBombs)
@@ -403,6 +407,7 @@ public sealed class GameSession : IGameSession, ITraceSource
     void BeginMiss()
     {
         var w = _w;
+        w.BombFrame = BombFrameAfterLoop;
         if (w.RemLives <= 0)
         {
             Phase = SessionPhase.GameOver;

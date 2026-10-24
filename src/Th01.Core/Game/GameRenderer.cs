@@ -414,6 +414,7 @@ internal sealed class GameRenderer
         if (boss is SinGyoku s) DrawSinGyoku(fb, s);
         else if (boss is Mima m) DrawMima(fb, m);
         else if (boss is YuugenMagan y) DrawYuugenMagan(fb, y);
+        else if (boss is Kikuri k) DrawKikuri(fb, k);
     }
 
     void DrawSinGyoku(Framebuffer fb, SinGyoku b)
@@ -439,6 +440,22 @@ internal sealed class GameRenderer
         }
         foreach (var l in y.Lines()) DrawLine(fb, l.x1, l.y1, l.x2, l.y2, ColWhite);
         DrawHpBar(fb, y);
+    }
+
+    void DrawKikuri(Framebuffer fb, Kikuri k)
+    {
+        if (k.Phase >= 2 && k.Phase < 8) DrawHpBar(fb, k);
+        if (!k.SoulsActive) return;
+        foreach (var s in k.Souls)
+            if (!Draw(fb, "TAMASII.BOS", s.Image, s.Left, s.Top)) fb.FillRect(s.Left, s.Top, Kikuri.SoulW, Kikuri.SoulH, 11);
+        for (int i = 0; i < Kikuri.TearCount; i++)
+        {
+            if (k.TearAnimFrame[i] == 0) continue;
+            var t = k.Tears[i];
+            // Falling tear; the ripple on the floor (TAMAYEN.PTN) is not drawn yet.
+            if (t.Top <= Playfield.Bottom - Kikuri.TearH && !Draw(fb, "TAMASII2.BOS", 0, t.Left, t.Top))
+                fb.FillRect(t.Left, t.Top, Kikuri.TearW, Kikuri.TearH, 10);
+        }
     }
 
     void DrawMima(Framebuffer fb, Mima m)
@@ -478,7 +495,8 @@ internal sealed class GameRenderer
     /// </summary>
     static void DrawHpBar(Framebuffer fb, Boss b)
     {
-        const int left = 128, top = 48, pointW = 8, h = 15, firstRedWhite = 2, firstWhite = 6;
+        const int left = 128, top = 48, pointW = 8, h = 15;
+        int firstRedWhite = b.HpFirstRedWhite, firstWhite = b.HpFirstWhite;
         for (int p = 0; p < b.Hp; p++)
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < pointW - 1; x++)

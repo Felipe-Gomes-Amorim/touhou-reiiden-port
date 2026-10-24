@@ -68,6 +68,9 @@ public sealed class Pellets
     public readonly int[] Angle = new int[Count];
     /// <summary>0 none, 1 clockwise, 2 counter-clockwise; never reset (original quirk).</summary>
     public readonly int[] SlingDirection = new int[Count];
+    /// <summary>PM_SPIN: the centre the pellet circles around (subpixels) and the velocity of that centre.</summary>
+    public readonly int[] SpinCenterX = new int[Count], SpinCenterY = new int[Count];
+    public readonly int[] SpinVelX = new int[Count], SpinVelY = new int[Count];
 
     int _alive;
     public bool Interlace;
@@ -261,9 +264,10 @@ public sealed class Pellets
 
     /// <summary>
     /// add_single(): one pellet with a motion type. <paramref name="speedBase"/> is tuned like a group's;
-    /// <paramref name="speedForMotion"/> never is. Spin motions (bosses that use them) are not ported.
+    /// <paramref name="speedForMotion"/> never is.
     /// </summary>
-    public void AddSingle(int left, int top, int angle, int speedBase, PelletMotion motion = PelletMotion.Regular, int speedForMotion = 0)
+    public void AddSingle(int left, int top, int angle, int speedBase, PelletMotion motion = PelletMotion.Regular, int speedForMotion = 0,
+        int spinCenterX = 0, int spinCenterY = 0)
     {
         if (_alive >= Count) return;
         speedBase = SpeedSet(speedBase);
@@ -280,6 +284,13 @@ public sealed class Pellets
             FromGroup[i] = PelletGroup.None;
             Motion[i] = motion;
             _alive++;
+            SpinCenterX[i] = spinCenterX << 4;
+            SpinCenterY[i] = spinCenterY << 4;
+            if (motion == PelletMotion.Spin)
+            {
+                Vector2(out SpinVelX[i], out SpinVelY[i], speedForMotion, angle & 0xFF);
+                Angle[i] = AngleMath.Iatan2(CurTop[i] - SpinCenterY[i], CurLeft[i] - SpinCenterX[i]);
+            }
             Vector2(out VelX[i], out VelY[i], speedBase, angle & 0xFF);
             Speed[i] = speedForMotion;
             return;
@@ -287,6 +298,8 @@ public sealed class Pellets
     }
 
     const int SlingDeltaAngle = 0x08;
+    const int SpinDeltaAngle = 0x04;
+    const int SpinCircleRadius = 16 * 16;   // to_sp(16.0f)
     const int ChaseTopMax = (Playfield.Bottom - 80) * 16;
 
     /// <summary>motion_type_apply_for_cur() for the implemented motions.</summary>
@@ -319,6 +332,15 @@ public sealed class Pellets
                     Motion[i] = PelletMotion.Regular;
                     if (ToPixel(CurTop[i]) <= Playfield.Top) CurTop[i] = (Playfield.Top + 1) << 4;
                 }
+                break;
+            case PelletMotion.Spin:
+                CurLeft[i] = AngleMath.PolarX(SpinCenterX[i], SpinCircleRadius, Angle[i]);
+                CurTop[i] = AngleMath.PolarY(SpinCenterY[i], SpinCircleRadius, Angle[i]);
+                SpinCenterX[i] += SpinVelX[i];
+                SpinCenterY[i] += SpinVelY[i];
+                VelX[i] = 0;
+                VelY[i] = 0;
+                Angle[i] += SpinDeltaAngle;
                 break;
             case PelletMotion.Chase:
                 Vector2Between(ToPixel(CurLeft[i]), ToPixel(CurTop[i]), PlayerCenterX - W, PlayerCenterY,
@@ -485,6 +507,7 @@ public sealed class Pellets
             h.Add(Moving[i]); h.Add(CurLeft[i]); h.Add(CurTop[i]); h.Add(VelX[i]); h.Add(VelY[i]);
             h.Add((int)FromGroup[i]); h.Add(DecayFrame[i]); h.Add(CloudFrame[i]);
             h.Add((int)Motion[i]); h.Add(Speed[i]); h.Add(Angle[i]); h.Add(SlingDirection[i]);
+            h.Add(SpinCenterX[i]); h.Add(SpinCenterY[i]); h.Add(SpinVelX[i]); h.Add(SpinVelY[i]);
         }
         h.Add(_alive); h.Add(Interlace); h.Add(InterlaceField); h.Add(SpawnWithCloud); h.Add(DestroyScoreDelta);
     }

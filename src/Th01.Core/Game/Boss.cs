@@ -41,6 +41,10 @@ public abstract class Boss
     public virtual int DefeatWhiteinInterval => 5;
     public virtual bool DefeatFromBossCenter => false;
 
+    /// <summary>First HP point drawn red/white and first drawn white (hud_hp_first_redwhite / hud_hp_first_white).</summary>
+    public virtual int HpFirstRedWhite => 2;
+    public virtual int HpFirstWhite => 6;
+
     /// <summary>Palette indices flashed white while the boss is invincible after a hit (boss_hit_update_and_render).</summary>
     public virtual IReadOnlyList<int> FlashColors => Array.Empty<int>();
 
