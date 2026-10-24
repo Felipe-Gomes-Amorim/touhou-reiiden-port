@@ -8,9 +8,13 @@
 An engine-free C# (.NET 8) re-implementation of the 1997 PC-98 game. The community decompilation
 [ReC98](https://github.com/nmlgc/ReC98) is used only as a behavioural reference; no ReC98 code is included.
 
-**Status: early, playable in part.** Logo, title/menu, the card stages (player, Orb physics, cards, bumpers, bars, portals,
-cannons, pellets, items, timer), the first boss (stage 5, SinGyoku), stage bonus, game over and a ranking screen (not saved to disk yet) work. **The other bosses, music/sound, Japanese text and the cutscenes
-are not done yet.** Expect differences from the original.
+**Status: v0.2.0, playable up to stage 15.** Logo, title/menu, the card stages, stage bonus, game over, ranking (saved to disk),
+Japanese text, music and sound effects (synthesized from your own game files), and the bosses SinGyoku (stage 5), YuugenMagan and Mima (stage 10)
+and Kikuri and Elis (stage 15) work. The ending pictures, captions and the final verdict screen exist (`--cutscene 4..7`), but
+**the stage 20 bosses (Konngara, Sariel) are not done yet, so the game cannot be finished.** Sound and some boss details are still being
+checked against the original; expect differences.
+
+**Photosensitivity warning:** the game contains flashing lights and intense visual effects.
 
 ## Play
 
@@ -22,7 +26,7 @@ are not done yet.** Expect differences from the original.
 Controls: arrows move, `Z` / `Space` shoot, `X` bomb, `P` pause, `F11` fullscreen, `F10` scale mode, `Esc` quit.
 Remap keys with `input.local.json` in `%LOCALAPPDATA%\ReiidenPort`.
 
-Command line: `--select`, `--game <hdi|folder>`, `--data <folder>`, `--stage 1..20`, `--route 0|1`. Set `REIIDENPORT_HOME` to keep all data elsewhere.
+Command line: `--select`, `--game <hdi|folder>`, `--data <folder>`, `--stage 1..20`, `--route 0|1`, `--cutscene 1..7`. Set `REIIDENPORT_HOME` to keep all data elsewhere.
 
 Windows x64 only for now. If the window does not open, update your graphics driver (OpenGL 3.0+ is required); errors are written to `crash.local.log` in the data folder.
 
