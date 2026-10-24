@@ -54,7 +54,7 @@ if (dataPath is not null)
     else
     {
         var assets = new FolderAssetSource(dataPath);
-        var font = Th01.Core.Graphics.BdfFont.LoadSpleen8x16();
+        var font = Th01.Assets.Text.JapaneseFont.CreateDefault();
         var settings = GameSettings.Load();
         // Settings are saved when leaving the options menu; a failed save must not stop the game.
         void Save(GameSettings s)

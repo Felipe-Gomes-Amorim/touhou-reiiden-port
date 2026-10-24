@@ -34,7 +34,7 @@ public class WaveFourTests : IDisposable
         foreach (char c in "AZ09-. ") Assert.Equal(c, ScoreConvert.DecodeNameCell(ScoreConvert.EncodeNameChar(c)));
         Assert.Equal(0x8260, ScoreConvert.EncodeNameChar('A'));
         Assert.True(ScoreFileIO.IsValidKanji(ScoreConvert.EncodeNameChar('Q')));
-        Assert.Equal('?', ScoreConvert.DecodeNameCell(0x938C)); // a kanji: no font yet
+        Assert.Equal('東', ScoreConvert.DecodeNameCell(0x938C)); // a kanji now decodes (the bundled font draws it)
         Assert.Equal(' ', ScoreConvert.DecodeNameCell(0x2020));
     }
 

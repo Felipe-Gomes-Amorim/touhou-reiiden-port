@@ -1,3 +1,4 @@
+using Th01.Audio.Playback;
 using Th01.Core.Audio;
 using Th01.Core.Game;
 using Th01.Core.Graphics;
@@ -156,7 +157,11 @@ public sealed class GameFlow
     {
         Screen = s;
         _screenStart = _tick;
-        if (s != Screen.InGame) _sound?.StopBgm();
+        // Like the original: title and ending have their own track, a game over keeps the stage music playing,
+        // everything else stops it. Stage music is (re)started by LoadStage and ignores a request for the track already playing.
+        if (s == Screen.Title) { if (Settings.Music) _sound?.PlayBgm(BgmTracks.Title); }
+        else if (s == Screen.Cutscene) { if (Settings.Music) _sound?.PlayBgm(BgmTracks.Ending); }
+        else if (s != Screen.InGame && s != Screen.GameOver) _sound?.StopBgm();
         if (s == Screen.Title)
         {
             _inOptions = false;
@@ -206,7 +211,10 @@ public sealed class GameFlow
         switch (_menuSel)
         {
             case OptRank: Settings.Rank = (Rank)(((int)Settings.Rank + step + 4) % 4); break;
-            case OptMusic: Settings.Music = !Settings.Music; break;
+            case OptMusic:
+                Settings.Music = !Settings.Music;
+                if (Settings.Music) _sound?.PlayBgm(BgmTracks.Title); else _sound?.StopBgm();
+                break;
             case OptPlayer:
                 Settings.LivesExtra = (Settings.LivesExtra + step + GameSettings.LivesExtraMax + 1) % (GameSettings.LivesExtraMax + 1);
                 break;
@@ -246,8 +254,8 @@ public sealed class GameFlow
             ?? throw new InvalidOperationException("The stage provider must return a GameSession.");
         _missTicks = 0;
         GoTo(Screen.InGame);
-        // One track per scene (ST0..ST6.MDT), the same number the stage picture uses. Boss tracks are not mapped yet.
-        if (Settings.Music) _sound?.PlayBgm($"ST{SessionFactory.SceneId(stageId, _route)}.MDT");
+        // One track per scene (ST0..ST6.MDT); bosses have their own. The music only restarts when the track changes.
+        if (Settings.Music) _sound?.PlayBgm(BgmTracks.ForStage(stageId, _route, SessionFactory.SceneId(stageId, _route)));
     }
 
     void TickGame(GameButtons input)
@@ -466,7 +474,6 @@ public sealed class GameFlow
             Text(fb, c.ToString(), x0 + i * 24, 200, 15);
         }
         TextCentered(fb, "UP/DOWN: LETTER   LEFT/RIGHT: MOVE   OK: PUT   CANCEL: DONE", 260, 8);
-        TextCentered(fb, "(ASCII ONLY: JAPANESE FONT NOT CHOSEN YET)", 290, 6);
     }
 
     void RenderRanking(Framebuffer fb)

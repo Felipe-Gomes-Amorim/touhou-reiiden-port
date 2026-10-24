@@ -122,7 +122,7 @@ public static class ScoreConvert
         _ => 0x8140,
     };
 
-    /// <summary>Reverse of <see cref="EncodeNameChar"/> plus plain ASCII pairs; anything else (kanji) is '?' until a Japanese font exists.</summary>
+    /// <summary>Reverse of <see cref="EncodeNameChar"/> plus plain ASCII pairs; anything else is looked up as Shift-JIS (kanji show with the bundled Japanese font) and is '?' if it has no character.</summary>
     public static char DecodeNameCell(ushort code)
     {
         if (code is >= 0x8260 and <= 0x8279) return (char)('A' + (code - 0x8260));
@@ -132,7 +132,8 @@ public static class ScoreConvert
             0x8140 or 0x2020 => ' ',
             0x817C => '-',
             0x8144 => '.',
-            _ => (code >> 8) is >= 0x20 and < 0x7F && (code & 0xFF) == 0x20 ? (char)(code >> 8) : '?',
+            _ => (code >> 8) is >= 0x20 and < 0x7F && (code & 0xFF) == 0x20 ? (char)(code >> 8)
+                : Th01.Assets.Text.TextCodec.ToUnicode(code) is { Length: 1 } one ? one[0] : '?',
         };
     }
 }
