@@ -14,3 +14,7 @@ TestResults/
 *.jpg
 *.jpeg
 screenshots/
+
+# Local Claude session coordination (never publish)
+.claude/
+CLAUDE.md
