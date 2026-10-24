@@ -212,6 +212,82 @@ public class PlaybackTests
         Assert.False(sink.Mixer.MusicPlaying);
     }
 
+    [Fact]
+    public void Mixer_Waits_For_Frames_That_Are_Not_Rendered_Yet()
+    {
+        var m = new AudioMixer();
+        var music = new LoopedPcm(Enumerable.Repeat((short)1000, 20).ToArray(), 0, 10, true, true, ready: 4);
+        m.PlayMusic(music);
+        var buf = new short[2 * 6];
+        m.Mix(buf);
+        Assert.NotEqual(0, buf[2 * 3]);     // frame 3 was ready
+        Assert.Equal(0, buf[2 * 4]);        // frame 4 was not: silence, position stays
+        music.SetReady(10);
+        m.Mix(buf);
+        Assert.NotEqual(0, buf[0]);         // continues from frame 4
+    }
+
+    [Fact]
+    public void Streaming_Render_Reports_Progress_And_Matches_The_Full_Render()
+    {
+        var song = MdrvSong.Load(Mdt([0xE9, 0x30, 0xEB, 0x01, 0xE4, 0x20, 0x40, 0x0C, 0x45, 0x0C, 0xE5, 0xF3, 0xF9, 0xFF, 0xFF]));
+        // F3 offset: loop target = start of the E4 block; hand-built stream, so just check the plain path
+        var r = SongLooper.Start(song);
+        Assert.True(r.WaitComplete(30000));
+        Assert.Equal(r.EndFrame, r.ReadyFrames);
+        Assert.Contains(r.Pcm, v => v != 0);
+    }
+
+    [Fact]
+    public void Bgm_Mapping_Follows_The_Original_Boss_Table()
+    {
+        Assert.Equal("ST0.MDT", BgmTracks.ForStage(0, 0, 0));
+        Assert.Equal("ST0.MDT", BgmTracks.ForStage(3, 0, 0));
+        Assert.Equal("POSITIVE.MDT", BgmTracks.ForStage(4, 0, 0));
+        Assert.Equal("ST1.MDT", BgmTracks.ForStage(5, 0, 1));
+        Assert.Equal("ST2.MDT", BgmTracks.ForStage(5, 1, 2));
+        Assert.Equal("LEGEND.MDT", BgmTracks.ForStage(9, 0, 1));
+        Assert.Equal("LEGEND.MDT", BgmTracks.ForStage(9, 1, 2));
+        Assert.Equal("KAMI2.MDT", BgmTracks.ForStage(14, 0, 3));
+        Assert.Equal("KAMI.MDT", BgmTracks.ForStage(14, 1, 4));
+        Assert.Equal("TENSI.MDT", BgmTracks.ForStage(19, 0, 5));
+        Assert.Equal("ALICE.MDT", BgmTracks.ForStage(19, 1, 6));
+    }
+
+    [Fact]
+    public void Bgm_Files_Are_Known_Game_Files()
+    {
+        var known = Th01.Assets.ExpectedFiles.All.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var all = new List<string> { BgmTracks.Title, BgmTracks.Ending, BgmTracks.AfterEnding, BgmTracks.SarielSecondForm, BgmTracks.DriverInit };
+        all.AddRange(BgmTracks.MusicRoom);
+        for (int stage = 0; stage < 20; stage++)
+            for (int route = 0; route < 2; route++)
+                all.Add(BgmTracks.ForStage(stage, route, stage < 5 ? 0 : stage / 5 * 2 - 1 + route));
+        Assert.All(all, f => Assert.Contains(f, known));
+        Assert.Equal(15, BgmTracks.MusicRoom.Count);
+    }
+
+    [Fact]
+    public void Sink_Ignores_A_Request_For_The_Track_Already_Playing()
+    {
+        int loads = 0;
+        byte[] mdt = LoopingMdt();
+        using var sink = new MdrvSoundSink(_ => { Interlocked.Increment(ref loads); return mdt; });
+        int baseline = loads;   // the effects bank was asked for once
+        sink.PlayBgm("T.MDT");
+        Assert.True(WaitFor(() => sink.Mixer.MusicPlaying));
+        sink.PlayBgm("t.mdt");
+        sink.PlayBgm("T.MDT");
+        Thread.Sleep(200);
+        Assert.Equal(baseline + 1, loads);
+        Assert.Equal("T.MDT", sink.CurrentTrack);
+        sink.StopBgm();
+        Assert.Null(sink.CurrentTrack);
+        sink.PlayBgm("T.MDT");   // after a stop it starts again
+        Assert.True(WaitFor(() => sink.Mixer.MusicPlaying));
+        Assert.Equal(baseline + 2, loads);
+    }
+
     // ---- With the real game files (skipped without TH01_DATA_PATH) ----
 
     static string? DataFolder()
@@ -250,19 +326,30 @@ public class PlaybackTests
         var sw = System.Diagnostics.Stopwatch.StartNew();
         using var sink = new MdrvSoundSink(n => File.Exists(Path.Combine(folder!, n)) ? File.ReadAllBytes(Path.Combine(folder!, n)) : null);
         long effectsMs = sw.ElapsedMilliseconds;
+        sw.Restart();
+        sink.PlayBgm("ST0.MDT");
+        Assert.True(WaitFor(() => sink.Mixer.MusicPlaying, 120000), "music did not start");
+        long queuedMs = sw.ElapsedMilliseconds;
+        // first sound that comes out of the mixer (the intro of ST0 may begin with rests)
+        var probe = new short[2048];
+        long firstMs = -1;
+        while (sw.ElapsedMilliseconds < 120000)
+        {
+            sink.Mixer.Mix(probe);
+            if (probe.Any(v => v != 0)) { firstMs = sw.ElapsedMilliseconds; break; }
+            Thread.Sleep(5);
+        }
+        Assert.True(firstMs >= 0, "no sound came out");
+        long musicMs = sw.ElapsedMilliseconds;
         sink.PlaySe(1);
         var buf = new short[4096];
         sink.Mixer.Mix(buf);
         Assert.Contains(buf, s => s != 0);
-        sw.Restart();
-        sink.PlayBgm("ST0.MDT");
-        Assert.True(WaitFor(() => sink.Mixer.MusicPlaying, 120000), "music did not start");
-        long musicMs = sw.ElapsedMilliseconds;
         string? outDir = Environment.GetEnvironmentVariable("TH01_AUDIO_OUT");
         if (outDir is not null)
         {
             Directory.CreateDirectory(outDir);
-            File.WriteAllText(Path.Combine(outDir, "sink-timing.txt"), $"effects bank {effectsMs} ms, ST0 ready after {musicMs} ms\n");
+            File.WriteAllText(Path.Combine(outDir, "sink-timing.txt"), $"effects bank {effectsMs} ms, ST0 queued after {queuedMs} ms, first sound after {firstMs} ms (total {musicMs} ms)\n");
             // What the speakers get: the intro, then the loop twice.
             var looped = SongLooper.Render(MdrvSong.Load(File.ReadAllBytes(path)));
             var m = new AudioMixer();

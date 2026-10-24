@@ -5,9 +5,11 @@ using Th01.Core.Audio;
 namespace Th01.Audio.Playback;
 
 /// <summary>
-/// <see cref="ISoundSink"/> that plays the game's own MDRV music and effects. Music is rendered in the background
-/// (a few seconds per track) and starts when ready; effects are rendered once at construction.
+/// <see cref="ISoundSink"/> that plays the game's own MDRV music and effects. Music is rendered in the background in
+/// time order and starts as soon as its first few seconds are ready; effects are rendered once at construction.
 /// The platform pulls samples with <see cref="Mixer"/>.<see cref="AudioMixer.Mix"/>. Missing files make the sink silent, never throw.
+/// Asking for the track that is already playing (or being prepared) does nothing, as in the original, where the stage music
+/// only restarts at a scene or boss change.
 /// </summary>
 public sealed class MdrvSoundSink : ISoundSink, IDisposable
 {
@@ -16,6 +18,8 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
     readonly Func<string, byte[]?> _load;
     readonly Dictionary<int, short[]> _effects = [];
     readonly object _lock = new();
+    CancellationTokenSource? _cancel;
+    string? _current;
     int _request;
     bool _disposed;
 
@@ -23,6 +27,9 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
 
     /// <summary>Raised (on a worker thread) when a track could not be loaded or rendered; for logging only.</summary>
     public event Action<string, Exception>? Failed;
+
+    /// <summary>The track last requested and not stopped since, or null.</summary>
+    public string? CurrentTrack { get { lock (_lock) return _current; } }
 
     /// <param name="loadFile">Returns the bytes of a game file by name (e.g. "ST0.MDT"), or null if it is missing.</param>
     /// <param name="effectsFile">Name of the sound-effect bank.</param>
@@ -47,18 +54,27 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
     public void PlayBgm(string trackFileName)
     {
         int request;
-        lock (_lock) { request = ++_request; }
+        CancellationTokenSource cts;
+        lock (_lock)
+        {
+            if (_disposed || string.Equals(_current, trackFileName, StringComparison.OrdinalIgnoreCase)) return;
+            _cancel?.Cancel();
+            cts = _cancel = new CancellationTokenSource();
+            _current = trackFileName;
+            request = ++_request;
+        }
         Mixer.StopMusic();
         Task.Run(() =>
         {
             try
             {
                 if (_load(trackFileName) is not { } bytes) return;
-                var rendered = SongLooper.Render(MdrvSong.Load(bytes));
+                var song = MdrvSong.Load(bytes);
+                var rendering = SongLooper.Start(song, cts.Token);   // returns at once, fills in the background
                 lock (_lock)
                 {
-                    if (_disposed || request != _request) return; // another request came in meanwhile
-                    Mixer.PlayMusic(rendered);
+                    if (_disposed || request != _request) { cts.Cancel(); return; }   // another request came in meanwhile
+                    Mixer.PlayMusic(rendering);
                 }
             }
             catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException or IOException or OutOfMemoryException)
@@ -70,14 +86,24 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
 
     public void StopBgm()
     {
-        lock (_lock) { _request++; }
+        lock (_lock) { Supersede(); }
         Mixer.StopMusic();
     }
 
     public void FadeOutBgm()
     {
-        lock (_lock) { _request++; }
+        // The render is not cancelled: the part already rendered has to last through the fade.
+        lock (_lock) { _request++; _current = null; _cancel = null; }
         Mixer.FadeOutMusic(FadeSeconds);
+    }
+
+    // Caller holds _lock: forget the current track and stop its background render.
+    void Supersede()
+    {
+        _request++;
+        _current = null;
+        _cancel?.Cancel();
+        _cancel = null;
     }
 
     public void PlaySe(int effectId)
@@ -87,7 +113,7 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
 
     public void Dispose()
     {
-        lock (_lock) { _disposed = true; _request++; }
+        lock (_lock) { _disposed = true; Supersede(); }
         Mixer.StopMusic();
     }
 }

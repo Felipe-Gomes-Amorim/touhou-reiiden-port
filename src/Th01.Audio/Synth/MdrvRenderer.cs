@@ -14,43 +14,56 @@ public static class MdrvRenderer
         return RenderNotes(song, song.Tracks.Select(t => (t.Kind, (IEnumerable<NoteEvent>)t.Notes)), total);
     }
 
-    const int ChunkFrames = 10 * NoteSynth.SampleRate;
+    /// <summary>Length of the slices a song is rendered in (and, for streaming, the granularity of "ready" audio).</summary>
+    public const int ChunkFrames = 2 * NoteSynth.SampleRate;
 
-    readonly record struct Placed(ChannelKind Kind, NoteEvent Note, int Start, int Gate);
+    internal readonly record struct Placed(int Channel, ChannelKind Kind, NoteEvent Note, int Start, int Gate);
 
-    /// <summary>
-    /// Mixes already-placed notes (tick positions relative to the song) into a buffer of <paramref name="seconds"/>.
-    /// Notes are independent, so ten-second chunks are rendered in parallel and added up.
-    /// </summary>
-    public static StereoBuffer RenderNotes(MdrvSong song, IEnumerable<(ChannelKind Kind, IEnumerable<NoteEvent> Notes)> channels, double seconds)
+    /// <summary>Puts every note at its start frame and groups them by chunk of <see cref="ChunkFrames"/>; notes past <paramref name="frames"/> are dropped.</summary>
+    internal static List<Placed>[] Place(MdrvSong song, IEnumerable<(ChannelKind Kind, IEnumerable<NoteEvent> Notes)> channels, int frames)
     {
-        var buf = new StereoBuffer((int)(seconds * NoteSynth.SampleRate));
-        var chunks = new Dictionary<int, List<Placed>>();
+        var chunks = new List<Placed>[frames / ChunkFrames + 1];
+        for (int i = 0; i < chunks.Length; i++) chunks[i] = [];
+        int channel = 0;
         foreach (var (kind, notes) in channels)
         {
             foreach (var n in notes)
             {
                 int start = (int)(song.TickToSeconds(n.StartTick) * NoteSynth.SampleRate);
-                if (start >= buf.Frames) break;
+                if (start >= frames) break;
                 int gate = Math.Max(1, (int)((song.TickToSeconds(n.StartTick + n.DurationTicks) - song.TickToSeconds(n.StartTick)) * NoteSynth.SampleRate));
-                int chunk = start / ChunkFrames;
-                if (!chunks.TryGetValue(chunk, out var list)) chunks[chunk] = list = [];
-                list.Add(new Placed(kind, n, start, gate));
+                chunks[start / ChunkFrames].Add(new Placed(channel, kind, n, start, gate));
             }
+            channel++;
         }
+        return chunks;
+    }
+
+    /// <summary>Adds the notes that start in chunk <paramref name="chunk"/> (with their release tails) to <paramref name="target"/>; channels are rendered in parallel.</summary>
+    internal static void RenderChunk(MdrvSong song, List<Placed> notes, int chunk, StereoBuffer target)
+    {
+        int origin = chunk * ChunkFrames;
         var merge = new object();
-        Parallel.ForEach(chunks, kv =>
+        Parallel.ForEach(notes.GroupBy(p => p.Channel), group =>
         {
-            int origin = kv.Key * ChunkFrames;
-            int length = kv.Value.Max(p => p.Start - origin + p.Gate) + NoteSynth.SampleRate + 1;
+            int length = group.Max(p => p.Start - origin + p.Gate) + NoteSynth.SampleRate + 1;
             var local = new StereoBuffer(length);
-            foreach (var p in kv.Value) RenderNote(song, local, p.Kind, p.Note, p.Start - origin, p.Gate);
+            foreach (var p in group) RenderNote(song, local, p.Kind, p.Note, p.Start - origin, p.Gate);
             lock (merge)
             {
-                int count = Math.Min(length, buf.Frames - origin);
-                for (int i = 0; i < count; i++) { buf.Left[origin + i] += local.Left[i]; buf.Right[origin + i] += local.Right[i]; }
+                int count = Math.Min(length, target.Frames - origin);
+                for (int i = 0; i < count; i++) { target.Left[origin + i] += local.Left[i]; target.Right[origin + i] += local.Right[i]; }
             }
         });
+    }
+
+    /// <summary>Mixes already-placed notes (tick positions relative to the song) into a buffer of <paramref name="seconds"/>.</summary>
+    public static StereoBuffer RenderNotes(MdrvSong song, IEnumerable<(ChannelKind Kind, IEnumerable<NoteEvent> Notes)> channels, double seconds)
+    {
+        var buf = new StereoBuffer((int)(seconds * NoteSynth.SampleRate));
+        var chunks = Place(song, channels, buf.Frames);
+        for (int c = 0; c < chunks.Length; c++)
+            if (chunks[c].Count > 0) RenderChunk(song, chunks[c], c, buf);
         return buf;
     }
 
@@ -104,5 +117,5 @@ public static class MdrvRenderer
         return pcm;
     }
 
-    static short Clip(double x) => (short)(Math.Tanh(x) * 32000);
+    internal static short Clip(double x) => (short)(Math.Tanh(x) * 32000);
 }

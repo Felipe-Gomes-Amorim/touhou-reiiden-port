@@ -69,6 +69,7 @@ public sealed class AudioMixer
                     {
                         if (m.Loops) _musicPos = m.LoopStartFrame; else { _music = null; goto effects; }
                     }
+                    if (_musicPos >= m.ReadyFrames) goto effects;   // still being rendered: wait without advancing
                     l = m.Pcm[_musicPos * 2] * _musicVolume * MusicGain;
                     r = m.Pcm[_musicPos * 2 + 1] * _musicVolume * MusicGain;
                     _musicPos++;
