@@ -354,18 +354,60 @@ internal sealed class GameRenderer
 
     void DrawLasers(Framebuffer fb, ShootoutLasers lasers)
     {
-        // The original ORs a horizontal bar of (width_cel + 1) pixels, pre-shifted to the pixel's column, into every
-        // cell of the ray (the 1-bit "laser_s" table). Drawing that bar directly needs no sheet.
+        // ref: laser_s.cpp hittest_and_render(): walking the ray pixel by pixel, every pixel ORs the word
+        // sSHOOTOUT_LASER[width cel][x & 7] (a bar of width+1 dots starting at that column of the 8-pixel cell) into an
+        // accumulator; the accumulator is written, byte-aligned, only when the walk enters another (x / 8, y) cell. The
+        // cell the walk ends in is never written: the tip of the ray is one cell short.
         foreach (var l in lasers.Slots)
         {
             if (!l.Alive) continue;
+            if (_art == null || !_art.TryGetFrame("laser_s", l.WidthCel, out var bar))
+            {
+                DrawLaserBars(fb, l);
+                continue;
+            }
+            var bits = bar.Alpha.Length != 0 ? bar.Alpha.Span : bar.Pixels.Span;
             int x = l.RayStartLeft, y = l.RayStartY;
+            int cellX = x >> 11, cellY = y >> 8;
+            uint dots = 0;
             for (int i = 0; i < l.RayLength; i++, x += l.StepX, y += l.StepY)
             {
                 int px = x >> 8, py = y >> 8;
-                if (px < Playfield.Left || px > Playfield.Right - 2 || py < Playfield.Top || py > Playfield.Bottom - 1) break;
-                for (int k = 0; k <= l.WidthCel; k++) fb.SetPixel(px + k, py, (byte)l.Color);
+                if ((px >> 3) != cellX || py != cellY)
+                {
+                    PutLaserCell(fb, cellX, cellY, dots, l.Color);
+                    dots = 0;
+                    cellX = px >> 3;
+                    cellY = py;
+                    if (px > Playfield.Right - 2 || px < Playfield.Left || py < Playfield.Top || py > Playfield.Bottom - 1) break;
+                }
+                int row = px & 7;
+                for (int c = 0; c < 16 && c < bar.Width; c++)
+                    if (bits[row * bar.Width + c] != 0) dots |= 0x8000u >> c;
             }
+        }
+    }
+
+    static void PutLaserCell(Framebuffer fb, int cellX, int y, uint dots, int color)
+    {
+        if (dots == 0 || y < Playfield.Top || y >= Playfield.Bottom) return;
+        for (int c = 0; c < 16; c++)
+            if ((dots & 0x8000u >> c) != 0)
+            {
+                int px = cellX * 8 + c;
+                if (px >= Playfield.Left && px < Playfield.Right) fb.SetPixel(px, y, (byte)color);
+            }
+    }
+
+    /// <summary>Without the embedded table: the same bars drawn directly.</summary>
+    static void DrawLaserBars(Framebuffer fb, ShootoutLaser l)
+    {
+        int x = l.RayStartLeft, y = l.RayStartY;
+        for (int i = 0; i < l.RayLength; i++, x += l.StepX, y += l.StepY)
+        {
+            int px = x >> 8, py = y >> 8;
+            if (px < Playfield.Left || px > Playfield.Right - 2 || py < Playfield.Top || py > Playfield.Bottom - 1) break;
+            for (int k = 0; k <= l.WidthCel; k++) fb.SetPixel(px + k, py, (byte)l.Color);
         }
     }
 
@@ -422,8 +464,8 @@ internal sealed class GameRenderer
         if (b.Phase == 0 && _s.Phase != SessionPhase.BossEntrance) return;
         int x = b.Left, y = b.Top;
         bool drawn;
-        if (b.Flashing) drawn = Draw(fb, "BOSS1_2.BOS", b.Form + 1, x, y);
-        else if (b.PersonVisible) drawn = Draw(fb, "BOSS1_3.BOS", b.PersonImage, x, y);
+        if (b.Flashing) drawn = Draw(fb, "BOSS1_2.BOS", b.FlashCel, x, y);
+        else if (b.PersonVisible) drawn = Draw(fb, "BOSS1_3.BOS", b.PersonCel, x, y);
         else drawn = Draw(fb, "BOSS1.BOS", b.SphereImage, x, y);
         if (!drawn) fb.FillRect(x, y, SinGyoku.W, SinGyoku.H, (byte)(b.Invincible ? 15 : 12));
         // HP bar (provisional position: the original's hud/hp.cpp layout is not ported)

@@ -23,7 +23,7 @@ public sealed class SinGyoku : Boss
     // transform keyframes (singyoku_transform_keyframe_t)
     const int TkfStart = 100, TkfToPerson = 105, TkfToPersonRerender = 110, TkfToPersonDone = 115,
         TkfPersonAttack1 = 135, TkfExternalPatternStart = 140, TkfPersonAttack2 = 160, TkfPersonStill = 185,
-        TkfExternalPatternDone = 220, TkfToSphere = 240, TkfDone = 260;
+        TkfExternalPatternDone = 220, TkfToSphere = 240, TkfToSphereDone = 250, TkfDone = 260;
 
     // person cels (singyoku_person_cel_t)
     const int CWomanStill = 0, CWomanAttack1 = 1, CWomanAttack2 = 2, CManStill = 3, CManAttack = 4, CPersonForm = 3;
@@ -72,8 +72,24 @@ public sealed class SinGyoku : Boss
     /// <summary>Is the person form on screen (for the renderer): true between the two flashes of a transformation.</summary>
     public bool PersonVisible => Phase == 2 && PatternCur != 4 && PhaseFrame >= TkfToPersonDone && PhaseFrame < TkfToSphere;
 
-    /// <summary>The white flash cel shown while turning into the person and back (frames 100..114 and 240..249).</summary>
-    public bool Flashing => Phase == 2 && PatternCur != 4 && (PhaseFrame is >= TkfStart and < TkfToPersonDone || PhaseFrame is >= TkfToSphere and < 250);
+    /// <summary>
+    /// The white flash sheet (BOSS1_2.BOS) is shown while turning into the person and back: frames 100..114 and 240..259.
+    /// ref: transform_to_person_and_back_to_sphere()
+    /// </summary>
+    public bool Flashing => Phase == 2 && PatternCur != 4 && (PhaseFrame is >= TkfStart and < TkfToPersonDone || PhaseFrame is >= TkfToSphere and < TkfDone);
+
+    /// <summary>
+    /// Cel of the flash sheet: the plain sphere (C_SPHERE) on the first and last steps, the form's cel (C_FLASH_FORM + form)
+    /// in between: sphere on 100..104, form on 105..114 and 240..249, sphere again on 250..259.
+    /// </summary>
+    public int FlashCel => PhaseFrame is >= TkfToPerson and < TkfToPersonDone || PhaseFrame is >= TkfToSphere and < TkfToSphereDone ? Form + 1 : 0;
+
+    /// <summary>
+    /// The person cel the screen shows. The man's second attack sets image 5, which the sheet does not have; the original's
+    /// draw call then silently does nothing, so his attack cel (4) stays up until the still cel at frame 185.
+    /// </summary>
+    public int PersonCel => Math.Min(PersonImage, CManAttack);
+
     public int Form => PatternCur is 1 or 3 ? FormMan : FormWoman;
 
     // ---- rank tables (select_for_rank / select_subpixel_for_rank) ----
