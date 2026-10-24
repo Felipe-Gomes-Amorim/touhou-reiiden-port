@@ -14,34 +14,60 @@ public sealed class AudioMixer
 
     sealed class Voice(int id, short[] pcm) { public readonly int Id = id; public readonly short[] Pcm = pcm; public int Pos; }
 
+    /// <summary>A music stream being played; <see cref="Step"/> is the volume change per frame (a fade), 0 when steady.</summary>
+    sealed class Stream(LoopedPcm pcm, float volume, float step)
+    {
+        public readonly LoopedPcm Pcm = pcm;
+        public int Pos;
+        public float Volume = volume, Step = step;
+    }
+
+    const int MaxFading = 3;
+
     readonly object _lock = new();
     readonly List<Voice> _voices = [];
-    LoopedPcm? _music;
-    int _musicPos;
-    float _musicVolume = 1f, _musicVolumeStep;   // step per frame while fading
+    Stream? _music;                       // the current track
+    readonly List<Stream> _fading = [];   // earlier tracks on their way out
 
-    public bool MusicPlaying { get { lock (_lock) return _music is not null; } }
+    public bool MusicPlaying { get { lock (_lock) return _music is not null || _fading.Count > 0; } }
 
-    /// <summary>Starts a music stream from its beginning, replacing the current one.</summary>
-    public void PlayMusic(LoopedPcm music)
+    /// <summary>
+    /// Starts a music stream from its beginning. The track that was playing is dropped, or faded out over
+    /// <paramref name="fadeOutOld"/> seconds while the new one fades in over <paramref name="fadeInNew"/> (a crossfade).
+    /// </summary>
+    public void PlayMusic(LoopedPcm music, double fadeOutOld = 0, double fadeInNew = 0)
     {
-        lock (_lock) { _music = music; _musicPos = 0; _musicVolume = 1f; _musicVolumeStep = 0; }
+        lock (_lock)
+        {
+            if (_music is { } old && fadeOutOld > 0)
+            {
+                if (old.Step >= 0) old.Step = Ramp(-old.Volume, fadeOutOld);
+                _fading.Add(old);
+                while (_fading.Count > MaxFading) _fading.RemoveAt(0);
+            }
+            _music = fadeInNew > 0 ? new Stream(music, 0f, Ramp(1f, fadeInNew)) : new Stream(music, 1f, 0f);
+        }
     }
 
     public void StopMusic()
     {
-        lock (_lock) { _music = null; _musicPos = 0; }
+        lock (_lock) { _music = null; _fading.Clear(); }
     }
 
-    /// <summary>Fades the music out over <paramref name="seconds"/> and stops it.</summary>
+    /// <summary>Fades the current music out over <paramref name="seconds"/> and stops it.</summary>
     public void FadeOutMusic(double seconds)
     {
         lock (_lock)
         {
-            if (_music is null) return;
-            _musicVolumeStep = (float)(-_musicVolume / Math.Max(1, seconds * SampleRate));
+            if (_music is not { } m) return;
+            m.Step = Ramp(-m.Volume, seconds);
+            _fading.Add(m);
+            _music = null;
+            while (_fading.Count > MaxFading) _fading.RemoveAt(0);
         }
     }
+
+    static float Ramp(float delta, double seconds) => (float)(delta / Math.Max(1, seconds * SampleRate));
 
     /// <summary>Plays an effect (interleaved stereo); the same id restarts, at most <see cref="MaxEffects"/> at once.</summary>
     public void PlayEffect(int id, short[] pcm)
@@ -63,23 +89,9 @@ public sealed class AudioMixer
             for (int i = 0; i + 1 < output.Length; i += 2)
             {
                 float l = 0, r = 0;
-                if (_music is { } m)
-                {
-                    if (_musicPos >= m.EndFrame)
-                    {
-                        if (m.Loops) _musicPos = m.LoopStartFrame; else { _music = null; goto effects; }
-                    }
-                    if (_musicPos >= m.ReadyFrames) goto effects;   // still being rendered: wait without advancing
-                    l = m.Pcm[_musicPos * 2] * _musicVolume * MusicGain;
-                    r = m.Pcm[_musicPos * 2 + 1] * _musicVolume * MusicGain;
-                    _musicPos++;
-                    if (_musicVolumeStep != 0)
-                    {
-                        _musicVolume += _musicVolumeStep;
-                        if (_musicVolume <= 0) { _music = null; _musicVolume = 1f; _musicVolumeStep = 0; }
-                    }
-                }
-            effects:
+                if (_music is { } m && !Advance(m, ref l, ref r)) _music = null;
+                for (int f = _fading.Count - 1; f >= 0; f--)
+                    if (!Advance(_fading[f], ref l, ref r)) _fading.RemoveAt(f);
                 for (int v = _voices.Count - 1; v >= 0; v--)
                 {
                     var voice = _voices[v];
@@ -92,6 +104,28 @@ public sealed class AudioMixer
                 output[i + 1] = Clip(r);
             }
         }
+    }
+
+    /// <summary>Adds the next frame of a stream to l/r; false when the stream is over (ended, or faded out).</summary>
+    static bool Advance(Stream st, ref float l, ref float r)
+    {
+        var m = st.Pcm;
+        if (st.Pos >= m.EndFrame)
+        {
+            if (!m.Loops) return false;
+            st.Pos = m.LoopStartFrame;
+        }
+        if (st.Pos >= m.ReadyFrames) return true;   // still being rendered: wait without advancing
+        l += m.Pcm[st.Pos * 2] * st.Volume * MusicGain;
+        r += m.Pcm[st.Pos * 2 + 1] * st.Volume * MusicGain;
+        st.Pos++;
+        if (st.Step != 0)
+        {
+            st.Volume += st.Step;
+            if (st.Step < 0 && st.Volume <= 0) return false;
+            if (st.Step > 0 && st.Volume >= 1) { st.Volume = 1; st.Step = 0; }
+        }
+        return true;
     }
 
     static short Clip(float x) => (short)Math.Clamp((int)x, short.MinValue, short.MaxValue);

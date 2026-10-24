@@ -7,8 +7,9 @@ namespace Th01.Audio.Mdrv;
 ///   00..8F nn   note (high nibble = octave, low nibble = 0..B) + length in ticks
 ///   90 nn       rest        91  tie/slur with the next note       F2 n l dd dd  note with pitch sweep
 ///   E0 n .. E1 .. E2        repeat n times; E1 = skipped on the last pass (volta)
-///   E4 n .. E5              repeat n times     E6 n detune      E7 n shorten gate by n ticks
+///   E4 n .. E5              repeat n times (F6 n lo hi .. F7 x lo hi: same, with 16-bit offsets)     E6 n detune      E7 n shorten gate by n ticks
 ///   E9 n tempo   EB n voice (FM) / mixer flags (SSG: bit0 noise, bit1 tone) / drum id   EC n volume
+///   F9 lo hi last-pass exit of a repeat: jump to (address of hi byte) + offset (same rule as F3)
 ///   EF n noise period   F3 lo hi end of the loop: jumps to (address of F3) + 2 + signed 16-bit offset   FF end of the stream   others: see <see cref="Params"/>
 /// </summary>
 public sealed class TrackDecoder
@@ -50,11 +51,11 @@ public sealed class TrackDecoder
 
     static int Params(int op, ChannelKind kind, int next) => op switch
     {
-        0xE0 or 0xE4 or 0xE6 or 0xE7 or 0xE9 or 0xEA or 0xEB or 0xEF or 0xF1 or 0xF4 or 0xF5 or 0xF7 => 1,
+        0xE0 or 0xE4 or 0xE6 or 0xE7 or 0xE9 or 0xEA or 0xEB or 0xEF or 0xF1 or 0xF4 or 0xF5 => 1,
         0xEC => kind == ChannelKind.Drum ? (next >= 0x80 ? 2 : 7) : 1,
-        0xED or 0xF2 => 4,
-        0xF3 or 0xFA => 2,
-        0xF6 => 3,
+        0xE8 or 0xED or 0xF2 or 0xFC => 4,
+        0xF3 or 0xF9 or 0xFA => 2,
+        0xF6 or 0xF7 => 3,
         _ => 0,
     };
 
@@ -97,12 +98,14 @@ public sealed class TrackDecoder
             switch (op)
             {
                 case 0xE0: _loops.Push((_pos, Math.Max(1, p0), true)); break;
-                case 0xE4: _loops.Push((_pos, Math.Max(1, p0), false)); break;
+                case 0xE4:
+                case 0xF6: _loops.Push((_pos, Math.Max(1, p0), false)); break;
                 case 0xE1:
                     if (_loops.Count > 0 && _loops.Peek() is { Volta: true, Left: 1 }) skipDepth = 0;
                     break;
                 case 0xE2:
                 case 0xE5:
+                case 0xF7:
                     if (_loops.Count == 0) break;
                     var top = _loops.Pop();
                     if (top.Left > 1) { _loops.Push((top.Start, top.Left - 1, top.Volta)); _pos = top.Start; }
@@ -118,6 +121,13 @@ public sealed class TrackDecoder
                 case 0xEC: if (_kind != ChannelKind.Drum) _volume = p0; break;
                 case 0xEF: _noisePeriod = p0; break;
                 case 0xF2: Sweep(p0, p1, (short)(p2 | (p3 << 8))); break;
+                case 0xF9:   // last pass of the enclosing repeat: jump (hi byte address + offset), skipping the rest of the body
+                    if (_loops.Count > 0 && _loops.Peek().Left <= 1)
+                    {
+                        int target = _pos - 1 + (short)(p0 | (p1 << 8));
+                        if (target > _pos && target < _end) _pos = target;
+                    }
+                    break;
                 case 0xF3: _loopEnd = true; _loopTarget = opPos + 2 + (short)(p0 | (p1 << 8)); return;
                 default: _ignored[op] = _ignored.GetValueOrDefault(op) + 1; break;
             }

@@ -138,6 +138,37 @@ public class PlaybackTests
     }
 
     [Fact]
+    public void Mixer_Crossfades_The_Old_Track_Into_The_New_One()
+    {
+        var m = new AudioMixer();
+        m.PlayMusic(Pcm(5000, 0, true, 10000));
+        m.PlayMusic(Pcm(5000, 0, true, 20000), fadeOutOld: 0.01, fadeInNew: 0.01);   // 441 frames
+        var buf = new short[2 * 1000];
+        m.Mix(buf);
+        short first = buf[0], mid = buf[2 * 220], late = buf[2 * 900];
+        Assert.InRange((int)first, 7000, 8100);              // old track at full volume (10000 * 0.8)
+        Assert.InRange((int)late, 15900, 16100);              // only the new track (20000 * 0.8)
+        Assert.InRange((int)mid, 9000, 14000);                // both, each about half
+        Assert.True(m.MusicPlaying);
+        // the old track is gone after its fade: nothing else is left to fade
+        m.StopMusic();
+        Assert.False(m.MusicPlaying);
+    }
+
+    [Fact]
+    public void Mixer_Fade_Then_New_Track_Lets_The_Old_One_Finish_Its_Fade()
+    {
+        var m = new AudioMixer();
+        m.PlayMusic(Pcm(5000, 0, true, 10000));
+        m.FadeOutMusic(0.01);                                      // 441 frames, no current track now
+        Assert.True(m.MusicPlaying);
+        m.PlayMusic(Pcm(5000, 0, true, 20000), fadeOutOld: 1.0, fadeInNew: 0);   // old one is already fading: keeps its own ramp
+        var buf = new short[2 * 1000];
+        m.Mix(buf);
+        Assert.InRange((int)buf[2 * 900], 15900, 16100);          // only the new one remains
+    }
+
+    [Fact]
     public void Mixer_Plays_Effects_Once_And_Restarts_The_Same_Id()
     {
         var m = new AudioMixer();
@@ -305,9 +336,20 @@ public class PlaybackTests
         foreach (string f in Directory.GetFiles(folder!, "*.MDT").OrderBy(x => x))
         {
             var song = MdrvSong.Load(File.ReadAllBytes(f));
-            foreach (var t in song.Tracks.Where(t => t.Loops))
+            foreach (var t in song.Tracks.Where(t => t.Loops && t.TotalTicks > 0))   // an empty track has nothing to loop
             {
                 Assert.True(t.LoopStartTick >= 0 && t.LoopStartTick < t.TotalTicks, $"{Path.GetFileName(f)} track {t.TrackId:X2}: loop target {t.LoopStartTick}, length {t.TotalTicks}");
+            }
+            foreach (var t in song.Tracks)
+                report.AppendLine($"    {Path.GetFileName(f),-12} track {t.TrackId:X2} {t.Kind,-4} total={t.TotalTicks,6} loopStart={t.LoopStartTick,6} period={(t.Loops ? t.TotalTicks - t.LoopStartTick : 0),6} ignored=[{string.Join(",", t.Ignored.OrderBy(k => k.Key).Select(k => $"{k.Key:X2}x{k.Value}"))}]");
+            // After decoding F6/F7/F9/E8/FC, every melodic channel of a song loops with the same period (or a divisor of the longest);
+            // only the drum tracks of POSITIVE, ST3 (their FA commands, probably pattern calls, are not understood yet) and IRIS are off.
+            var loopers = song.Tracks.Where(t => t.Loops && t.TotalTicks > t.LoopStartTick && t.LoopStartTick >= 0 && t.Notes.Count > 0).ToList();
+            if (loopers.Count > 0)
+            {
+                int longest = loopers.Max(t => t.TotalTicks - t.LoopStartTick);
+                foreach (var t in loopers.Where(t => longest % (t.TotalTicks - t.LoopStartTick) != 0))
+                    Assert.True(t.Kind == ChannelKind.Drum || Path.GetFileName(f).Equals("IRIS.MDT", StringComparison.OrdinalIgnoreCase), $"{Path.GetFileName(f)} track {t.TrackId:X2} loops every {t.TotalTicks - t.LoopStartTick} ticks, the longest is {longest}");
             }
             var periods = song.Tracks.Where(t => t.Loops).Select(t => t.TotalTicks - t.LoopStartTick).Distinct().OrderBy(x => x).ToList();
             report.AppendLine($"{Path.GetFileName(f),-12} loop periods (ticks): {string.Join(",", periods)}");

@@ -83,6 +83,35 @@ public class MdrvTests
     }
 
     [Fact]
+    public void F6_F7_Repeat_With_16_Bit_Offsets()
+    {
+        // F6 n lo hi .. F7 x lo hi: the body plays n times; the offsets are not needed to decode
+        var t = Decode(ChannelKind.Fm, 0xF6, 0x03, 0x0A, 0x00, 0x40, 0x04, 0xF7, 0x00, 0xF4, 0xFF, 0x41, 0x04, 0xFF);
+        Assert.Equal([0, 4, 8, 12], t.Notes.Select(n => n.StartTick));
+        Assert.Equal([0, 0, 0], t.Notes.Take(3).Select(n => n.Semitone - 48));   // the body three times
+        Assert.Equal(1, t.Notes[3].Semitone - 48);                                // then the note after F7
+        Assert.Empty(t.Ignored);
+    }
+
+    [Fact]
+    public void F9_Skips_The_Rest_Of_The_Body_On_The_Last_Pass()
+    {
+        // F6 2 [A  F9 -> F7  B] F7 : A B A  (the offset counts from the address of F9's second byte)
+        byte[] bytes = [0xF6, 0x02, 0x00, 0x00, 0x40, 0x04, 0xF9, 0x03, 0x00, 0x41, 0x04, 0xF7, 0x00, 0x00, 0x00, 0xFF];
+        var t = Decode(ChannelKind.Fm, bytes);
+        Assert.Equal([0, 1, 0], t.Notes.Select(n => n.Semitone - 48));
+    }
+
+    [Fact]
+    public void E8_And_FC_Take_Four_Parameters()
+    {
+        // their bytes look like notes (0x14 0x0A, 0x3C 0x02) and must not become ticks
+        var t = Decode(ChannelKind.Ssg, 0xE8, 0x14, 0x0A, 0x01, 0x00, 0xFC, 0x3C, 0x02, 0x05, 0x00, 0x40, 0x06, 0xFF);
+        Assert.Equal(6, t.TotalTicks);
+        Assert.Single(t.Notes);
+    }
+
+    [Fact]
     public void Truncated_Or_Endless_Streams_Do_Not_Hang()
     {
         Assert.Empty(Decode(ChannelKind.Fm, 0x40).Notes.Where(n => n.StartTick > 0));

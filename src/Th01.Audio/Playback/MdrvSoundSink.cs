@@ -9,11 +9,14 @@ namespace Th01.Audio.Playback;
 /// time order and starts as soon as its first few seconds are ready; effects are rendered once at construction.
 /// The platform pulls samples with <see cref="Mixer"/>.<see cref="AudioMixer.Mix"/>. Missing files make the sink silent, never throw.
 /// Asking for the track that is already playing (or being prepared) does nothing, as in the original, where the stage music
-/// only restarts at a scene or boss change.
+/// only restarts at a scene or boss change. A different track takes over with a crossfade (the original fades the old one out).
 /// </summary>
 public sealed class MdrvSoundSink : ISoundSink, IDisposable
 {
+    /// <summary>Length of <see cref="FadeOutBgm"/>.</summary>
     public const double FadeSeconds = 1.5;
+    /// <summary>Track change while music plays: the old track fades out this long, the new one fades in (crossfade).</summary>
+    public const double CrossfadeOutSeconds = 1.0, CrossfadeInSeconds = 0.4;
 
     readonly Func<string, byte[]?> _load;
     readonly Dictionary<int, short[]> _effects = [];
@@ -63,7 +66,7 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
             _current = trackFileName;
             request = ++_request;
         }
-        Mixer.StopMusic();
+        // The old track keeps playing until the new one is ready, then they crossfade.
         Task.Run(() =>
         {
             try
@@ -74,7 +77,8 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
                 lock (_lock)
                 {
                     if (_disposed || request != _request) { cts.Cancel(); return; }   // another request came in meanwhile
-                    Mixer.PlayMusic(rendering);
+                    bool crossfade = Mixer.MusicPlaying;
+                    Mixer.PlayMusic(rendering, crossfade ? CrossfadeOutSeconds : 0, crossfade ? CrossfadeInSeconds : 0);
                 }
             }
             catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException or IOException or OutOfMemoryException)
