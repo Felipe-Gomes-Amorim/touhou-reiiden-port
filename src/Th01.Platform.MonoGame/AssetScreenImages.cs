@@ -4,9 +4,14 @@ using Th01.Core.Graphics;
 
 namespace Th01.Platform.MonoGame;
 
-/// <summary>Loads full-screen .GRP pictures from the user's game folder for the title screen.</summary>
-public sealed class AssetScreenImages(IAssetSource assets) : IScreenImages
+/// <summary>
+/// Loads full-screen .GRP pictures from the user's game folder for the title screen, and serves the story text of the
+/// user's own FUUIN.EXE (ending captions) to the slideshow. The text is read at run time and never stored.
+/// </summary>
+public sealed class AssetScreenImages(IAssetSource assets) : IScreenImages, ICaptionSource
 {
+    Dictionary<string, string[]>? _scenes;
+
     readonly Dictionary<string, ArtFrame?> _cache = new(StringComparer.OrdinalIgnoreCase);
 
     public bool TryLoad(string fileName, out ArtFrame image)
@@ -33,5 +38,34 @@ public sealed class AssetScreenImages(IAssetSource assets) : IScreenImages
         }
         image = cached ?? default;
         return cached.HasValue;
+    }
+
+    public IReadOnlyList<string> Lines(string scene)
+    {
+        _scenes ??= LoadScenes();
+        return _scenes.TryGetValue(scene, out var lines) ? lines : [];
+    }
+
+    Dictionary<string, string[]> LoadScenes()
+    {
+        var map = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        const string exe = "FUUIN.EXE";
+        if (!assets.Exists(exe)) return map;
+        try
+        {
+            using var s = assets.Open(exe);
+            using var ms = new MemoryStream();
+            s.CopyTo(ms);
+            byte[] bytes = ms.ToArray();
+            var refs = ExeStringRefs.Scan(bytes, ExeText.Scan(exe, bytes).Runs);
+            if (refs is null) return map;
+            foreach (var scene in ExeStringRefs.Scenes(refs.Refs))
+                map.TryAdd(scene.Image, scene.Lines.Select(l => l.Text).ToArray());
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException)
+        {
+            Console.Error.WriteLine($"{exe} could not be read for captions: {e.Message}");
+        }
+        return map;
     }
 }

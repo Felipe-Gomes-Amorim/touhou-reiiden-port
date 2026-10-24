@@ -119,7 +119,7 @@ public sealed class GameFlow
     /// <summary>Plays a picture sequence, then returns to the title screen. Any button skips it.</summary>
     public void StartCutscene(IReadOnlyList<SlideStep> steps)
     {
-        _show = new Slideshow(_images, steps);
+        _show = new Slideshow(_images, steps, _font, _images as ICaptionSource);
         GoTo(Screen.Cutscene);
     }
 
