@@ -69,6 +69,7 @@ public static class ExpectedFiles
         new("REIIDEN3.GRP", false, "image (PI variant)"),
         new("REIMU.MDT", false, "music"),
         new("REYHINO.DAT", false, "high scores (not on the disk: the game creates it on first run)"),
+        new("REYHILU.DAT", false, "high scores (Lunatic rank; the disk ships it, the game keeps one REYHI<rank>.DAT per rank)"),
         new("SHUGEN.MDT", false, "music"),
         new("ST0.GRP", true, "image (PI variant)"),
         new("ST0.MDT", false, "music"),

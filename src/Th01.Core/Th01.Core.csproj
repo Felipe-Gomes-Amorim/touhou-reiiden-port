@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Graphics\Fonts\spleen-8x16.bdf" LogicalName="Th01.Core.Fonts.spleen-8x16.bdf" />
+    <EmbeddedResource Include="Graphics\Fonts\shinonome-16.bdf" LogicalName="Th01.Core.Fonts.shinonome-16.bdf" />
   </ItemGroup>
 
 </Project>

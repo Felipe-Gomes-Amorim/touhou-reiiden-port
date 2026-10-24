@@ -18,6 +18,19 @@ public class BdfFontTests
     }
 
     [Fact]
+    public void Shinonome_HasKanaAndKanji_In16PixelCells()
+    {
+        var font = BdfFont.LoadShinonome16();
+        foreach (int c in new[] { 0x3042, 0x30A2, 0x6771, 0x65B9, 0x6B8B })
+        {
+            Assert.True(font.TryGetGlyph(c, out var g), $"missing U+{c:X4}");
+            Assert.Equal(16, g.Width);
+            Assert.Equal(32, g.Rows.Length); // 16 rows x 2 bytes
+            Assert.Contains(g.Rows.ToArray(), b => b != 0);
+        }
+    }
+
+    [Fact]
     public void Spleen_DrawsVisibleInk_AndSpaceIsBlank()
     {
         var font = BdfFont.LoadSpleen8x16();
