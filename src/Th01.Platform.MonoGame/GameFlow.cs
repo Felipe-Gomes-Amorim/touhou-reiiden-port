@@ -7,7 +7,7 @@ using Th01.Core.Sim;
 
 namespace Th01.Platform.MonoGame;
 
-public enum Screen { Logo, Title, InGame, GameOver, NameEntry, Ranking, Cutscene }
+public enum Screen { Logo, Title, InGame, GameOver, NameEntry, Ranking, Cutscene, Warning }
 
 /// <summary>Loads a full-screen picture by file name (e.g. "REIIDEN2.GRP"). Returns false if it is not available.</summary>
 public interface IScreenImages
@@ -29,6 +29,8 @@ public sealed class NoScreenImages : IScreenImages
 public sealed class GameFlow
 {
     public const int LogoTicks = 170;
+    /// <summary>Photosensitivity warning: cannot be skipped for the first part, then any button, and it ends by itself.</summary>
+    public const int WarningMinTicks = 90, WarningTicks = 600;
     public const int LastStage = 19;
     /// <summary>Last 0-based stage playable on the Makai route (see IsPlayable for the others).</summary>
     public const int LastPlayableStage = 8;
@@ -99,12 +101,12 @@ public sealed class GameFlow
     public long Ticks => _tick;
 
     /// <summary>True where Esc should close the window (logo, main title menu); elsewhere Esc is only "cancel".</summary>
-    public bool EscapeQuits => Screen == Screen.Logo || (Screen == Screen.Title && !_inOptions);
+    public bool EscapeQuits => Screen is Screen.Logo or Screen.Warning || (Screen == Screen.Title && !_inOptions);
 
     /// <param name="startStage">If set (0-based), skips logo and title and starts that stage directly.</param>
     public GameFlow(IStageProvider stages, IScreenImages images, IFontSource font, GameSettings settings,
         Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0,
-        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null)
+        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null, bool showWarning = false)
     {
         _sound = sound;
         _scores = scores ?? new MemoryScoreStore();
@@ -121,6 +123,7 @@ public sealed class GameFlow
             else StartCutscene(c == 1 ? Cutscenes.EndingOne() : Cutscenes.BossSlides(c == 3 ? 1 : 0));
         }
         else if (startStage is int s) StartNewGame(s);
+        else if (showWarning) GoTo(Screen.Warning);
     }
 
     public HiScoreTable TableFor(Rank rank) => _tables[(int)rank] ??= _scores.Load(rank);
@@ -169,6 +172,12 @@ public sealed class GameFlow
 
         switch (Screen)
         {
+            case Screen.Warning:
+                {
+                    long shown = _tick - _screenStart;
+                    if (shown >= WarningTicks || (shown >= WarningMinTicks && (ok || cancel))) GoTo(Screen.Logo);
+                    break;
+                }
             case Screen.Logo:
                 if (_tick - _screenStart >= LogoTicks || ok || cancel) GoTo(Screen.Title);
                 break;
@@ -390,6 +399,7 @@ public sealed class GameFlow
         fb.ScrollY = 0;
         switch (Screen)
         {
+            case Screen.Warning: RenderWarning(fb); break;
             case Screen.Logo: RenderLogo(fb); break;
             case Screen.Title: RenderTitle(fb); break;
             case Screen.InGame: RenderGame(fb); break;
@@ -436,6 +446,24 @@ public sealed class GameFlow
 
     void TextCentered(Framebuffer fb, string s, int y, byte color) =>
         Text(fb, s, (Framebuffer.Width - TextRenderer.Measure(_font, s)) / 2, y, color);
+
+    void RenderWarning(Framebuffer fb)
+    {
+        Grayscale(fb);
+        fb.Clear(0);
+        TextCentered(fb, "PHOTOSENSITIVITY WARNING", 96, 15);
+        string[] lines =
+        [
+            "This game contains flashing lights and intense visual",
+            "effects that may trigger seizures in people with",
+            "photosensitive epilepsy.",
+            "",
+            "If you feel dizzy, disoriented or unwell,",
+            "stop playing and consult a doctor.",
+        ];
+        for (int i = 0; i < lines.Length; i++) TextCentered(fb, lines[i], 148 + i * 24, 12);
+        if (_tick - _screenStart >= WarningMinTicks) TextCentered(fb, "PRESS Z OR SPACE TO CONTINUE", 332, 8);
+    }
 
     void RenderLogo(Framebuffer fb)
     {

@@ -68,7 +68,7 @@ if (dataPath is not null)
         // Music and effects are rendered from the game's own .MDT/.MDE files at run time. If one is missing, that sound is just silent.
         sound = new Th01.Audio.Playback.MdrvSoundSink(name => File.Exists(Path.Combine(dataPath, name)) ? File.ReadAllBytes(Path.Combine(dataPath, name)) : null);
         audioOut = new MonoGameAudioOutput(sound.Mixer);
-        factory = () => new GameFlow(new AssetStageProvider(assets, font, missingArt, sound), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene, sound);
+        factory = () => new GameFlow(new AssetStageProvider(assets, font, missingArt, sound), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene, sound, showWarning: stage is null && cutscene is null);
         Console.WriteLine(stage is int st ? $"Starting stage {st + 1}, route {(route == 0 ? "Makai" : "Jigoku")}." : "Starting at the logo and title screen.");
     }
 }

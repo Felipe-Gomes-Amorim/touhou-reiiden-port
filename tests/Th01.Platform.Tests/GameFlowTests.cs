@@ -53,6 +53,32 @@ public class GameFlowTests
     }
 
     [Fact]
+    public void Warning_ComesFirst_CanBeSkippedOnlyAfterAShortWhile_AndEndsOnItsOwn()
+    {
+        GameFlow New() => new(new FakeStages(), new NoScreenImages(), Font, new GameSettings(), showWarning: true);
+        var f = New();
+        Assert.Equal(Screen.Warning, f.Screen);
+        Press(f, GameButtons.Ok);
+        Assert.Equal(Screen.Warning, f.Screen); // too early to skip
+        Run(f, GameFlow.WarningMinTicks);
+        Press(f, GameButtons.Ok);
+        Assert.Equal(Screen.Logo, f.Screen);
+
+        var g = New();
+        Run(g, GameFlow.WarningTicks + 1);
+        Assert.Equal(Screen.Logo, g.Screen);
+        g.Render(new Framebuffer());
+        Assert.Equal(Screen.Warning, New().Screen);
+    }
+
+    [Fact]
+    public void Warning_IsNotShown_WhenAStageOrCutsceneIsRequested()
+    {
+        var f = new GameFlow(new FakeStages(), new NoScreenImages(), Font, new GameSettings(), startStage: 0, showWarning: true);
+        Assert.Equal(Screen.InGame, f.Screen);
+    }
+
+    [Fact]
     public void Logo_ThenTitle_AfterTimeout_OrOnPress()
     {
         var f = NewFlow(new FakeStages());
