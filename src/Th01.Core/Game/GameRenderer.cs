@@ -55,7 +55,7 @@ internal sealed class GameRenderer
         }
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
         DrawMono(fb, HudMask, 0, 0, 0, ColRed);
-        fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, 1);
+        fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
 
         if (w.Stage != null)
         {

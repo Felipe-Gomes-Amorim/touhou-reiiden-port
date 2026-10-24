@@ -17,7 +17,10 @@ namespace Th01.Platform.MonoGame;
 /// </summary>
 public sealed class Th01Game : Game
 {
+    /// <summary>Shown when no game data is loaded (test pattern): it must not look like the original game.</summary>
     const string BaseTitle = "Th01 (unofficial fan port)";
+    /// <summary>Window title once the player's own copy of the game is loaded.</summary>
+    const string GameTitle = "Touhou Reiiden ~ Highly Responsive to Prayers";
 
     readonly GraphicsDeviceManager _graphics;
     readonly Func<GameFlow?>? _flowFactory;
@@ -143,7 +146,13 @@ public sealed class Th01Game : Game
     void HandleHotkeys(KeyboardState kb)
     {
         bool Pressed(Keys k) => kb.IsKeyDown(k) && !_prevKb.IsKeyDown(k);
-        if (Pressed(Keys.F11)) _graphics.ToggleFullScreen();
+        if (Pressed(Keys.F11))
+        {
+            _graphics.ToggleFullScreen();
+            // Fullscreen fills the screen height (16:10 picture, black bars at the sides if the screen is wider);
+            // windowed keeps whole-number scales. F10 still cycles the modes.
+            _scaleMode = _graphics.IsFullScreen ? ScaleMode.Fit : ScaleMode.Integer;
+        }
         if (Pressed(Keys.F10))
         {
             _scaleMode = (ScaleMode)(((int)_scaleMode + 1) % 3);
@@ -265,7 +274,8 @@ public sealed class Th01Game : Game
 
     void UpdateTitle()
     {
-        string t = $"{BaseTitle} - {_status}";
+        string t = _flow is null ? $"{BaseTitle} - {_status}" : GameTitle;
+        if (_flow is not null && _status != "running") t += $" - {_status}";
         if (_timestep.Paused) t += " [PAUSED]";
         if (_showDebug) t += $" | {_tickRate.PerSecond} ticks/s (target {TickRate.Hz:F2}) | {_tickRate.Total} ticks";
         Window.Title = t;
