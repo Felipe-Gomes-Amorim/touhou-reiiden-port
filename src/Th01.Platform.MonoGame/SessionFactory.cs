@@ -1,6 +1,7 @@
 using Th01.Assets;
 using Th01.Assets.Formats;
 using Th01.Assets.Model;
+using Th01.Core.Audio;
 using Th01.Core.Game;
 using Th01.Core.Graphics;
 using Th01.Core.Sim;
@@ -21,15 +22,17 @@ public sealed class SessionFactory
     readonly int _route;
     readonly IFontSource? _font;
     readonly MissingArtLog? _log;
+    readonly ISoundSink? _sound;
 
     /// <param name="stageId">0-based stage across the whole game (stage_num - 1).</param>
     /// <param name="route">0 = Makai, 1 = Jigoku.</param>
-    public SessionFactory(IAssetSource assets, int stageId = 0, int route = 0, IFontSource? font = null, MissingArtLog? log = null)
+    public SessionFactory(IAssetSource assets, int stageId = 0, int route = 0, IFontSource? font = null, MissingArtLog? log = null, ISoundSink? sound = null)
     {
         if (stageId < 0 || stageId >= 4 * StageSetup.StagesPerScene) throw new ArgumentOutOfRangeException(nameof(stageId), "Stage must be 0..19.");
         if (route is < 0 or > 1) throw new ArgumentOutOfRangeException(nameof(route), "Route must be 0 (Makai) or 1 (Jigoku).");
         _assets = assets;
         _font = font;
+        _sound = sound;
         _log = log;
         _stageId = stageId;
         _route = route;
@@ -83,7 +86,7 @@ public sealed class SessionFactory
         string grp = BackgroundFile(_stageId, _route, scene);
         if (_assets.Exists(grp)) art.SetBackground(Load(grp, GrpImage.Load));
         // frame_rand is the title screen's frame counter in the original; callers pass a deterministic value.
-        var session = new GameSession(makeOptions(setup), art: art, font: _font);
+        var session = new GameSession(makeOptions(setup), sound: _sound, art: art, font: _font);
         return new GameStart(session, art);
     }
 
@@ -183,8 +186,8 @@ public interface IStageProvider
     GameStart Create(int stageId, int route, Func<StageSetup, Th01.Core.Game.GameOptions> makeOptions);
 }
 
-public sealed class AssetStageProvider(IAssetSource assets, IFontSource? font = null, MissingArtLog? log = null) : IStageProvider
+public sealed class AssetStageProvider(IAssetSource assets, IFontSource? font = null, MissingArtLog? log = null, ISoundSink? sound = null) : IStageProvider
 {
     public GameStart Create(int stageId, int route, Func<StageSetup, Th01.Core.Game.GameOptions> makeOptions) =>
-        new SessionFactory(assets, stageId, route, font, log).Create(makeOptions);
+        new SessionFactory(assets, stageId, route, font, log, sound).Create(makeOptions);
 }

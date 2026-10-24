@@ -1,3 +1,4 @@
+using Th01.Core.Audio;
 using Th01.Core.Game;
 using Th01.Core.Graphics;
 using Th01.Core.Input;
@@ -50,6 +51,7 @@ public sealed class GameFlow
     readonly Action<GameSettings>? _saveSettings;
     readonly HiScoreTable?[] _tables = new HiScoreTable?[4];
     readonly IScoreStore _scores;
+    readonly ISoundSink? _sound;
     Slideshow? _show;
     string? _endNote;
     readonly ButtonRepeater _repeat = new(delayTicks: 14, intervalTicks: 4);
@@ -97,8 +99,9 @@ public sealed class GameFlow
     /// <param name="startStage">If set (0-based), skips logo and title and starts that stage directly.</param>
     public GameFlow(IStageProvider stages, IScreenImages images, IFontSource font, GameSettings settings,
         Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0,
-        IScoreStore? scores = null, int? startCutscene = null)
+        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null)
     {
+        _sound = sound;
         _scores = scores ?? new MemoryScoreStore();
         _stages = stages;
         _images = images;
@@ -153,6 +156,7 @@ public sealed class GameFlow
     {
         Screen = s;
         _screenStart = _tick;
+        if (s != Screen.InGame) _sound?.StopBgm();
         if (s == Screen.Title)
         {
             _inOptions = false;
@@ -242,6 +246,8 @@ public sealed class GameFlow
             ?? throw new InvalidOperationException("The stage provider must return a GameSession.");
         _missTicks = 0;
         GoTo(Screen.InGame);
+        // One track per scene (ST0..ST6.MDT), the same number the stage picture uses. Boss tracks are not mapped yet.
+        if (Settings.Music) _sound?.PlayBgm($"ST{SessionFactory.SceneId(stageId, _route)}.MDT");
     }
 
     void TickGame(GameButtons input)

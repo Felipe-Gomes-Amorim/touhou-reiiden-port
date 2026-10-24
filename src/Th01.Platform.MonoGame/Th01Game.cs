@@ -41,6 +41,9 @@ public sealed class Th01Game : Game
     /// <summary>Where F12 puts PNG screenshots (outside the repository: the user data folder). Null disables F12.</summary>
     public string? ScreenshotDirectory { get; init; }
 
+    /// <summary>Sends the mixer to the sound card; pumped once per frame. Disposed with the game.</summary>
+    public MonoGameAudioOutput? AudioOutput { get; init; }
+
     /// <summary>Failed art lookups (F9 writes them to <see cref="MissingArtPath"/>, as does closing the game if there are any).</summary>
     public MissingArtLog? MissingArt { get; init; }
     public string? MissingArtPath { get; init; }
@@ -119,6 +122,7 @@ public sealed class Th01Game : Game
             if (_showDebug) UpdateTitle();
         }
         catch (Exception e) { Fail(e); }
+        AudioOutput?.Update();
         base.Update(gameTime);
     }
 

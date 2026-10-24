@@ -9,7 +9,7 @@ namespace Th01.Audio.Mdrv;
 ///   E0 n .. E1 .. E2        repeat n times; E1 = skipped on the last pass (volta)
 ///   E4 n .. E5              repeat n times     E6 n detune      E7 n shorten gate by n ticks
 ///   E9 n tempo   EB n voice (FM) / mixer flags (SSG: bit0 noise, bit1 tone) / drum id   EC n volume
-///   EF n noise period   F3 xx xx end of the loop   FF end of the stream   others: see <see cref="Params"/>
+///   EF n noise period   F3 lo hi end of the loop: jumps to (address of F3) + 2 + signed 16-bit offset   FF end of the stream   others: see <see cref="Params"/>
 /// </summary>
 public sealed class TrackDecoder
 {
@@ -24,6 +24,8 @@ public sealed class TrackDecoder
     readonly Dictionary<int, int> _ignored = [];
     readonly Stack<(int Start, int Left, bool Volta)> _loops = new();
 
+    readonly Dictionary<int, int> _tickAt = [];
+    int _loopTarget = -1;
     int _pos, _tick, _voice, _volume, _detune, _gateCut, _noisePeriod, _drum;
     bool _tone = true, _noise, _tie, _loopEnd;
     NoteEvent? _last;
@@ -42,6 +44,7 @@ public sealed class TrackDecoder
         {
             TrackId = trackId, Kind = kind, Notes = t._notes, Tempos = t._tempos, TotalTicks = t._tick,
             Loops = t._loopEnd, Ignored = t._ignored,
+            LoopStartTick = t._loopTarget >= 0 && t._tickAt.TryGetValue(t._loopTarget, out int lt) ? lt : -1,
         };
     }
 
@@ -62,6 +65,8 @@ public sealed class TrackDecoder
         int skipDepth = -1; // >= 0 while skipping the volta part up to the matching E2
         for (int steps = 0; steps < MaxSteps && _pos < _end && _tick < MaxTicks; steps++)
         {
+            int opPos = _pos;
+            _tickAt.TryAdd(opPos, _tick);
             int op = Read();
             if (op == 0xFF) return;
             if (op < 0x90)
@@ -113,7 +118,7 @@ public sealed class TrackDecoder
                 case 0xEC: if (_kind != ChannelKind.Drum) _volume = p0; break;
                 case 0xEF: _noisePeriod = p0; break;
                 case 0xF2: Sweep(p0, p1, (short)(p2 | (p3 << 8))); break;
-                case 0xF3: _loopEnd = true; return;
+                case 0xF3: _loopEnd = true; _loopTarget = opPos + 2 + (short)(p0 | (p1 << 8)); return;
                 default: _ignored[op] = _ignored.GetValueOrDefault(op) + 1; break;
             }
         }

@@ -44,6 +44,8 @@ Console.WriteLine($"Game data folder: {dataPath}");
 Console.WriteLine("Keys: F11 fullscreen | F10 scale mode | F5 pause | F6 step one tick | F3 debug title | F7 record input | F8 replay | F12 screenshot | F9 missing-art list | Esc quit");
 
 var missingArt = new MissingArtLog { Realtime = logMissingArt };
+Th01.Audio.Playback.MdrvSoundSink? sound = null;
+MonoGameAudioOutput? audioOut = null;
 Func<GameFlow?>? factory = null;
 if (dataPath is not null)
 {
@@ -62,15 +64,20 @@ if (dataPath is not null)
         }
         // High scores live in the user data folder (a copy of REYHI*.DAT); the game folder is only read.
         var scores = new FileScoreStore(userDir, dataPath);
-        factory = () => new GameFlow(new AssetStageProvider(assets, font, missingArt), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene);
+        // Music and effects are rendered from the game's own .MDT/.MDE files at run time. If one is missing, that sound is just silent.
+        sound = new Th01.Audio.Playback.MdrvSoundSink(name => File.Exists(Path.Combine(dataPath, name)) ? File.ReadAllBytes(Path.Combine(dataPath, name)) : null);
+        audioOut = new MonoGameAudioOutput(sound.Mixer);
+        factory = () => new GameFlow(new AssetStageProvider(assets, font, missingArt, sound), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene, sound);
         Console.WriteLine(stage is int st ? $"Starting stage {st + 1}, route {(route == 0 ? "Makai" : "Jigoku")}." : "Starting at the logo and title screen.");
     }
 }
 
 try
 {
-    using var game = new Th01Game(factory) { ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
+    using var game = new Th01Game(factory) { AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
     game.Run();
+    audioOut?.Dispose();
+    sound?.Dispose();
     if (game.Fatal is not null) return ReportCrash(game.Fatal);
 }
 catch (Exception e)
