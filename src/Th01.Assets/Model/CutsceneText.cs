@@ -30,3 +30,12 @@ public sealed record StringRef(int CodeOffset, int DataOffset, TextRun Run);
 /// Strings used before the first image of a program belong to no scene and are not listed.
 /// </summary>
 public sealed record CutsceneScene(string Image, int CodeOffset, IReadOnlyList<TextRun> Lines);
+
+/// <summary>
+/// The text of the final verdict screen (ENDM_A), read from the user's FUUIN.EXE: the label and format string of each line.
+/// Formats keep the game's own placeholders (<c>%s</c> rank, <c>%7lu</c> scores, <c>%3lu</c> continues per scene, <c>%5lu</c> total);
+/// fill them with <see cref="Th01.Assets.Text.PrintfLite"/>. <c>Makai</c> and <c>Jigoku</c> hold the 3 route-specific scene lines each.
+/// </summary>
+public sealed record VerdictStrings(
+    string Title, string Ver, string Version, string Rank, string HighScore, string Score, string ContinuesLabel, string Shrine,
+    IReadOnlyList<string> Makai, IReadOnlyList<string> Jigoku, string MakaiTotal, string JigokuTotal, string ThankYou, string Assessment);

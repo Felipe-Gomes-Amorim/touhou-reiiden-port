@@ -1,4 +1,5 @@
 using Th01.Assets.Model;
+using Th01.Assets.Text;
 
 namespace Th01.Assets.Formats;
 
@@ -59,6 +60,57 @@ public static class ExeStringRefs
             if (byData.TryGetValue(word, out var run)) refs.Add(new StringRef(p - header, word, run));
         }
         return refs;
+    }
+
+    /// <summary>
+    /// The verdict screen's strings. In the ending program the code of the verdict screen loads, in this order: the
+    /// image name (ENDM_A), game title, "ver", version, rank, high score, score, the "continues" label, shrine, then the
+    /// Makai and Jigoku line of each of the 3 later scenes, both totals, the thank-you line and the assessment heading.
+    /// The data layout differs between builds, so they are taken in code order. Null when the code does not look like that.
+    /// </summary>
+    public static VerdictStrings? Verdict(ReadOnlySpan<byte> exe, Result result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        // every code reference to any NUL-terminated string, in code order
+        var refs = new List<(int Code, int Data, string Text)>();
+        for (int p = result.HeaderSize; p + 2 < result.DataBase && p + 2 < exe.Length; p++)
+        {
+            byte op = exe[p];
+            if (!(op is >= 0xB8 and <= 0xBF or 0x68)) continue;
+            int data = BitConverter.ToUInt16(exe[(p + 1)..]);
+            string? text = StringAt(exe, result.DataBase, data);
+            if (text is not null) refs.Add((p, data, text));
+        }
+        int start = refs.FindIndex(r => r.Text.Equals("endm_a.grp", StringComparison.OrdinalIgnoreCase));
+        if (start < 0) return null;
+        // The literals lie in the order the code first uses them, so the verdict's own strings have rising addresses; operands of
+        // other instructions that happen to equal a string's address do not follow that order and are skipped.
+        var v = new List<string>();
+        int last = refs[start].Data;
+        foreach (var r in refs.Skip(start + 1))
+        {
+            if (r.Code - refs[start].Code > 0x500 || v.Count == 18) break;
+            if (r.Data <= last) continue;
+            last = r.Data;
+            v.Add(r.Text);
+        }
+        if (v.Count < 18) return null;
+
+        // shape check: formats with a placeholder where the original prints a value, none elsewhere
+        int[] withValue = [3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        for (int i = 0; i < v.Count; i++)
+            if (v[i].Contains('%') != withValue.Contains(i)) return null;
+        return new VerdictStrings(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], [v[8], v[10], v[12]], [v[9], v[11], v[13]], v[14], v[15], v[16], v[17]);
+    }
+
+    /// <summary>The NUL-terminated string that starts at a data-segment offset, or null if there is none (or it is not Shift-JIS).</summary>
+    private static string? StringAt(ReadOnlySpan<byte> exe, int dataBase, int dataOffset)
+    {
+        int p = dataBase + dataOffset;
+        if (dataOffset <= 0 || p >= exe.Length || exe[p - 1] != 0 || exe[p] == 0) return null;
+        int end = p;
+        while (end < exe.Length && exe[end] != 0) end++;
+        return TextCodec.TryDecode(exe[p..end], out string text) ? text : null;
     }
 
     public static bool IsImageName(string text) =>

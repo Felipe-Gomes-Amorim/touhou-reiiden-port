@@ -91,7 +91,7 @@ public class SceneTextTests
     }
 
     /// <summary>Minimal MZ image: code with <c>mov ax, imm16</c> for each string, then a data block, one relocation naming its segment.</summary>
-    static byte[] SyntheticExe(string[] strings, out int[] dataOffsets)
+    internal static byte[] SyntheticExe(string[] strings, out int[] dataOffsets)
     {
         const int header = 32;
         var data = new List<byte> { 0, 0, 0, 0 };
@@ -177,5 +177,67 @@ public class SceneTextTests
             }
         }
         Assert.True(cells > 0);
+    }
+
+    static readonly string[] VerdictLayout =
+    [
+        "endm_a.grp", "Title", "ver", "1.00", "Rank   %s", "Highest %7lu", "Score   %7lu", "Continues", "Shrine %3lu",
+        "Gate %3lu", "Wayside %3lu", "Vina %3lu", "Cesspool %3lu", "Fallen %3lu", "Quiet %3lu", "Makai total %5lu", "Hell total %5lu",
+        "Thank you", "Assessment",
+    ];
+
+    [Fact]
+    public void Verdict_TakesTheStringsInCodeOrder_AndPairsMakaiAndJigokuLines()
+    {
+        byte[] exe = SyntheticExe(VerdictLayout, out _);
+        var refs = ExeStringRefs.Scan(exe, ExeText.Scan("T.EXE", exe).Runs);
+        Assert.NotNull(refs);
+        var v = ExeStringRefs.Verdict(exe, refs!);
+        Assert.NotNull(v);
+        Assert.Equal("Rank   %s", v!.Rank);
+        Assert.Equal("Highest %7lu", v.HighScore);
+        Assert.Equal("Shrine %3lu", v.Shrine);
+        Assert.Equal(["Gate %3lu", "Vina %3lu", "Fallen %3lu"], v.Makai);
+        Assert.Equal(["Wayside %3lu", "Cesspool %3lu", "Quiet %3lu"], v.Jigoku);
+        Assert.Equal("Hell total %5lu", v.JigokuTotal);
+        Assert.Equal("Assessment", v.Assessment);
+    }
+
+    [Fact]
+    public void Verdict_IsNullWhenTheCodeDoesNotLookLikeTheVerdictScreen()
+    {
+        string[] wrong = [.. VerdictLayout];
+        wrong[4] = "Rank without a value"; // the rank line must have a placeholder
+        byte[] exe = SyntheticExe(wrong, out _);
+        var refs = ExeStringRefs.Scan(exe, ExeText.Scan("T.EXE", exe).Runs)!;
+        Assert.Null(ExeStringRefs.Verdict(exe, refs));
+    }
+
+    [Fact]
+    public void PrintfLite_FillsTheGamesPlaceholders()
+    {
+        Assert.Equal("Rank   NORMAL", PrintfLite.Format("Rank   %s", "NORMAL"));
+        Assert.Equal("Score     12345", PrintfLite.Format("Score   %7lu", 12345u));
+        Assert.Equal("a   7 b    42", PrintfLite.Format("a %3lu b %5lu", 7, 42));
+        Assert.Equal("%7lu", PrintfLite.Format("%7lu"));                    // no argument: left as it is
+        Assert.Equal("no placeholder", PrintfLite.Format("no placeholder", 1));
+    }
+
+    [SkippableFact]
+    public void RealFuuin_HasTheVerdictStrings()
+    {
+        string? folder = Th01.Assets.Config.GameDataConfig.Resolve();
+        Skip.If(folder is null || !File.Exists(Path.Combine(folder!, "FUUIN.EXE")), "FUUIN.EXE not available.");
+        byte[] exe = File.ReadAllBytes(Path.Combine(folder!, "FUUIN.EXE"));
+        var refs = ExeStringRefs.Scan(exe, ExeText.Scan("FUUIN.EXE", exe).Runs)!;
+        var v = ExeStringRefs.Verdict(exe, refs);
+        Assert.NotNull(v);
+        Assert.Contains("%s", v!.Rank);
+        Assert.Contains("%7lu", v.HighScore);
+        Assert.Contains("%7lu", v.Score);
+        Assert.Contains("%3lu", v.Shrine);
+        Assert.All(v.Makai.Concat(v.Jigoku), l => Assert.Contains("%3lu", l));
+        Assert.Contains("%5lu", v.MakaiTotal);
+        Assert.Contains("%5lu", v.JigokuTotal);
     }
 }
