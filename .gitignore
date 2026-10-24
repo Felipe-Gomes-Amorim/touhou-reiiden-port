@@ -8,3 +8,9 @@ obj/
 
 game-data/
 TestResults/
+
+# Screenshots of the game are never committed
+*.png
+*.jpg
+*.jpeg
+screenshots/

@@ -1,0 +1,58 @@
+# Scenario (i): the stage-5 boss (first scene's boss). Started through the original's stage-select mode ("op t":
+# it asks for the 0-based stage id and the route; the capture driver types them). Player sweeps and swings.
+#@stage 4
+#@route 0
+#@columns player_x,orb_x,orb_y,orb_vx,score,rem_lives,rem_bombs,rng_seed,frame_rand
+seed 1
+ticks 1500
+0   none
+40  shot
+44  none
+80 left
+120 right shot
+130 right
+170 none
+200 left
+240 right shot
+250 right
+290 none
+320 left
+360 right shot
+370 right
+410 none
+440 left
+480 right shot
+490 right
+530 none
+560 left
+600 right shot
+610 right
+650 none
+680 left
+720 right shot
+730 right
+770 none
+800 left
+840 right shot
+850 right
+890 none
+920 left
+960 right shot
+970 right
+1010 none
+1040 left
+1080 right shot
+1090 right
+1130 none
+1160 left
+1200 right shot
+1210 right
+1250 none
+1280 left
+1320 right shot
+1330 right
+1370 none
+1400 left
+1440 right shot
+1450 right
+1490 none

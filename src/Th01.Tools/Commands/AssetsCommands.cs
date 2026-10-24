@@ -8,13 +8,16 @@ namespace Th01.Tools.Commands;
 /// <summary>Asset-format commands (T2). Output never contains game bytes, only names, sizes and parse results.</summary>
 public static class AssetsCommands
 {
-    public static bool Handles(string command) => command is "list-pack" or "dump-image" or "extract-pack" or "inspect-exe" or "contact-sheets";
+    public static bool Handles(string command) => command is "list-pack" or "dump-image" or "extract-pack" or "inspect-exe" or "contact-sheets" or "verify-assets" or "scan-strings" or "font-charset";
 
     public static int Run(string[] args)
     {
         if (args[0] == "dump-image") return DumpImage(args);
         if (args[0] == "extract-pack") return ExtractPack(args);
         if (args[0] == "inspect-exe") return AssetsExe.Run(args);
+        if (args[0] == "verify-assets") return AssetsVerify.Run();
+        if (args[0] == "font-charset") return AssetsFont.Run(args);
+        if (args[0] == "scan-strings") return AssetsStrings.Run(args);
         if (args[0] == "contact-sheets") return AssetsSheets.Run(args);
         string? folder = args.Length > 1 ? args[1] : GameDataConfig.Resolve();
         if (folder is null || !Directory.Exists(folder))

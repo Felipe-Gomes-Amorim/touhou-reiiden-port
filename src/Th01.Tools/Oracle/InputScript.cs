@@ -18,6 +18,10 @@ public sealed class InputScript
 {
     public uint Seed { get; private set; } = 1;
     public int Ticks { get; private set; }
+    /// <summary>Directives written as <c>#@ key value</c> comments (stage, route, columns); the emulator driver reads them too.</summary>
+    public IReadOnlyDictionary<string, string> Directives => _directives;
+    readonly Dictionary<string, string> _directives = new(StringComparer.OrdinalIgnoreCase);
+    public int? IntDirective(string key) => _directives.TryGetValue(key, out var v) && int.TryParse(v, out var n) ? n : null;
     readonly List<(int Tick, GameButtons Buttons)> _changes = new();
 
     public static InputScript Parse(TextReader reader)
@@ -28,6 +32,8 @@ public sealed class InputScript
         while ((line = reader.ReadLine()) is not null)
         {
             lineNo++;
+            var dm = System.Text.RegularExpressions.Regex.Match(line, @"^\s*#@\s*(\w+)\s+(.*?)\s*$");
+            if (dm.Success) s._directives[dm.Groups[1].Value] = dm.Groups[2].Value;
             int hash = line.IndexOf('#');
             if (hash >= 0) line = line[..hash];
             var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);

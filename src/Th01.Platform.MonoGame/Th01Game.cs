@@ -13,7 +13,7 @@ namespace Th01.Platform.MonoGame;
 /// Window, input, timing and presentation. All screens and gameplay come from a <see cref="GameFlow"/> created by an
 /// injectable factory after the graphics device exists; with no factory (or when it fails) a test pattern is shown.
 /// Hotkeys: F11 fullscreen, F10 scale mode (integer / fit / stretch), F5 pause, F6 step one tick (pauses),
-/// F3 debug read-out in the title, F7 record inputs (press again to save), F8 replay the saved inputs.
+/// F3 debug read-out in the title, F12 screenshot (PNG, user data folder), F9 missing-art list, F7 record inputs (press again to save), F8 replay the saved inputs.
 /// </summary>
 public sealed class Th01Game : Game
 {
@@ -37,6 +37,15 @@ public sealed class Th01Game : Game
     int _flowTick;
     Texture2D? _tex;
     SpriteBatch? _batch;
+
+    /// <summary>Where F12 puts PNG screenshots (outside the repository: the user data folder). Null disables F12.</summary>
+    public string? ScreenshotDirectory { get; init; }
+
+    /// <summary>Failed art lookups (F9 writes them to <see cref="MissingArtPath"/>, as does closing the game if there are any).</summary>
+    public MissingArtLog? MissingArt { get; init; }
+    public string? MissingArtPath { get; init; }
+
+    bool _screenshotRequested;
 
     /// <summary>Set when an unhandled error stopped the game; Program turns it into the exit code.</summary>
     public Exception? Fatal { get; private set; }
@@ -139,6 +148,8 @@ public sealed class Th01Game : Game
         }
         if (Pressed(Keys.F5)) { _timestep.Paused = !_timestep.Paused; UpdateTitle(); }
         if (Pressed(Keys.F6)) { _timestep.Paused = true; _timestep.RequestStep(); UpdateTitle(); }
+        if (Pressed(Keys.F12)) _screenshotRequested = true;
+        if (Pressed(Keys.F9)) SaveMissingArt();
         if (Pressed(Keys.F3)) { _showDebug = !_showDebug; UpdateTitle(); }
         if (Pressed(Keys.F7) && _flow is not null) ToggleRecording();
         if (Pressed(Keys.F8) && _flow is not null) StartReplay();
@@ -201,6 +212,7 @@ public sealed class Th01Game : Game
                 _rgba[i] = (p & 0xFF00FF00u) | ((p & 0xFF) << 16) | ((p >> 16) & 0xFF);
             }
             _tex!.SetData(_rgba);
+            if (_screenshotRequested) { _screenshotRequested = false; SaveScreenshot(); }
 
             var vp = GraphicsDevice.Viewport;
             var r = ViewportLayout.Compute(vp.Width, vp.Height, _scaleMode);
@@ -210,6 +222,41 @@ public sealed class Th01Game : Game
         }
         catch (Exception e) { Fail(e); }
         base.Draw(gameTime);
+    }
+
+    void SaveMissingArt()
+    {
+        if (MissingArt is null || MissingArtPath is null) return;
+        if (MissingArt.Save(MissingArtPath)) _status = $"{MissingArt.Count} missing art item(s) written to {MissingArtPath}";
+        else _status = MissingArt.Count == 0 ? "no missing art so far" : "could not write the missing art list";
+        Console.WriteLine(_status);
+        UpdateTitle();
+    }
+
+    protected override void OnExiting(object sender, ExitingEventArgs args)
+    {
+        if (MissingArt is { Count: > 0 } && MissingArtPath is not null && MissingArt.Save(MissingArtPath))
+            Console.WriteLine($"{MissingArt.Count} missing art item(s) written to {MissingArtPath}");
+        base.OnExiting(sender, args);
+    }
+
+    void SaveScreenshot()
+    {
+        if (ScreenshotDirectory is null) return;
+        try
+        {
+            Directory.CreateDirectory(ScreenshotDirectory);
+            string path = Path.Combine(ScreenshotDirectory, $"reiiden-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
+            using (var fs = File.Create(path)) _tex!.SaveAsPng(fs, Framebuffer.Width, Framebuffer.Height);
+            _status = $"screenshot saved: {path}";
+            Console.WriteLine(_status);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _status = "could not save the screenshot";
+            Console.Error.WriteLine($"Could not save a screenshot to {ScreenshotDirectory}: {e.Message}");
+        }
+        UpdateTitle();
     }
 
     void UpdateTitle()

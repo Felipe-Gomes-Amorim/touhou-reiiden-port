@@ -1,0 +1,9 @@
+# Probe/scenario (f): items. Same opening as 01 plus the raw words of the item arrays (DS:5370 = items_bomb[4], DS:5398 = items_point[10], 10 bytes each).
+#@columns player_x,orb_x,orb_y,score,rng_seed,rem_bombs,mem:5370:70
+seed 1
+ticks 450
+0   none
+40  shot
+44  none
+270 right
+284 none

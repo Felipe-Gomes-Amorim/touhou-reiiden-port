@@ -12,6 +12,8 @@ public sealed record GameOptions
     public int Lives { get; init; } = 4;
     public int Bombs { get; init; } = 1;
     public uint Score { get; init; }
+    /// <summary>resident->hiscore at the start of the stage (shown in the HUD; the table itself is the platform's).</summary>
+    public uint HiScore { get; init; }
     /// <summary>resident->point_value (16-bit): value of the next point item; persists across stages.</summary>
     public ushort PointValue { get; init; }
     /// <summary>resident->pellet_speed (1/40 px); the title screen starts a game at -4.</summary>
@@ -40,8 +42,14 @@ public sealed class GameWorld
     public readonly Items Items;
     public readonly StageTimer Timer = new();
     public readonly Pellets Pellets;
+    /// <summary>RNG state right after the game-start draws (card_flip_cycle etc.); lets the trace show the pinned seed.</summary>
+    public uint SeedAfterInit;
+    public readonly InvincibilitySparkles Sparkles;
+    public readonly ParticleField Particles;
+    public readonly Missiles Missiles;
+    public readonly ShootoutLasers Lasers;
     public readonly StageObjects? Stage;
-    public readonly SinGyoku? Boss;
+    public readonly Boss? Boss;
     /// <summary>True when a stage (card or boss) is loaded, i.e. the timer runs.</summary>
     public readonly bool HasStage;
 
@@ -73,6 +81,10 @@ public sealed class GameWorld
     public readonly uint[] BonusPerStage = new uint[StageSetup.StagesPerScene];
 
     public int CardComboCur;
+    /// <summary>The high score the HUD starts from; it never changes during a session.</summary>
+    public uint HiScoreBase;
+    /// <summary>hiscore_update_and_render(): the displayed record follows the score as soon as it is beaten.</summary>
+    public uint HudHiScore => Math.Max(HiScoreBase, Score);
     public int CardComboMax;
 
     /// <summary>bomb_frame: also reset to 0 by many player actions (original quirk, kept).</summary>
@@ -87,6 +99,7 @@ public sealed class GameWorld
         RemLives = o.Lives;
         RemBombs = o.Bombs;
         Score = o.Score;
+        HiScoreBase = o.HiScore;
         FrameRand = o.FrameRand;
         ExtendNext = (int)(o.Score / GameSession.ScorePerExtend) + 1;
         Rng = new IRand(o.FrameRand);
@@ -95,6 +108,10 @@ public sealed class GameWorld
         Player = new Player(this);
         Items = new Items(this);
         Pellets = new Pellets(this);
+        Sparkles = new InvincibilitySparkles(this);
+        Particles = new ParticleField(this);
+        Missiles = new Missiles(this);
+        Lasers = new ShootoutLasers(this);
         PelletSpeed = o.PelletSpeed;
         PointValue = o.PointValue;
         if (o.CarryOver is { } c)
@@ -119,6 +136,8 @@ public sealed class GameWorld
             if (o.Stage.IsBoss)
             {
                 if (o.Stage.StageId == StageSetup.BossStage) Boss = new SinGyoku(this);
+                else if (o.Stage.StageId == 2 * StageSetup.StagesPerScene - 1)
+                    Boss = o.Stage.Route == 1 ? new Mima(this) : new YuugenMagan(this);
             }
             else
             {
@@ -127,6 +146,7 @@ public sealed class GameWorld
                 if (Stage.CardCount > 0) Rng.Next();
             }
         }
+        SeedAfterInit = Rng.Seed;
     }
 
     /// <summary>The player's hitbox test against the Orb. Friction semantics: see <see cref="OrbRepel"/>.</summary>

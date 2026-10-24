@@ -173,7 +173,7 @@ public class GameFlowTests
         Assert.Equal(ScoreRoute.Makai, e.Route);
         Assert.Equal('B', GameFlow.DecodeNameCell(e.Name[0]));
         Assert.Equal(' ', GameFlow.DecodeNameCell(e.Name[1]));
-        Assert.Equal(0, f.TableFor(Rank.Hard).Entries[0].Score); // tables are per rank
+        Assert.Equal(1000, f.TableFor(Rank.Hard).Entries[0].Score); // tables are per rank: Hard untouched
         f.Render(new Framebuffer());
         Press(f, GameButtons.Ok);
         Assert.Equal(Screen.Title, f.Screen);

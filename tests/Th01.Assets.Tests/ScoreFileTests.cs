@@ -1,3 +1,4 @@
+using Th01.Assets;
 using Th01.Assets.Config;
 using Th01.Assets.Formats;
 
@@ -84,5 +85,50 @@ public class ScoreFileTests
         Skip.IfNot(File.Exists(path), "REYHINO.DAT is not in the game folder (the game creates it).");
         byte[] bytes = File.ReadAllBytes(path);
         Assert.Equal(bytes.Length >= ScoreDat.Size ? bytes[..ScoreDat.Size] : bytes, ScoreFileIO.Serialize(ScoreFileIO.Parse(bytes)));
+    }
+}
+
+public class OptionsAndNamesTests
+{
+    [Fact]
+    public void FileNamesPerRank()
+    {
+        Assert.Equal(["REYHIES.DAT", "REYHINO.DAT", "REYHIHA.DAT", "REYHILU.DAT"], Enumerable.Range(0, 4).Select(ScoreFileIO.FileNameFor));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ScoreFileIO.FileNameFor(4));
+    }
+
+    [Fact]
+    public void LoadOrDefault_DoesNotCreateFiles()
+    {
+        string dir = Directory.CreateTempSubdirectory("th01-sc-").FullName;
+        try
+        {
+            Assert.Equal(1000, ScoreFileIO.LoadOrDefault(dir, 1).Scores[0]);
+            Assert.Empty(Directory.GetFiles(dir));
+            ScoreFileIO.Save(Path.Combine(dir, ScoreFileIO.FileNameFor(2)), ScoreFileIO.CreateDefault());
+            Assert.Single(Directory.GetFiles(dir));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void CfgRoundTripValidationAndBackup()
+    {
+        var o = new GameOptions(2, 0, 3, 5);
+        Assert.Equal(o, ReiidenCfg.Load(ReiidenCfg.Serialize(o)));
+        Assert.Equal(ReiidenCfg.Default, ReiidenCfg.Load(ReiidenCfg.Serialize(ReiidenCfg.Default)));
+        Assert.Throws<ArgumentException>(() => ReiidenCfg.Serialize(new GameOptions(9, 0, 0, 0)));
+        Assert.Throws<ArgumentException>(() => ReiidenCfg.Serialize(new GameOptions(1, 2, 0, 0)));
+        Assert.Throws<ArgumentException>(() => ReiidenCfg.Serialize(new GameOptions(1, 1, 0, 6)));
+        string dir = Directory.CreateTempSubdirectory("th01-cfg-").FullName;
+        try
+        {
+            string path = Path.Combine(dir, "REIIDEN.CFG");
+            File.WriteAllBytes(path, [9, 9]);
+            ReiidenCfg.Save(path, o);
+            Assert.Equal(new byte[] { 9, 9 }, File.ReadAllBytes(path + ".bak"));
+            Assert.Equal(o, ReiidenCfg.Load(File.ReadAllBytes(path)));
+        }
+        finally { Directory.Delete(dir, true); }
     }
 }

@@ -6,7 +6,7 @@ namespace Th01.Core.Game;
 /// renderer. Phase 0 (the 200-frame entrance) is run by the session as its own phase.
 /// ref: th01/main/boss/b05.cpp, boss.cpp, entity_a.cpp
 /// </summary>
-public sealed class SinGyoku
+public sealed class SinGyoku : Boss
 {
     // ---- constants ----
     public const int W = 96, H = 96;
@@ -15,8 +15,7 @@ public sealed class SinGyoku
     public const int BaseLeft = BaseCenterX - W / 2;
     public const int BaseTop = BaseCenterY - H / 2;
     public const int HpTotal = 8, HpPhase1End = 6, HpPhase2End = 0;
-    public const int HitInvincibilityFrames = 40;   // BOSS_HIT_INVINCIBILITY_FRAMES
-    public const int HitScore = 3000;
+        public const int HitScore = 3000;
     public const int EntranceFrames = 200;
     public const int SphereCels = 8;
     const int PixelNone = -999;
@@ -33,16 +32,8 @@ public sealed class SinGyoku
     readonly GameWorld _w;
 
     // ---- state (statics of b05.cpp) ----
-    public int Phase;               // boss_phase: 0 entrance, 1, 2, 8 = defeated
-    public int PhaseFrame;          // boss_phase_frame
-    public int InvincibilityFrame;
-    public int Hp = HpTotal;
-    public bool Invincible;         // hit.invincible
-    public int PatternCur;
-    public int Left = BaseLeft, Top = BaseTop;   // ent.cur_left / cur_top
     public int SphereImage;         // ent_sphere.image()
     public int PersonImage;         // ent_person.image()
-    public bool HitboxOrbInactive;
 
     // pattern statics
     int _direction;                 // halfcircle spray: +1 / -1
@@ -53,11 +44,30 @@ public sealed class SinGyoku
     // entrance loop locals
     int _entranceInterval = 18;
 
-    public SinGyoku(GameWorld w) => _w = w;
+    public SinGyoku(GameWorld w) : base(w)
+    {
+        _w = w;
+        Hp = HpTotal;
+        Left = BaseLeft;
+        Top = BaseTop;
+    }
 
-    public int CenterX => Left + W / 2;
-    public int CenterY => Top + H / 2;
-    public bool Defeated => Phase == 8;
+    public override int Width => W;
+    public override int Height => H;
+    public override bool HasRouteSelect => true;
+
+    public override int DefeatTicks()
+    {
+        int startY = Top + H / 2;
+        return Math.Max(startY + 1, Playfield.Bottom - startY) + GameSession.BossDefeatFadeTicks;
+    }
+
+    public override bool Defeated => Phase == 8;
+    public override int DefeatLineDistance => 1;
+    public override int DefeatWhiteoutInterval => 15;
+    public override int DefeatWhiteinInterval => 15;
+    public override bool DefeatFromBossCenter => true;
+    public override IReadOnlyList<int> FlashColors { get; } = new[] { 13 };
 
     /// <summary>Is the person form on screen (for the renderer): true between the two flashes of a transformation.</summary>
     public bool PersonVisible => Phase == 2 && PatternCur != 4 && PhaseFrame >= TkfToPersonDone && PhaseFrame < TkfToSphere;
@@ -75,7 +85,7 @@ public sealed class SinGyoku
     // ---- entrance (phase 0) ----
 
     /// <summary>One frame of the blocking entrance loop; returns true on the last one.</summary>
-    public bool EntranceFrame()
+    public override bool EntranceFrame()
     {
         if (PhaseFrame == 0)
         {
@@ -138,7 +148,7 @@ public sealed class SinGyoku
     // ---- main ----
 
     /// <summary>singyoku_main() for phases 1, 2 and 8 (one tick).</summary>
-    public void Update()
+    public override void Update()
     {
         if (Phase == 1)
         {
@@ -193,47 +203,12 @@ public sealed class SinGyoku
 
     // ---- hit handling (boss_hit_update_and_render + hittest_orb) ----
 
-    bool HitTestOrb()
-    {
-        if (HitboxOrbInactive) return false;
-        // hitbox_orb_set(8, 8, 88, 88) widened by the Orb's own hitbox: the Orb's previous-frame position must lie in
-        // [cur, cur + 64] on both axes.
-        var o = _w.Orb;
-        return Left + 24 - 24 <= o.PrevLeft && Left + 72 - 8 >= o.PrevLeft
-            && Top + 24 - 24 <= o.PrevTop && Top + 72 - 8 >= o.PrevTop;
-    }
+    // hitbox_orb_set(8, 8, 88, 88) widened by the Orb's own hitbox: the Orb's previous-frame position must lie in
+    // [cur, cur + 64] on both axes.
+    bool HitTestOrb() => OrbPrevInside(0, 64, 0, 64);
 
-    void HitUpdate()
-    {
-        var w = _w;
-        // Player shots are tested regardless of invincibility; they only get absorbed (no damage).
-        w.Shots.HitTestBoss(Left + W / 6, Top + H / 3, W + W / 6 - Shots.W, H - H / 3 - Shots.H);
-
-        bool bombHit = w.RemLives == 0 && w.Bomb.Damaging && w.FrameRand % 50 == 0;
-        if ((HitTestOrb() && !Invincible) || bombHit)
-        {
-            InvincibilityFrame = 0;
-            Hp--;
-            Invincible = true;
-            var o = w.Orb;
-            if (o.IsMovingLeft) o.VelocityX = OrbVelocityX.Right4;
-            else if (o.IsMovingRight) o.VelocityX = OrbVelocityX.Left4;
-            else if (o.VelocityX == OrbVelocityX.Zero)
-                o.VelocityX = o.Left < Playfield.CenterX - Playfield.OrbW / 2 ? OrbVelocityX.Right4 : OrbVelocityX.Left4;
-            w.Score += HitScore;
-            w.Sound.PlaySe(3);
-        }
-        if (Invincible && InvincibilityFrame < HitInvincibilityFrames)
-        {
-            // flashing: drawing only
-        }
-        else if (InvincibilityFrame > HitInvincibilityFrames)
-        {
-            // Runs even when not invincible (original bug: a periodic palette reset); the state change is harmless.
-            InvincibilityFrame = 0;
-            Invincible = false;
-        }
-    }
+    void HitUpdate() =>
+        HitCommon(HitTestOrb(), HitScore, Left + W / 6, Top + H / 3, W + W / 6 - Shots.W, H - H / 3 - Shots.H);
 
     // ---- phase 1 patterns ----
 
@@ -401,7 +376,7 @@ public sealed class SinGyoku
         }
     }
 
-    public void Hash(ref StateHasher h)
+    public override void Hash(ref StateHasher h)
     {
         h.Add(Phase); h.Add(PhaseFrame); h.Add(InvincibilityFrame); h.Add(Hp); h.Add(Invincible);
         h.Add(PatternCur); h.Add(Left); h.Add(Top); h.Add(SphereImage); h.Add(PersonImage); h.Add(HitboxOrbInactive);

@@ -79,6 +79,12 @@ public sealed class GameSession : IGameSession, ITraceSource
     public const int RouteSelectDelayTicks = 50;
 
     int _defeatWait;
+    /// <summary>Drawing only: total ticks of the defeat animation and the row its white lines start from.</summary>
+    public int DefeatTotal { get; private set; }
+    public int DefeatStartY { get; private set; }
+    public int DefeatElapsed => DefeatTotal - Math.Max(_defeatWait, 0);
+    public bool RouteMenuActive => Phase == SessionPhase.RouteSelect;
+    public int RouteMenuDelayLeft => _routeDelay;
     int _routeDelay;
     bool _routePrevUp, _routePrevDown, _routePrevOk;
 
@@ -115,7 +121,11 @@ public sealed class GameSession : IGameSession, ITraceSource
         bool resets = options.CarryOver == null || options.Stage == null || options.Stage.StageId % StageSetup.StagesPerScene == 0
             || options.Stage.IsBoss;
         BeginStage(resetPlayerLeft: resets);
-        if (_w.Boss != null)
+        if (_w.Boss is { HasEntrance: false })
+        {
+            StartPlaying();                      // the fight begins at once
+        }
+        else if (_w.Boss != null)
         {
             Phase = SessionPhase.BossEntrance;
         }
@@ -157,7 +167,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         w.Stage?.ObstaclesUpdate(true);
         // The original runs the boss once more at every life start (outside the main loop), except the very first
         // time, when that call is the entrance animation.
-        if (w.Boss is { Phase: not 0 }) w.Boss.Update();
+        if (w.Boss is { Phase: not 0, RunsAtLifeStart: true }) w.Boss.Update();
         w.Input.Reset();
         w.BombDoubletapFrame = InputLatch.BombDoubletapWindow * 3;
         if (w.PlayerInvincibilityTime > 1) w.PlayerInvincible = true;
@@ -182,7 +192,12 @@ public sealed class GameSession : IGameSession, ITraceSource
                 if (w.Boss!.EntranceFrame()) StartPlaying();
                 return;
             case SessionPhase.BossDefeat:
-                if (--_defeatWait <= 0)
+                if (--_defeatWait <= 0 && !w.Boss!.HasRouteSelect)
+                {
+                    w.StageCleared = true;
+                    BeginBonus();
+                }
+                else if (_defeatWait <= 0)
                 {
                     Phase = SessionPhase.RouteSelect;
                     _routeDelay = RouteSelectDelayTicks;
@@ -252,6 +267,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         w.BombFrame++;
         w.BombDoubletapFrame++;
         bool harryUp = w.HasStage && (w.FrameRand & 3) == 0 && w.Timer.TickDown(w);
+        w.Sparkles.Update(w.PlayerInvincible);
         if (w.Boss != null)
         {
             if (w.Boss.Defeated)
@@ -261,6 +277,7 @@ public sealed class GameSession : IGameSession, ITraceSource
             }
             w.Boss.Update();
         }
+        w.Lasers.UpdateAll();
         // boss_main(), shootout lasers -- boss port
 
         // orb_and_pellets_and_stage_unput_update_render__vsync_wait()
@@ -318,8 +335,8 @@ public sealed class GameSession : IGameSession, ITraceSource
     {
         var w = _w;
         w.Pellets.ResetNonClouds();
-        int startY = w.Boss!.Top + SinGyoku.H / 2;
-        _defeatWait = Math.Max(startY + 1, Playfield.Bottom - startY) + BossDefeatFadeTicks;
+        _defeatWait = DefeatTotal = w.Boss!.DefeatTicks();
+        DefeatStartY = w.Boss.DefeatFromBossCenter ? w.Boss.CenterY : w.Orb.Top + Playfield.OrbH / 2;
         Phase = SessionPhase.BossDefeat;
     }
 
@@ -460,6 +477,15 @@ public sealed class GameSession : IGameSession, ITraceSource
     public IReadOnlyDictionary<string, long> TraceValues()
     {
         var w = _w;
+        // The original logger samples each frame right after the main loop has done "frame_rand++" (and, on the
+        // first frame, irand_init(frame_rand)) but before anything else of that iteration. A session whose next Step
+        // is a main-loop iteration therefore reports those two values as the iteration will leave them. Everything
+        // else is the state after the previous iteration, which is what the original shows at that point too.
+        bool startsMainIteration = Phase == SessionPhase.Playing || (Phase == SessionPhase.WaitForShot && w.Input.Shot);
+        // Before the first main iteration the original's logger shows the seed it pinned (frame_rand), not the state
+        // after the game-start draws; a draw made while waiting would still show.
+        bool pinnedSeedVisible = (Phase is SessionPhase.WaitForShot or SessionPhase.Entrance or SessionPhase.BossEntrance)
+            && (w.Rng.Seed == w.SeedAfterInit || (Phase == SessionPhase.WaitForShot && w.Input.Shot));
         var d = new Dictionary<string, long>
         {
             ["player_x"] = w.Player.Left,
@@ -469,12 +495,14 @@ public sealed class GameSession : IGameSession, ITraceSource
             ["orb_vx"] = OrbVxPixels(w.Orb.VelocityX),
             ["orb_vy"] = w.Orb.Y.VelocityYQ8,
             ["score"] = w.Score,
-            ["rng_seed"] = w.Rng.Seed,
+            ["rng_seed"] = pinnedSeedVisible ? w.FrameRand : w.Rng.Seed,
             ["orb_force"] = w.Orb.Y.ForceQ8,
+            ["orb_vy_bits"] = w.Orb.Y.VelocityYBits,
+            ["orb_force_bits"] = w.Orb.Y.ForceBits,
             ["orb_force_frame"] = w.Orb.ForceFrame,
             ["rem_lives"] = w.RemLives,
             ["rem_bombs"] = w.RemBombs,
-            ["frame_rand"] = w.FrameRand,
+            ["frame_rand"] = w.FrameRand + (startsMainIteration ? 1 : 0),
             ["player_invincible"] = w.PlayerInvincible ? 1 : 0,
             ["invincibility_time"] = w.PlayerInvincibilityTime,
             ["bomb_frame"] = w.BombFrame,
@@ -521,7 +549,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk);
         if (Bonus is { } bn) { h.Add(bn.Time); h.Add(bn.CardCombo); h.Add(bn.Resources); h.Add(bn.StageNumber); h.Add(bn.Total); }
         foreach (var v in w.BonusPerStage) h.Add(v); h.Add(w.StageCleared); h.Add(w.CardFlipCycle); h.Add(w.PointValue);
-        w.Items.Hash(ref h); w.Pellets.Hash(ref h); w.Timer.Hash(ref h); w.Stage?.Hash(ref h);
+        w.Items.Hash(ref h); w.Sparkles.Hash(ref h); w.Particles.Hash(ref h); w.Missiles.Hash(ref h); w.Lasers.Hash(ref h); w.Pellets.Hash(ref h); w.Timer.Hash(ref h); w.Stage?.Hash(ref h);
         w.Input.Hash(ref h);
         w.Player.Hash(ref h);
         w.Orb.Hash(ref h);

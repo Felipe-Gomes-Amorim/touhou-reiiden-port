@@ -13,6 +13,7 @@ static int Usage()
     Console.Error.WriteLine("  Th01.Tools dump-image <file | pack:NAME> <out.png> [columns]   (out.png must be outside the repo)");
     Console.Error.WriteLine("  Th01.Tools extract-pack <NAME> <out-file>");
     Console.Error.WriteLine("  Th01.Tools contact-sheets <out-dir>   (PNG sheets for visual checks; keep out of the repo)");
+    Console.Error.WriteLine("  Th01.Tools font-charset <out.txt>   (code points the game texts need; keep out of the repo)");
     Console.Error.WriteLine("  Th01.Tools inspect-exe <file.exe> <folder with reference .bmp files>");
     Console.Error.WriteLine("  Th01.Tools list-hdi <image.hdi>");
     Console.Error.WriteLine("  Th01.Tools extract-hdi <image.hdi> <out-folder> [--all]");
