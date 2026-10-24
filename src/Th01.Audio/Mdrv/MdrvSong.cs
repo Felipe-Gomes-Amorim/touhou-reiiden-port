@@ -6,8 +6,9 @@ namespace Th01.Audio.Mdrv;
 public sealed class MdrvSong
 {
     /// <summary>
-    /// ASSUMPTION: seconds per tick = 60 / (tempo byte * TempoScale * 24). The scale was picked so the tracks last
-    /// a plausible 1-2 minutes; the original driver's timer formula is not known. TODO(T5): calibrate vs emulator.
+    /// Seconds per tick = 60 / (tempo byte * 48): the tempo byte is quarter notes per minute and a quarter note is 48 ticks
+    /// (the factor 2 * 24 below). ASSUMPTION: the exact timer formula of the driver is not known; this one gives believable
+    /// song lengths (1-3 minutes). TODO(T5): calibrate vs emulator.
     /// </summary>
     public const double TempoScale = 2.0;
 

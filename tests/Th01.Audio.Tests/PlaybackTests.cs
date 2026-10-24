@@ -319,6 +319,42 @@ public class PlaybackTests
         Assert.Equal(baseline + 2, loads);
     }
 
+    [Fact]
+    public void MusicRoom_Wraps_Around_The_Fifteen_Tracks()
+    {
+        var room = new MusicRoom();
+        Assert.Equal("REIMU.MDT", room.Track);
+        Assert.Equal("00", room.Number);
+        room.Previous();
+        Assert.Equal("IRIS.MDT", room.Track);
+        Assert.Equal("14", room.Number);
+        room.Next();
+        room.Next();
+        Assert.Equal("ZIPANGU.MDT", room.Track);
+    }
+
+    [Fact]
+    public void MusicRoom_Title_Is_The_First_Line_Of_The_Comment()
+    {
+        var mdt = Mdt([0xE9, 0x48, 0xFF]);
+        new byte[] { (byte)'H', (byte)'i', 13, 10 }.CopyTo(mdt, 0x40);   // the 4 comment bytes before the first track
+        Assert.Equal("Hi", MusicRoom.ReadTitle(mdt));
+        Assert.Equal(string.Empty, MusicRoom.ReadTitle(new byte[10]));
+    }
+
+    [SkippableFact]
+    public void RealFiles_Every_MusicRoom_Track_Has_A_Readable_Title()
+    {
+        string? folder = GameDataConfig.Resolve();
+        Skip.If(folder is null || !Directory.Exists(folder), $"Game data not configured. Set {GameDataConfig.EnvVar}.");
+        foreach (string file in BgmTracks.MusicRoom)
+        {
+            string path = Path.Combine(folder!, file);
+            Skip.If(!File.Exists(path), $"{file} not found.");
+            Assert.NotEqual(string.Empty, MusicRoom.ReadTitle(File.ReadAllBytes(path)));
+        }
+    }
+
     // ---- With the real game files (skipped without TH01_DATA_PATH) ----
 
     static string? DataFolder()
@@ -343,13 +379,13 @@ public class PlaybackTests
             foreach (var t in song.Tracks)
                 report.AppendLine($"    {Path.GetFileName(f),-12} track {t.TrackId:X2} {t.Kind,-4} total={t.TotalTicks,6} loopStart={t.LoopStartTick,6} period={(t.Loops ? t.TotalTicks - t.LoopStartTick : 0),6} ignored=[{string.Join(",", t.Ignored.OrderBy(k => k.Key).Select(k => $"{k.Key:X2}x{k.Value}"))}]");
             // After decoding F6/F7/F9/E8/FC, every melodic channel of a song loops with the same period (or a divisor of the longest);
-            // only the drum tracks of POSITIVE, ST3 (their FA commands, probably pattern calls, are not understood yet) and IRIS are off.
+            // only IRIS (the ending theme, which is not heard long enough to loop) has two channels with a 768-tick loop against 2688.
             var loopers = song.Tracks.Where(t => t.Loops && t.TotalTicks > t.LoopStartTick && t.LoopStartTick >= 0 && t.Notes.Count > 0).ToList();
             if (loopers.Count > 0)
             {
                 int longest = loopers.Max(t => t.TotalTicks - t.LoopStartTick);
                 foreach (var t in loopers.Where(t => longest % (t.TotalTicks - t.LoopStartTick) != 0))
-                    Assert.True(t.Kind == ChannelKind.Drum || Path.GetFileName(f).Equals("IRIS.MDT", StringComparison.OrdinalIgnoreCase), $"{Path.GetFileName(f)} track {t.TrackId:X2} loops every {t.TotalTicks - t.LoopStartTick} ticks, the longest is {longest}");
+                    Assert.True(Path.GetFileName(f).Equals("IRIS.MDT", StringComparison.OrdinalIgnoreCase), $"{Path.GetFileName(f)} track {t.TrackId:X2} loops every {t.TotalTicks - t.LoopStartTick} ticks, the longest is {longest}");
             }
             var periods = song.Tracks.Where(t => t.Loops).Select(t => t.TotalTicks - t.LoopStartTick).Distinct().OrderBy(x => x).ToList();
             report.AppendLine($"{Path.GetFileName(f),-12} loop periods (ticks): {string.Join(",", periods)}");

@@ -26,4 +26,12 @@ public static class SoundEffectCatalog
         [16] = "player shot hits (Shots)",
         [17] = "stage timer ran out: pellets speed up (StageTimer)",
     };
+
+    /// <summary>Effects the original plays that the Core does not call yet (ref: mdrv2_se_play call sites in ReC98 th01).</summary>
+    public static readonly IReadOnlyDictionary<int, string> NotCalledYet = new Dictionary<int, string>
+    {
+        [10] = "Sariel only (b20m.cpp)",
+        [13] = "no call site in the original",
+        [14] = "one per title character in the stage entrance, 6 times, 8 ticks apart (entrance.hpp), when the stage is the first of a scene or a boss stage",
+    };
 }

@@ -79,7 +79,7 @@ public class MdrvTests
         var t = Decode(ChannelKind.Drum, 0xEC, 0x3D, 1, 2, 3, 4, 5, 6, 0xEC, 0x83, 0x0C, 0xEB, 0x04, 0x40, 0x10, 0xFA, 0x89, 0x00, 0xFF);
         var n = Assert.Single(t.Notes);
         Assert.Equal(4, n.DrumId);
-        Assert.Equal([0xFA], t.Ignored.Keys);
+        Assert.Empty(t.Ignored);   // FA with an offset outside the data is skipped without a call
     }
 
     [Fact]
@@ -100,6 +100,26 @@ public class MdrvTests
         byte[] bytes = [0xF6, 0x02, 0x00, 0x00, 0x40, 0x04, 0xF9, 0x03, 0x00, 0x41, 0x04, 0xF7, 0x00, 0x00, 0x00, 0xFF];
         var t = Decode(ChannelKind.Fm, bytes);
         Assert.Equal([0, 1, 0], t.Notes.Select(n => n.Semitone - 48));
+    }
+
+    [Fact]
+    public void FA_Calls_A_Pattern_Stored_Outside_The_Track()
+    {
+        // track = FA <7>, 41 04, FF ; pattern at 7 = 40 06, FF
+        byte[] bytes = [0xFA, 0x07, 0x00, 0x41, 0x04, 0xFF, 0x00, 0x40, 0x06, 0xFF];
+        var t = TrackDecoder.Decode(bytes, 0, 6, 0x42, ChannelKind.Drum);
+        Assert.Equal([48 + 0, 48 + 1], t.Notes.Select(n => n.Semitone));
+        Assert.Equal([0, 6], t.Notes.Select(n => n.StartTick));
+        Assert.Equal(10, t.TotalTicks);
+    }
+
+    [Fact]
+    public void Q_Shortens_The_Sounding_Part_Of_A_Note_But_Not_Its_Place()
+    {
+        var t = Decode(ChannelKind.Fm, 0xEA, 0x04, 0x40, 0x10, 0x41, 0x10, 0xFF);
+        Assert.Equal([8, 8], t.Notes.Select(n => n.DurationTicks));
+        Assert.Equal([0, 16], t.Notes.Select(n => n.StartTick));
+        Assert.Equal(32, t.TotalTicks);
     }
 
     [Fact]

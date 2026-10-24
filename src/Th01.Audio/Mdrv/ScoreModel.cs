@@ -3,7 +3,7 @@ namespace Th01.Audio.Mdrv;
 public enum ChannelKind { Fm, Ssg, Drum }
 
 /// <summary>
-/// One note of a decoded track. Times are in ticks (96 per whole note, 24 per quarter).
+/// One note of a decoded track. Times are in ticks (192 per whole note, 48 per quarter).
 /// Semitone = octave * 12 + note, where the original byte is 0xON (octave, note 0..B).
 /// </summary>
 public sealed record NoteEvent(
