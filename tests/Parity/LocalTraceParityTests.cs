@@ -22,9 +22,10 @@ public class LocalTraceParityTests
     {
         ["04-cards-combo"] = null,
         ["09-items"] = null,
-        ["01-orb-free"] = 530,       // bomb_frame after the miss (original 200)
-        ["02-player-shot"] = 420,    // bomb_frame after the miss
-        ["03-bomb"] = 302,           // bomb_frame after the miss (the bomb itself matches: score and combo agree)
+        // 01/02/03: the bomb_frame-after-the-miss divergence (530/420/302) no longer exists on this base; re-measured in round 4.
+        ["01-orb-free"] = null,
+        ["02-player-shot"] = null,
+        ["03-bomb"] = null,
         ["06-game-over"] = 1430,     // rem_bombs on the last life (original 1, port 5)
         ["05-timer-harryup"] = 1692, // after game over the two sides consume the script differently
     };
