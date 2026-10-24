@@ -457,6 +457,7 @@ internal sealed class GameRenderer
         else if (boss is Mima m) DrawMima(fb, m);
         else if (boss is YuugenMagan y) DrawYuugenMagan(fb, y);
         else if (boss is Kikuri k) DrawKikuri(fb, k);
+        else if (boss is Elis e) DrawElis(fb, e);
     }
 
     void DrawSinGyoku(Framebuffer fb, SinGyoku b)
@@ -482,6 +483,22 @@ internal sealed class GameRenderer
         }
         foreach (var l in y.Lines()) DrawLine(fb, l.x1, l.y1, l.x2, l.y2, ColWhite);
         DrawHpBar(fb, y);
+    }
+
+    void DrawElis(Framebuffer fb, Elis e)
+    {
+        if (e.Phase >= 1 && e.Phase < 8) DrawHpBar(fb, e);
+        bool girlGone = e.IsBat && e.Phase == 5;
+        if (e.Phase >= 1 && !girlGone || e.EntranceGirlVisible)
+        {
+            // Wave teleport: the wave cels of BOSS5.BOS (hidden while she is "between" places); otherwise standing.
+            int cel = e.TeleportInProgress ? e.WaveCel : Elis.CStill;
+            if (cel >= 0 && !Draw(fb, "BOSS5.BOS", cel, e.Left, e.Top))
+                fb.FillRect(e.Left, e.Top, Elis.GirlW, Elis.GirlH, (byte)(e.Invincible ? 15 : 12));
+        }
+        if (e.IsBat && e.Phase == 5 && !Draw(fb, "BOSS5_3.BOS", e.BatImage, e.BatLeft, e.BatTop))
+            fb.FillRect(e.BatLeft, e.BatTop, Elis.BatW, Elis.BatH, (byte)(e.Invincible ? 15 : 12));
+        // TODO: attack cels (BOSS5_2.BOS), the wave-in of the entrance, rifts, spheres, stars and the circles are not drawn yet.
     }
 
     void DrawKikuri(Framebuffer fb, Kikuri k)

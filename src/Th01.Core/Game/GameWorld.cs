@@ -139,6 +139,7 @@ public sealed class GameWorld
                 else if (o.Stage.StageId == 2 * StageSetup.StagesPerScene - 1)
                     Boss = o.Stage.Route == 1 ? new Mima(this) : new YuugenMagan(this);
                 else if (o.Stage.StageId == Kikuri.Id && o.Stage.Route == 1) Boss = new Kikuri(this);
+                else if (o.Stage.StageId == Elis.Id && o.Stage.Route == 0) Boss = new Elis(this);
             }
             else
             {

@@ -232,7 +232,6 @@ public sealed class Kikuri : Boss
                 if (Hp <= HpPhase6End)
                 {
                     for (int i = 0; i < 4; i++) w.Lasers.Slots[i].Reset();   // "4? Doubly broken": only the first four
-                    w.Sound.PlaySe(5);
                     Phase = 8;
                     PhaseFrame = 0;
                 }

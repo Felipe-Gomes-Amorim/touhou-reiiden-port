@@ -46,7 +46,7 @@ public class KikuriTests
     {
         Assert.IsType<Kikuri>(World(2).Boss);
         Assert.Equal(14, K(World(2)).Hp);
-        Assert.Null(new GameWorld(new GameOptions { Stage = JigokuBoss(route: 0) }, NullSoundSink.Instance).Boss);
+        Assert.IsType<Elis>(new GameWorld(new GameOptions { Stage = JigokuBoss(route: 0) }, NullSoundSink.Instance).Boss);   // the Makai boss of the same stage
         Assert.IsType<Mima>(new GameWorld(new GameOptions { Stage = JigokuBoss(id: 9) }, NullSoundSink.Instance).Boss);
     }
 

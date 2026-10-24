@@ -100,6 +100,7 @@ public sealed class GameSession : IGameSession, ITraceSource
     public GameOverResult? GameOverResult { get; private set; }
 
     int _harryUpWait;
+    int _bonusSteps;
     int _missStage;
     int _missTick;
     int _missFrame;
@@ -211,6 +212,10 @@ public sealed class GameSession : IGameSession, ITraceSource
                 StepRouteSelect(input);
                 return;
             case SessionPhase.Entrance:
+                // The first stage of a scene and the boss stages type the title in one character at a time, a click each
+                // (entrance.hpp: 6 characters, 8 frames apart). ref: th01/main_01.cpp stage_entrance
+                if ((w.StageId % StageSetup.StagesPerScene is 0 or StageSetup.BossStage) && EntranceTicks - _entranceWait is var e and < 48 && e % 8 == 0)
+                    w.Sound.PlaySe(14);
                 if (--_entranceWait <= 0) Phase = SessionPhase.WaitForShot;
                 return;
             case SessionPhase.StageBonus:
@@ -373,6 +378,9 @@ public sealed class GameSession : IGameSession, ITraceSource
         ScoreExtendUpdate();
         _bonusPrevShot = false;
         _bonusPrevOk = false;
+        // The boss bonus (TOTLE) scrambles its digits with a sound per step. ASSUMPTION: one step per tick (the original
+        // waits delay(4) per step) and the input is not blocked meanwhile. TODO(T5)
+        _bonusSteps = boss ? b.TotleSoundSteps() : 0;
         Phase = SessionPhase.StageBonus;
     }
 
@@ -380,6 +388,11 @@ public sealed class GameSession : IGameSession, ITraceSource
     // release edge of Shot or OK (a key already held on entry counts as pressed).
     void StepBonus(GameButtons input)
     {
+        if (_bonusSteps > 0)
+        {
+            _bonusSteps--;
+            _w.Sound.PlaySe(2);
+        }
         bool shot = (input & GameButtons.Shot) != 0, ok = (input & GameButtons.Ok) != 0;
         bool done = (_bonusPrevShot && !shot) || (_bonusPrevOk && !ok);
         _bonusPrevShot = shot;
@@ -551,7 +564,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         h.Add(w.BombFrame); h.Add(w.BombDoubletapFrame);
         h.Add(w.PelletSpeed);
         h.Add(_harryUpWait); h.Add(_defeatWait); h.Add(_routeDelay); h.Add(_routePrevUp); h.Add(_routePrevDown); h.Add(_routePrevOk); h.Add(w.RouteChosen);
-        w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk);
+        w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk); h.Add(_bonusSteps);
         if (Bonus is { } bn) { h.Add(bn.Time); h.Add(bn.CardCombo); h.Add(bn.Resources); h.Add(bn.StageNumber); h.Add(bn.Total); }
         foreach (var v in w.BonusPerStage) h.Add(v); h.Add(w.StageCleared); h.Add(w.CardFlipCycle); h.Add(w.PointValue);
         w.Items.Hash(ref h); w.Sparkles.Hash(ref h); w.Particles.Hash(ref h); w.Missiles.Hash(ref h); w.Lasers.Hash(ref h); w.Pellets.Hash(ref h); w.Timer.Hash(ref h); w.Stage?.Hash(ref h);
