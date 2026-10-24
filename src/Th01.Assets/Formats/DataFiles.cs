@@ -79,4 +79,29 @@ public static class ReiidenCfg
             throw new InvalidDataException("Not a REIIDEN.CFG file (missing REIIDEN id or too short).");
         return new GameOptions((sbyte)data[7], (sbyte)data[8], (sbyte)data[9], (sbyte)data[10]);
     }
+
+    /// <summary>What the game writes by default: normal, BGM on, 1 bomb, 2 extra lives. ref: th01/formats/cfg.hpp</summary>
+    public static GameOptions Default => new(1, 1, 1, 2);
+
+    public static byte[] Serialize(GameOptions o)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+        if (o.Rank is < 0 or > 3) throw new ArgumentException("Rank must be 0..3.");
+        if (o.BgmMode is < 0 or > 1) throw new ArgumentException("BGM mode must be 0 (off) or 1 (MDRV2).");
+        if (o.CreditBombs < 0) throw new ArgumentException("Credit bombs cannot be negative.");
+        if (o.CreditLivesExtra is < 0 or > 5) throw new ArgumentException("Extra lives must be 0..5.");
+        byte[] d = new byte[Size];
+        "REIIDEN"u8.CopyTo(d);
+        d[7] = (byte)o.Rank; d[8] = (byte)o.BgmMode; d[9] = (byte)o.CreditBombs; d[10] = (byte)o.CreditLivesExtra;
+        return d;
+    }
+
+    /// <summary>Writes the options; an existing file is first copied to path + ".bak" (kept if already there).</summary>
+    public static void Save(string path, GameOptions options)
+    {
+        byte[] data = Serialize(options);
+        if (File.Exists(path) && !File.Exists(path + ".bak")) File.Copy(path, path + ".bak");
+        File.WriteAllBytes(path + ".tmp", data);
+        File.Move(path + ".tmp", path, overwrite: true);
+    }
 }

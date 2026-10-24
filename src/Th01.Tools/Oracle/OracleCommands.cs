@@ -58,13 +58,13 @@ public static class OracleCommands
     static int RecordPort(string[] args)
     {
         var pos = new List<string>();
-        string? data = null; int stage = 0; bool sandbox = false;
+        string? data = null; int? stageArg = null; bool sandbox = false;
         for (int i = 1; i < args.Length; i++)
         {
             switch (args[i])
             {
                 case "--data" when i + 1 < args.Length: data = args[++i]; break;
-                case "--stage" when i + 1 < args.Length: stage = int.Parse(args[++i]); break;
+                case "--stage" when i + 1 < args.Length: stageArg = int.Parse(args[++i]); break;
                 case "--sandbox": sandbox = true; break;
                 default: pos.Add(args[i]); break;
             }
@@ -73,6 +73,7 @@ public static class OracleCommands
         try
         {
             var script = InputScript.Load(pos[0]);
+            int stage = stageArg ?? script.IntDirective("stage") ?? 0;
             var trace = RecordPortTrace(script, data ?? GameDataConfig.Resolve(), stage, sandbox);
             using var w = new StreamWriter(pos[1]);
             trace.Write(w);
@@ -89,7 +90,7 @@ public static class OracleCommands
     /// <summary>Runs the real gameplay session headless on the script (stage = 0-based, sandbox = no cards/obstacles).</summary>
     public static TraceTable RecordPortTrace(InputScript script, string? dataFolder, int stage, bool sandbox)
     {
-        IGameSession session = CreateSession(script.Seed, sandbox ? null : LoadStage(dataFolder, stage));
+        IGameSession session = CreateSession(script.Seed, sandbox ? null : LoadStage(dataFolder, stage, script.IntDirective("route") ?? 0));
         return PortRecorder.Record(session, script);
     }
 
@@ -97,7 +98,7 @@ public static class OracleCommands
     static GameSession CreateSession(uint frameRand, StageSetup? stage) =>
         new(new GameOptions { FrameRand = frameRand, Stage = stage });
 
-    static StageSetup LoadStage(string? dataFolder, int stageId)
+    static StageSetup LoadStage(string? dataFolder, int stageId, int route)
     {
         if (dataFolder is null || !Directory.Exists(dataFolder))
             throw new ArgumentException($"game data folder not found; pass --data or set {GameDataConfig.EnvVar} (or use --sandbox)");
@@ -107,7 +108,7 @@ public static class OracleCommands
         var obstacles = new byte[StageSetup.Rows, StageSetup.Cols];
         Array.Copy(layout.Cards, cards, cards.Length);
         Array.Copy(layout.Obstacles, obstacles, obstacles.Length);
-        return new StageSetup { StageId = stageId, Route = 0, Cards = cards, Obstacles = obstacles };
+        return new StageSetup { StageId = stageId, Route = route, Cards = cards, Obstacles = obstacles };
     }
 
 }

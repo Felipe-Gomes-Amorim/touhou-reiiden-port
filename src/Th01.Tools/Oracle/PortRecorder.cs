@@ -1,4 +1,5 @@
 using Th01.Core.Diagnostics;
+using Th01.Core.Game;
 using Th01.Core.Input;
 using Th01.Core.Sim;
 
@@ -26,9 +27,14 @@ public static class PortRecorder
         var t = new TraceTable(columns);
         t.Meta["source"] = "port";
         t.Meta["seed"] = script.Seed.ToString();
-        for (int tick = 0; tick < script.Ticks; tick++)
+        // The original senses input once per main-loop iteration; blocking animations (miss, HARRY UP, stage banner)
+        // last many VSyncs inside one iteration and never read the keys. The script is indexed by iteration, so the
+        // port gets no input during those phases and the script cursor does not advance (docs/ORACLE.md section 17).
+        int cursor = 0;
+        for (int tick = 0; cursor < script.Ticks && tick < script.Ticks * 8; tick++)
         {
-            GameButtons held = script.At(tick);
+            bool blocked = session is GameSession g && g.Phase is SessionPhase.MissAnimation or SessionPhase.HarryUp or SessionPhase.Entrance;
+            GameButtons held = blocked ? GameButtons.None : script.At(cursor);
             var vals = tracer?.TraceValues();
             var row = new string[columns.Length];
             for (int c = 0; c < row.Length; c++)
@@ -37,13 +43,14 @@ public static class PortRecorder
                 row[c] = name switch
                 {
                     "tick" => TraceTable.Num(tick),
-                    "input_bits" => TraceTable.Num((int)held),
+                    "input_bits" => blocked ? "" : TraceTable.Num((int)held),
                     "state_hash" => session.StateHash().ToString("x16"),
                     _ => vals is not null && vals.TryGetValue(name, out var v) ? TraceTable.Num(v) : "",
                 };
             }
             t.Rows.Add(row);
             session.Step(held);
+            if (!blocked) cursor++;
         }
         return t;
     }

@@ -193,7 +193,150 @@ public class RenderTests
         var noFont = Session(FullArt());
         var a = new Framebuffer(); var b = new Framebuffer();
         withFont.Render(a); noFont.Render(b);
-        Assert.NotEqual(15, At(b, 256 + 4, 16 + 4));
-        Assert.Equal(15, At(a, 256 + 4, 16 + 4));          // a score digit cell is lit
+        Assert.NotEqual(7, At(b, 256 + 4, 16 + 4));
+        Assert.Equal(7, At(a, 256 + 4, 16 + 4));          // a score digit cell is lit
+    }
+
+    // ---- embedded 1-bit sprites ----
+
+    /// <summary>A mono frame: index 1 where lit (the platform may also provide alpha instead).</summary>
+    static ArtFrame Mono(int w, int h, Func<int, int, bool> lit, bool useAlpha)
+    {
+        var px = new byte[w * h]; var al = new byte[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) { bool on = lit(x, y); px[y * w + x] = (byte)(on ? 1 : 0); al[y * w + x] = (byte)(on ? 1 : 0); }
+        return new ArtFrame(w, h, px, useAlpha ? al : Array.Empty<byte>(), Array.Empty<byte>());
+    }
+
+    sealed class MonoArt : IGameArt
+    {
+        public readonly Dictionary<(string, int), ArtFrame> F = new();
+        public int FrameCount(string sheet) => 0;
+        public bool TryGetFrame(string sheet, int frame, out ArtFrame art) => F.TryGetValue((sheet, frame), out art);
+        public bool TryGetBackground(out ArtFrame art) { art = default; return false; }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Pellets_use_the_embedded_sprites_in_cel_order_and_fall_back_to_boxes(bool useAlpha)
+    {
+        var art = new MonoArt();
+        art.F[("pellet", 0)] = Mono(8, 8, (x, y) => true, useAlpha);                       // solid
+        art.F[("pellet", 1)] = Mono(8, 8, (x, y) => x == 0, useAlpha);                     // "ring" stand-in
+        art.F[("pellet", 2)] = Mono(8, 8, (x, y) => y == 0, useAlpha);                     // "dotted ring" stand-in
+        var s = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) }, null, art);
+        var w = s.World;
+        w.Pellets.AddGroup(200, 200, PelletGroup.One, 16);
+        var fb = new Framebuffer();
+        s.Render(fb);
+        Assert.Equal(7, At(fb, 203, 205));                     // solid sprite lit everywhere
+        w.Pellets.DecayFrame[0] = 1;                           // first decay cel
+        s.Render(fb);
+        Assert.Equal(7, At(fb, 200, 205));                    // column 0 lit
+        Assert.Equal(0, At(fb, 203, 205));
+        w.Pellets.DecayFrame[0] = 15;                          // second decay cel
+        s.Render(fb);
+        Assert.Equal(7, At(fb, 203, 200));                     // row 0 lit
+        Assert.Equal(0, At(fb, 203, 205));
+        w.Pellets.DecayFrame[0] = 20;                          // finished: nothing drawn
+        s.Render(fb);
+        Assert.Equal(0, At(fb, 203, 200));
+
+        var plain = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) });
+        plain.World.Pellets.AddGroup(200, 200, PelletGroup.One, 16);
+        plain.Render(fb);
+        Assert.Equal(15, At(fb, 203, 205));                    // box fallback keeps working
+    }
+
+    [Fact]
+    public void Spawn_clouds_use_the_cloud_sprite_and_particles_are_single_dots()
+    {
+        var art = new MonoArt();
+        art.F[("pellet_c", 0)] = Mono(16, 16, (x, y) => true, false);
+        var s = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) }, null, art);
+        s.World.Pellets.SpawnWithCloud = true;
+        s.World.Pellets.AddGroup(300, 200, PelletGroup.One, 16);
+        for (int k = 0; k < 2; k++) s.World.Pellets.Update();     // cloud frame 3: first cloud cel
+        var fb = new Framebuffer();
+        s.Render(fb);
+        Assert.Equal(7, At(fb, 296, 196));                       // 16x16 cloud centred on the 8x8 pellet
+
+        s.World.Particles.Init();
+        s.World.Rng = new Th01.Core.Rng.IRand(3);
+        s.World.Particles.Update(ParticleOrigin.Top); s.World.Particles.Update(ParticleOrigin.Top);
+        var (x, y) = s.World.Particles.PixelPos(1);
+        s.Render(fb);
+        Assert.Equal(7, At(fb, x, y));
+    }
+
+    [Fact]
+    public void New_effects_do_not_change_the_hash()
+    {
+        var art = new MonoArt();
+        art.F[("pellet", 0)] = Mono(8, 8, (x, y) => true, false);
+        var a = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) });
+        var b = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) }, null, art);
+        foreach (var g in new[] { a, b })
+        {
+            g.World.Pellets.AddGroup(200, 200, PelletGroup.One, 16);
+            g.World.Missiles.Add(100, 100, 8, 8);
+            g.World.Lasers[0].Spawn(50, 100, 50, 300, 64, 9, 20, 1);
+            g.World.Particles.Init();
+        }
+        var fb = new Framebuffer();
+        for (int i = 0; i < 50; i++) { a.Step(GameButtons.None); b.Step(GameButtons.None); b.Render(fb); }
+        Assert.Equal(a.StateHash(), b.StateHash());
+    }
+
+    [Fact]
+    public void Sparkles_use_the_red_invincibility_cels_of_shape8x8_and_fall_back_to_boxes()
+    {
+        var art = new MonoArt();
+        for (int c = 0; c < 4; c++) { int cc = c; art.F[("shape8x8", 3 + c)] = Mono(8, 8, (x, y) => x == cc, false); }
+        var s = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) }, null, art);
+        var w = s.World;
+        w.Sparkles.Update(true);
+        // force a known state: sparkle 0 drawn this tick with frame value 2 (stored 3) -> cel 1; sparkle 1 frame 6 -> cel 2
+        w.Sparkles.Left[0] = 100; w.Sparkles.Top[0] = 300; w.Sparkles.Frame[0] = 3;
+        w.Sparkles.Left[1] = 200; w.Sparkles.Top[1] = 300; w.Sparkles.Frame[1] = 7;
+        for (int i = 2; i < 8; i++) w.Sparkles.Frame[i] = 0;
+        var fb = new Framebuffer();
+        s.Render(fb);
+        Assert.Equal(10, At(fb, 101, 303));              // column 1 lit in red (V_RED = 10)
+        Assert.Equal(0, At(fb, 100, 303));
+        Assert.Equal(10, At(fb, 202, 303));              // frame 6 plays cel 8 - 6 = 2
+        Assert.Equal(0, At(fb, 201, 303));
+        var plain = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) });
+        plain.World.Sparkles.Update(true);
+        plain.World.Sparkles.Left[0] = 100; plain.World.Sparkles.Top[0] = 300; plain.World.Sparkles.Frame[0] = 3;
+        plain.Render(fb);
+        Assert.Equal(14, At(fb, 100, 300));              // box fallback
+    }
+
+    [Fact]
+    public void Lasers_are_bars_as_wide_as_their_width_and_boss_hp_is_a_dithered_bar()
+    {
+        var s = new GameSession(new GameOptions { FrameRand = 5, Stage = Setup(cards: new[] { (9, 19) }) });
+        var w = s.World;
+        w.Lasers[0].Spawn(300, 100, 300, 300, 8 * 4, 7, 100, 4);       // 4 px wide, 4 px per frame
+        w.Lasers[0].Update();
+        var fb = new Framebuffer();
+        s.Render(fb);
+        Assert.Equal(7, At(fb, 300, 102));
+        Assert.Equal(7, At(fb, 303, 102));
+        Assert.Equal(0, At(fb, 304, 102));
+
+        var b = new GameSession(new GameOptions { FrameRand = 5, Stage = new StageSetup { StageId = 4, Cards = new bool[10, 20], Obstacles = new byte[10, 20] } });
+        var boss = b.World.Boss!;
+        boss.Hp = 8;
+        b.Render(fb);
+        Assert.Equal(10, At(fb, 128, 48));               // points 0 and 1: red
+        Assert.Equal(10, At(fb, 128 + 8 * 1 + 3, 60));
+        Assert.Equal(10, At(fb, 128 + 8 * 3, 48));       // points 2..5: red/white dither, even column red
+        Assert.Equal(7, At(fb, 128 + 8 * 3 + 1, 48));
+        Assert.Equal(7, At(fb, 128 + 8 * 6, 48));        // points 6 and 7: white
+        Assert.Equal(0, At(fb, 128 + 8 * 8, 48));        // no 9th point
+        Assert.Equal(0, At(fb, 128 + 7, 48));            // the 8th column of a point is the gap
     }
 }

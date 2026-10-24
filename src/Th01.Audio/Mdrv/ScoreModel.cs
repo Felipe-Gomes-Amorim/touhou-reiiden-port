@@ -23,6 +23,11 @@ public sealed class DecodedTrack
     public required int TotalTicks { get; init; }
     /// <summary>True when the track ended with F3 (jump back = the music loops), false for FF.</summary>
     public required bool Loops { get; init; }
+    /// <summary>
+    /// Tick the F3 jump lands on (the music loops from here to <see cref="TotalTicks"/>), or -1 when the track does not
+    /// loop or the target is not a command boundary that was reached.
+    /// </summary>
+    public int LoopStartTick { get; init; } = -1;
     /// <summary>Commands that this decoder skipped without knowing their meaning (opcode -> count).</summary>
     public required IReadOnlyDictionary<int, int> Ignored { get; init; }
 }

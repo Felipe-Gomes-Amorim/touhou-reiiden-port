@@ -1,0 +1,10 @@
+# Scenario (c): bomb via Left+Right+Shot (the original's "both directions + shot" chord), twice (second with no bombs left).
+seed 1
+ticks 500
+0   none
+40  shot
+44  none
+120 left right shot
+130 none
+260 left right shot
+270 none

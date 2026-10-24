@@ -1,6 +1,7 @@
 using Th01.Assets;
 using Th01.Assets.Formats;
 using Th01.Assets.Model;
+using Th01.Core.Audio;
 using Th01.Core.Game;
 using Th01.Core.Graphics;
 using Th01.Core.Sim;
@@ -19,14 +20,20 @@ public sealed class SessionFactory
     readonly IAssetSource _assets;
     readonly int _stageId;
     readonly int _route;
+    readonly IFontSource? _font;
+    readonly MissingArtLog? _log;
+    readonly ISoundSink? _sound;
 
     /// <param name="stageId">0-based stage across the whole game (stage_num - 1).</param>
     /// <param name="route">0 = Makai, 1 = Jigoku.</param>
-    public SessionFactory(IAssetSource assets, int stageId = 0, int route = 0)
+    public SessionFactory(IAssetSource assets, int stageId = 0, int route = 0, IFontSource? font = null, MissingArtLog? log = null, ISoundSink? sound = null)
     {
         if (stageId < 0 || stageId >= 4 * StageSetup.StagesPerScene) throw new ArgumentOutOfRangeException(nameof(stageId), "Stage must be 0..19.");
         if (route is < 0 or > 1) throw new ArgumentOutOfRangeException(nameof(route), "Route must be 0 (Makai) or 1 (Jigoku).");
         _assets = assets;
+        _font = font;
+        _sound = sound;
+        _log = log;
         _stageId = stageId;
         _route = route;
     }
@@ -36,6 +43,19 @@ public sealed class SessionFactory
     /// one scene per 5 stages per route (1/2, 3/4, 5/6).
     /// </summary>
     public static int SceneId(int stageId, int route) => stageId < StageSetup.StagesPerScene ? 0 : (stageId / StageSetup.StagesPerScene) * 2 - 1 + route;
+
+    /// <summary>
+    /// Background picture of a stage. Boss stages have their own: stage 5 BOSS1, stage 10 BOSS2 (Makai) / BOSS3 (Jigoku, Mima),
+    /// stage 15 BOSS4 (Jigoku) / BOSS5 (Makai). The stage 20 bosses draw several pictures themselves and are not ported, so they
+    /// keep the scene's ST background. ref: th01/main_01.cpp (boss stage switch)
+    /// </summary>
+    public static string BackgroundFile(int stageId, int route, int scene) => stageId switch
+    {
+        StageSetup.BossStage => "BOSS1.GRP",
+        2 * StageSetup.StagesPerScene - 1 => route == 0 ? "BOSS2.GRP" : "BOSS3.GRP",
+        3 * StageSetup.StagesPerScene - 1 => route == 1 ? "BOSS4.GRP" : "BOSS5.GRP",
+        _ => $"ST{scene}.GRP",
+    };
 
     /// <summary>Core's StageSetup from the Assets model (raw bytes copied, nothing normalised).</summary>
     public static StageSetup ToStageSetup(StageLayout layout, int stageId, int route)
@@ -59,44 +79,82 @@ public sealed class SessionFactory
             throw new InvalidOperationException($"STAGE{scene}.DAT has {layouts.Count} stage(s) but stage {_stageId + 1} was asked for.");
 
         var setup = ToStageSetup(layouts[inScene], _stageId, _route);
-        var art = new GameAssetArt(SheetLoader());
-        // The original loads the boss's own picture on boss stages (its palette matches the boss sprites) and
-        // ST<scene>.GRP otherwise. Only the bosses ported so far are listed; the others fall back to ST<scene>.GRP.
-        string grp = _stageId == StageSetup.BossStage ? "BOSS1.GRP"
-            : _stageId == StageSetup.MimaStage && _route == StageSetup.RouteJigoku ? "BOSS3.GRP"
-            : $"ST{scene}.GRP";
+        var art = new GameAssetArt(_log);
+        RegisterSheets(art);
+        RegisterEmbedded(art);
+        RegisterHudMask(art);
+        string grp = BackgroundFile(_stageId, _route, scene);
         if (_assets.Exists(grp)) art.SetBackground(Load(grp, GrpImage.Load));
         // frame_rand is the title screen's frame counter in the original; callers pass a deterministic value.
-        var session = new GameSession(makeOptions(setup), art: art);
+        var session = new GameSession(makeOptions(setup), sound: _sound, art: art, font: _font);
         return new GameStart(session, art);
     }
 
     /// <summary>
-    /// Loads .PTN/.BOS/.GRC sheets from the game archive on first use. A missing or unreadable sheet is just "not
-    /// available": the renderer falls back to flat boxes for it.
+    /// Every .PTN / .BOS / .GRC in the archive, loaded on first use under its exact file name (the names GameRenderer asks for:
+    /// STG.PTN, MIKO.PTN, NUMB.PTN, MIKO_AC.BOS, MIKO_AC2.BOS, BOSS1*.BOS ...). docs/FORMATS.md has the role of each.
     /// </summary>
-    Func<string, SpriteSheet?>? SheetLoader()
+    void RegisterSheets(GameAssetArt art)
     {
-        GameAssets pack;
-        try { pack = new GameAssets(_assets); }
-        catch (Exception e) when (e is FileNotFoundException or InvalidDataException) { return null; }
-        return name =>
+        if (!_assets.Exists(ExpectedFiles.ArchiveName)) return;
+        var games = new GameAssets(_assets);
+        foreach (string name in games.PackNames)
         {
-            try
+            if (name.EndsWith(".PTN", StringComparison.OrdinalIgnoreCase)) art.AddLazySheet(name, () => games.GetPtn(name));
+            else if (name.EndsWith(".BOS", StringComparison.OrdinalIgnoreCase)) art.AddLazySheet(name, () => games.GetBos(name));
+            else if (name.EndsWith(".GRC", StringComparison.OrdinalIgnoreCase)) art.AddLazySheet(name, () => games.GetGrc(name));
+        }
+    }
+
+    /// <summary>Names of the monochrome sheets compiled into REIIDEN.EXE that the art exposes (see <see cref="IGameArt"/>).</summary>
+    public static readonly string[] EmbeddedSheetNames = ["pellet", "pellet_c", "laser_s", "bonusbox", "pillar", "shape8x8", "leaf_s", "leaf_l", "leaf_r", "ileave_m", "mousecur"];
+
+    /// <summary>
+    /// The sprites the original keeps inside its executable are found in the user's REIIDEN.EXE the first time they are asked for.
+    /// Without the executable they stay missing and the renderer keeps its plain shapes.
+    /// </summary>
+    /// <summary>The HUD frame and captions (MASK.GRF, 640x66, monochrome) as the one-frame sheet "mask".</summary>
+    void RegisterHudMask(GameAssetArt art)
+    {
+        if (!_assets.Exists("MASK.GRF")) return;
+        var games = new GameAssets(_assets);
+        art.AddLazySheet("mask", () => new SpriteSheet([games.GetHudMask()]));
+    }
+
+    void RegisterEmbedded(GameAssetArt art)
+    {
+        if (!_assets.Exists("REIIDEN.EXE")) return;
+        var games = new GameAssets(_assets);
+        foreach (string name in EmbeddedSheetNames)
+        {
+            art.AddLazySheet(name, () =>
             {
-                return Path.GetExtension(name).ToUpperInvariant() switch
-                {
-                    ".PTN" => pack.GetPtn(name),
-                    ".BOS" => pack.GetBos(name),
-                    ".GRC" => pack.GetGrc(name),
-                    ".GRF" => name.Equals("MASK.GRF", StringComparison.OrdinalIgnoreCase) ? new SpriteSheet([pack.GetHudMask()]) : null,
-                    // No extension: a monochrome table embedded in REIIDEN.EXE (EmbeddedSprites.KnownNames: "pellet", "laser_s"...).
-                    "" => pack.GetEmbeddedSprites() is { } emb && emb.Has(name) ? emb.Get(name) : null,
-                    _ => null,
-                };
-            }
-            catch (Exception e) when (e is FileNotFoundException or InvalidDataException or EndOfStreamException or KeyNotFoundException) { return null; }
-        };
+                var e = games.GetEmbeddedSprites();
+                if (!e.Has(name)) throw new FileNotFoundException($"{name} was not found inside REIIDEN.EXE.");
+                var sheet = e.Get(name);
+                return name == "pellet" ? PelletCells(sheet) : sheet;
+            });
+        }
+    }
+
+    /// <summary>
+    /// The pellet table is 3 cells x 8 horizontal pre-shifts of 16x8 (cell-major) because the original draws on byte boundaries.
+    /// We position per pixel, so keep only shift 0 of each cell: the 8x8 picture sits in the left 8 columns.
+    /// </summary>
+    public static SpriteSheet PelletCells(SpriteSheet raw)
+    {
+        const int Cells = 3, Shifts = 8;
+        if (raw.Frames.Count != Cells * Shifts || raw.FrameWidth != 16 || raw.FrameHeight != 8)
+            throw new InvalidDataException("The pellet table does not have the expected 3 cells x 8 shifts of 16x8.");
+        var frames = new List<IndexedImageA>(Cells);
+        for (int c = 0; c < Cells; c++)
+        {
+            var src = raw.Frames[c * Shifts];
+            var px = new byte[8 * 8];
+            for (int y = 0; y < 8; y++) Array.Copy(src.Pixels, y * 16, px, y * 8, 8);
+            frames.Add(new IndexedImageA(8, 8, px, (byte[])px.Clone()));
+        }
+        return new SpriteSheet(frames);
     }
 
     IReadOnlyList<StageLayout> LoadStageDat(int scene)
@@ -128,8 +186,8 @@ public interface IStageProvider
     GameStart Create(int stageId, int route, Func<StageSetup, Th01.Core.Game.GameOptions> makeOptions);
 }
 
-public sealed class AssetStageProvider(IAssetSource assets) : IStageProvider
+public sealed class AssetStageProvider(IAssetSource assets, IFontSource? font = null, MissingArtLog? log = null, ISoundSink? sound = null) : IStageProvider
 {
     public GameStart Create(int stageId, int route, Func<StageSetup, Th01.Core.Game.GameOptions> makeOptions) =>
-        new SessionFactory(assets, stageId, route).Create(makeOptions);
+        new SessionFactory(assets, stageId, route, font, log, sound).Create(makeOptions);
 }

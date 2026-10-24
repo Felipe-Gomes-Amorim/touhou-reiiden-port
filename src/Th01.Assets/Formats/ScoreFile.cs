@@ -54,6 +54,23 @@ public static class ScoreFileIO
         return f;
     }
 
+    /// <summary>File name for a difficulty: 0 easy, 1 normal, 2 hard, 3 lunatic (ref: th01/shiftjis/fns.hpp).</summary>
+    public static string FileNameFor(int rank) => rank switch
+    {
+        0 => "REYHIES.DAT",
+        1 => "REYHINO.DAT",
+        2 => "REYHIHA.DAT",
+        3 => "REYHILU.DAT",
+        _ => throw new ArgumentOutOfRangeException(nameof(rank), "Rank must be 0..3."),
+    };
+
+    /// <summary>Reads the table of a difficulty from a folder; a missing file gives the default table (nothing is written).</summary>
+    public static ScoreFile LoadOrDefault(string folder, int rank)
+    {
+        string path = Path.Combine(folder, FileNameFor(rank));
+        return File.Exists(path) ? Parse(File.ReadAllBytes(path)) : CreateDefault();
+    }
+
     public static ScoreFile Parse(ReadOnlySpan<byte> data)
     {
         var raw = ScoreDat.Load(data);

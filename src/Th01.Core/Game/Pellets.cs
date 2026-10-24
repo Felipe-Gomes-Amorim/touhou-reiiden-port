@@ -310,6 +310,16 @@ public sealed class Pellets
                     Angle[i] = 0;
                 }
                 break;
+            case PelletMotion.FallStraightFromTopThenRegular:
+                // Reaching the top rows: stop sideways drift and fall at the stored speed.
+                if (ToPixel(CurTop[i]) <= Playfield.Top + H / 4 * 3)
+                {
+                    VelX[i] = 0;
+                    VelY[i] = Speed[i];
+                    Motion[i] = PelletMotion.Regular;
+                    if (ToPixel(CurTop[i]) <= Playfield.Top) CurTop[i] = (Playfield.Top + 1) << 4;
+                }
+                break;
             case PelletMotion.Chase:
                 Vector2Between(ToPixel(CurLeft[i]), ToPixel(CurTop[i]), PlayerCenterX - W, PlayerCenterY,
                     out int tx, out int ty, Speed[i]);

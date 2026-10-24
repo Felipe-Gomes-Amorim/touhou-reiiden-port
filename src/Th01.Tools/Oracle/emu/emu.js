@@ -7,6 +7,8 @@ class Emu {
   /** @param {{dosbox:string, work:string, conf:string, port?:number}} o  work = cwd of the emulator (dumps land here) */
   constructor(o) { this.o = o; this.m = new Mcp(o.port || 7777); this.n = 0; }
   async start() {
+    try { cp.execSync("taskkill /F /IM dosbox-x.exe", { stdio: "ignore" }); } catch { /* none running */ }   // stale instance would lock the disk copy
+    await this.sleep(2000);
     await this.m.listen();
     this.proc = cp.spawn(this.o.dosbox, ['-conf', this.o.conf], { cwd: this.o.work, stdio: 'ignore' });
     await this.m.waitConnected();

@@ -1,0 +1,6 @@
+# Scenario (a): the Orb bounces off walls, ceiling and cards with the player parked in the corner (never touches it).
+seed 1
+ticks 700
+0   none
+40  shot          # leave "wait for shot"
+44  none

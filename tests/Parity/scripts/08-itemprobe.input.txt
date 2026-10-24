@@ -1,0 +1,7 @@
+# Probe (not a scenario): scenario 01 plus raw words of the item area DS:5390..53CF, to find when items appear.
+#@columns player_x,orb_x,orb_y,score,rng_seed,mem:5510:1,mem:5398:8
+seed 1
+ticks 400
+0   none
+40  shot
+44  none

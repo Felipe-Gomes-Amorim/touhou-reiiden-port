@@ -68,8 +68,8 @@ public static class ExpectedFiles
         new("REIIDEN2.GRP", false, "image (PI variant)"),
         new("REIIDEN3.GRP", false, "image (PI variant)"),
         new("REIMU.MDT", false, "music"),
-        new("REYHILU.DAT", false, "high scores (Lunatic rank; the disk ships it, the game keeps one REYHI<rank>.DAT per rank)"),
         new("REYHINO.DAT", false, "high scores (not on the disk: the game creates it on first run)"),
+        new("REYHILU.DAT", false, "high scores (Lunatic rank; the disk ships it, the game keeps one REYHI<rank>.DAT per rank)"),
         new("SHUGEN.MDT", false, "music"),
         new("ST0.GRP", true, "image (PI variant)"),
         new("ST0.MDT", false, "music"),
@@ -94,19 +94,6 @@ public static class ExpectedFiles
         new("ZUNSOFT.COM", false, "executable"),
         new("東方靈異.伝", true, "data archive"),
     ];
-
-    /// <summary>
-    /// Story-screen images (ending, game over, stage clear, title window) and the executables whose data segment
-    /// holds the Shift-JIS text shown with them. There are no separate script files.
-    /// </summary>
-    public static readonly IReadOnlyList<string> CutsceneImages =
-    [
-        "CLEAR3.GRP", "ED1A.GRP", "ED1B.GRP", "ED1C.GRP", "ED1D.GRP", "ED1E.GRP", "ED2A.GRP", "ED3A.GRP", "ED3B.GRP",
-        "ED4A.GRP", "ED5A.GRP", "ED5B.GRP", "ED5C.GRP", "ENDB_A.GRP", "ENDB_B.GRP", "ENDM_A.GRP", "GAME_O.GRP",
-        "OP_WIN.GRP", "REIIDEN2.GRP", "REIIDEN3.GRP",
-    ];
-
-    public static readonly IReadOnlyList<string> TextExecutables = ["REIIDEN.EXE", "OP.EXE", "FUUIN.EXE"];
 
     /// <summary>Files inside the archive (names as stored; read them with PackFile).</summary>
     public static readonly IReadOnlyList<string> PackEntries =

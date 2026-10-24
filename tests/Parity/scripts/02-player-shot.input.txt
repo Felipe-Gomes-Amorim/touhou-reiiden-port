@@ -1,0 +1,20 @@
+# Scenario (b): player movement in both directions, with and without the shot/swing button.
+seed 1
+ticks 500
+0   none
+40  shot
+44  none
+60  left
+100 left shot
+108 left
+140 none
+160 right shot
+168 right
+230 right
+250 shot
+254 none
+280 left
+330 left shot
+336 none
+400 right shot
+410 none

@@ -1,0 +1,55 @@
+# Scenario (g): long play to reach the stage timer running low / HARRY UP. Player sweeps left and right; Shot restarts after a miss. Slim columns (long run).
+#@columns stage_timer,frame_since_harryup,score,rem_lives
+seed 1
+ticks 2400
+0   none
+40  shot
+44  none
+60 left
+120 right shot
+126 right
+190 none
+260 left
+320 right shot
+326 right
+390 none
+460 left
+520 right shot
+526 right
+590 none
+660 left
+720 right shot
+726 right
+790 none
+860 left
+920 right shot
+926 right
+990 none
+1060 left
+1120 right shot
+1126 right
+1190 none
+1260 left
+1320 right shot
+1326 right
+1390 none
+1460 left
+1520 right shot
+1526 right
+1590 none
+1660 left
+1720 right shot
+1726 right
+1790 none
+1860 left
+1920 right shot
+1926 right
+1990 none
+2060 left
+2120 right shot
+2126 right
+2190 none
+2260 left
+2320 right shot
+2326 right
+2390 none

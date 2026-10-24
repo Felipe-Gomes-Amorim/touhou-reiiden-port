@@ -1,85 +1,95 @@
 namespace Th01.Core.Game;
 
+public enum MissileState : byte
+{
+    Free = 0,
+    Moving = 1,
+    /// <summary>Exploding: 2 and 3 are the two animation cels; anything above frees the slot.</summary>
+    Hit = 2,
+}
+
 /// <summary>
-/// The missile pool (50 slots) Mima and Elis use. Positions and velocities are subpixels (1/16 px); velocities are
-/// handed in as whole pixels, as the original does. State only: the sprite choice is a pure function of the velocity.
+/// Guided-by-nothing homing-look missiles of the Mima fights (50 slots, 16x16, straight lines). They explode on
+/// touching the field edge and hurt the player on contact, including while they explode. The explosion advances only on
+/// every other frame, chosen by the low bit of frame_rand, so frame_rand is gameplay state here.
 /// ref: th01/main/bullet/missile.cpp
 /// </summary>
 public sealed class Missiles
 {
     public const int Count = 50;
     public const int W = 16, H = 16;
-    const int LeftMin = Playfield.Left, TopMin = Playfield.Top;
-    const int LeftMax = Playfield.Right - W, TopMax = Playfield.Bottom - 1;
-    const int HitCels = 2;
-    const int SoundExplode = 7;
-
-    public const int FlagFree = 0, FlagMoving = 1, FlagHit = 2, FlagHitLast = FlagHit + HitCels - 1;
+    const int LeftMax = Playfield.Right - W;
+    const int TopMax = Playfield.Bottom - 1;
+    const int HitLast = (int)MissileState.Hit + 1;
+    const int New = -1;
 
     readonly GameWorld _w;
 
-    public readonly int[] Flag = new int[Count];
     public readonly int[] CurLeft = new int[Count], CurTop = new int[Count];
+    /// <summary>Last drawn position; for exploding missiles the clamped edge position they blow up at.</summary>
+    public readonly int[] PrevLeft = new int[Count], PrevTop = new int[Count];
     public readonly int[] VelX = new int[Count], VelY = new int[Count];
-    /// <summary>Where the explosion is drawn.</summary>
-    public readonly int[] HitLeft = new int[Count], HitTop = new int[Count];
+    public readonly int[] Flag = new int[Count];
 
     public Missiles(GameWorld w) => _w = w;
 
-    public int Alive
-    {
-        get
-        {
-            int n = 0;
-            for (int i = 0; i < Count; i++) if (Flag[i] != FlagFree) n++;
-            return n;
-        }
-    }
-
-    /// <summary>Spawns a missile in the first free slot, if any. The velocity is in whole pixels per tick.</summary>
+    /// <summary>Spawns a missile at pixel (left, top) in the first free slot; velocities are in subpixels (1/16 px).</summary>
     public void Add(int left, int top, int velocityX, int velocityY)
     {
         for (int i = 0; i < Count; i++)
         {
-            if (Flag[i] != FlagFree) continue;
+            if (Flag[i] != (int)MissileState.Free) continue;
             CurLeft[i] = left << 4;
             CurTop[i] = top << 4;
-            VelX[i] = velocityX << 4;
-            VelY[i] = velocityY << 4;
-            Flag[i] = FlagMoving;
+            PrevLeft[i] = New;
+            VelX[i] = velocityX;
+            VelY[i] = velocityY;
+            Flag[i] = (int)MissileState.Moving;
             return;
         }
     }
 
-    public void Reset() => Array.Clear(Flag);
+    public void Reset() => Array.Fill(Flag, (int)MissileState.Free);
 
-    /// <summary>unput_update_render(): move, explode on the field edge, then test the player.</summary>
+    public int Alive => Flag.Count(f => f != (int)MissileState.Free);
+
+    /// <summary>Direction sprite for the renderer: 0..15, sixteen steps over the full turn (angle / 16).</summary>
+    public int DirectionCel(int i) => AngleMath.Iatan2(VelY[i], VelX[i]) / 16;
+
+    /// <summary>One frame: move or explode every missile, then test the player.</summary>
     public void Update()
     {
         var w = _w;
         int field = (int)(w.FrameRand & 1);
         for (int i = 0; i < Count; i++)
         {
-            if (Flag[i] == FlagFree) continue;
-            if (Flag[i] == FlagMoving)
+            if (Flag[i] == (int)MissileState.Free) continue;
+            if (Flag[i] == (int)MissileState.Moving)
             {
                 CurLeft[i] += VelX[i];
                 CurTop[i] += VelY[i];
-                int l = CurLeft[i] >> 4, t = CurTop[i] >> 4;
-                if (!Overlap.XyXywhLeGe(l, t, LeftMin, TopMin, LeftMax - LeftMin, TopMax - TopMin))
+                int px = CurLeft[i] >> 4, py = CurTop[i] >> 4;
+                if (!(px >= Playfield.Left && px <= LeftMax && py >= Playfield.Top && py <= TopMax))
                 {
-                    Flag[i] = FlagHit;
-                    HitLeft[i] = l < LeftMin ? LeftMin : l > LeftMax ? LeftMax : l;
-                    HitTop[i] = t < TopMin ? TopMin : t > TopMax ? Playfield.Bottom - H / 2 : t;
+                    Flag[i] = (int)MissileState.Hit;
+                    if (px < Playfield.Left) PrevLeft[i] = Playfield.Left << 4;
+                    else if (px > LeftMax) PrevLeft[i] = LeftMax << 4;
+                    if (py < Playfield.Top) PrevTop[i] = Playfield.Top << 4;
+                    else if (py > TopMax) PrevTop[i] = (Playfield.Bottom - H / 2) << 4;
+                }
+                else if (i % 2 == field)
+                {
+                    PrevLeft[i] = CurLeft[i];   // "drawn" this frame
+                    PrevTop[i] = CurTop[i];
                 }
             }
             else
             {
                 if (i % 2 == field) Flag[i]++;
-                if (Flag[i] > FlagHitLast)
+                if (Flag[i] > HitLast)
                 {
-                    Flag[i] = FlagFree;
-                    w.Sound.PlaySe(SoundExplode);
+                    Flag[i] = (int)MissileState.Free;
+                    w.Sound.PlaySe(7);
                 }
             }
         }
@@ -87,11 +97,11 @@ public sealed class Missiles
         if (w.PlayerInvincible) return;
         for (int i = 0; i < Count; i++)
         {
-            if (Flag[i] == FlagFree) continue;
-            // 46x46 pixels around the player's centre point
-            int l = CurLeft[i] >> 4, t = CurTop[i] >> 4;
-            if (l > w.Player.Left - W / 2 && l < w.Player.Left + Playfield.PlayerW / 2 + W / 2 &&
-                t < Player.Top + Playfield.PlayerH && t > Player.Top - H / 2)
+            if (Flag[i] == (int)MissileState.Free) continue;
+            int px = CurLeft[i] >> 4, py = CurTop[i] >> 4;
+            // 46x46 pixels around the player's centre
+            if (px > w.Player.Left - W / 2 && px < w.Player.Left + Playfield.PlayerW / 2 + W / 2 &&
+                py < Player.Top + Playfield.PlayerH && py > Player.Top - H / 2)
             {
                 w.PlayerIsHit = true;
                 return;
@@ -103,9 +113,7 @@ public sealed class Missiles
     {
         for (int i = 0; i < Count; i++)
         {
-            h.Add(Flag[i]);
-            if (Flag[i] == FlagFree) continue;
-            h.Add(CurLeft[i]); h.Add(CurTop[i]); h.Add(VelX[i]); h.Add(VelY[i]); h.Add(HitLeft[i]); h.Add(HitTop[i]);
+            h.Add(Flag[i]); h.Add(CurLeft[i]); h.Add(CurTop[i]); h.Add(PrevLeft[i]); h.Add(PrevTop[i]); h.Add(VelX[i]); h.Add(VelY[i]);
         }
     }
 }

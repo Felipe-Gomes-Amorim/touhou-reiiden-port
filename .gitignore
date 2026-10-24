@@ -9,6 +9,8 @@ obj/
 game-data/
 TestResults/
 
-# Coordenação local de sessões Claude (nunca subir)
-.claude/
-CLAUDE.md
+# Screenshots of the game are never committed
+*.png
+*.jpg
+*.jpeg
+screenshots/

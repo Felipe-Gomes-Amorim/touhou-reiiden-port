@@ -20,6 +20,7 @@ public sealed class OrbYAxis
 
     // Fixed-point views (value * 256, truncated toward zero) for traces; keeps float out of the callers.
     public long ForceQ8 => (long)(Force * 256.0);
+    public long ForceBits => BitConverter.DoubleToInt64Bits(Force);
     public long VelocityYQ8 => (long)(VelocityY * 256.0);
 
     /// <summary>Raw bits of <see cref="VelocityY"/> for carry-over between stages.</summary>

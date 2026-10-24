@@ -8,17 +8,27 @@ public sealed class GameAssetArt : IGameArt
 {
     readonly Dictionary<string, SpriteSheet> _sheets = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, ArtFrame[]> _frames = new(StringComparer.OrdinalIgnoreCase);
-    readonly HashSet<string> _unavailable = new(StringComparer.OrdinalIgnoreCase);
-    readonly Func<string, SpriteSheet?>? _loader;
+    readonly Dictionary<string, Func<SpriteSheet>> _lazy = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, string> _failed = new(StringComparer.OrdinalIgnoreCase);
+    readonly MissingArtLog? _log;
     ArtFrame? _background;
 
-    /// <param name="loader">Loads a sheet by file name the first time it is asked for; null when it is not available.</param>
-    public GameAssetArt(Func<string, SpriteSheet?>? loader = null) => _loader = loader;
+    public GameAssetArt(MissingArtLog? log = null) => _log = log;
 
-    void Ensure(string name)
+    /// <summary>Registers a sheet that is only read from disk the first time a frame is asked for. A sheet that fails to load stays missing (callers fall back).</summary>
+    public void AddLazySheet(string name, Func<SpriteSheet> load) => _lazy[name] = load;
+
+    ArtFrame[]? Resolve(string sheet)
     {
-        if (_loader is null || _frames.ContainsKey(name) || !_unavailable.Add(name)) return;
-        if (_loader(name) is { } sheet) { AddSheet(name, sheet); _unavailable.Remove(name); }
+        if (_frames.TryGetValue(sheet, out var f)) return f;
+        if (!_lazy.Remove(sheet, out var load)) return null;
+        try { AddSheet(sheet, load()); return _frames[sheet]; }
+        catch (Exception e) when (e is InvalidDataException or FileNotFoundException or IOException)
+        {
+            Console.Error.WriteLine($"{sheet} could not be loaded, using plain shapes instead: {e.Message}");
+            _failed[sheet] = e.Message;
+            return null;
+        }
     }
 
     public void AddSheet(string name, SpriteSheet sheet)
@@ -31,14 +41,20 @@ public sealed class GameAssetArt : IGameArt
 
     public int FrameCount(string sheet)
     {
-        Ensure(sheet);
-        return _frames.TryGetValue(sheet, out var f) ? f.Length : 0;
+        var f = Resolve(sheet);
+        if (f is null) NoteSheetMissing(sheet, -1);
+        return f?.Length ?? 0;
     }
+
+    void NoteSheetMissing(string sheet, int index) =>
+        _log?.Note(sheet, index, _failed.TryGetValue(sheet, out var why) ? $"sheet failed to load ({why})" : "sheet not registered");
 
     public bool TryGetFrame(string sheet, int frame, out ArtFrame art)
     {
-        Ensure(sheet);
-        if (_frames.TryGetValue(sheet, out var f) && (uint)frame < (uint)f.Length) { art = f[frame]; return true; }
+        var f = Resolve(sheet);
+        if (f is not null && (uint)frame < (uint)f.Length) { art = f[frame]; return true; }
+        if (f is null) NoteSheetMissing(sheet, frame);
+        else _log?.Note(sheet, frame, $"frame index outside the sheet (it has {f.Length} frame(s))");
         art = default;
         return false;
     }
@@ -46,6 +62,7 @@ public sealed class GameAssetArt : IGameArt
     public bool TryGetBackground(out ArtFrame art)
     {
         art = _background ?? default;
+        if (!_background.HasValue) _log?.Note("background", -1, "no background picture loaded for this stage");
         return _background.HasValue;
     }
 

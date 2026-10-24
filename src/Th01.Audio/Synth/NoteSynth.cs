@@ -28,6 +28,27 @@ public static class NoteSynth
     public static double Frequency(int semitone, double detuneCents = 0) =>
         440.0 * Math.Pow(2, (semitone - (4 * 12 + 9)) / 12.0 + detuneCents / 1200.0);
 
+    const int SineSize = 4096;
+    static readonly double[] SineTable = BuildSine();
+
+    static double[] BuildSine()
+    {
+        var t = new double[SineSize + 1];
+        for (int i = 0; i <= SineSize; i++) t[i] = Math.Sin(Tau * i / SineSize);
+        return t;
+    }
+
+    /// <summary>Sine of a phase in radians (table with linear interpolation; about 4x faster than Math.Sin).</summary>
+    static double FastSin(double radians)
+    {
+        double x = radians * (1.0 / Tau);
+        x -= Math.Floor(x);
+        double idx = x * SineSize;
+        int i = (int)idx;
+        double f = idx - i;
+        return SineTable[i] + (SineTable[i + 1] - SineTable[i]) * f;
+    }
+
     static double DbToGain(double db) => Math.Pow(10, -db / 20);
 
     sealed class Env
@@ -99,8 +120,8 @@ public static class NoteSynth
         {
             if (n == gateFrames) foreach (var e in env) e.Release();
             for (int i = 0; i < 4; i++) e4[i] = env[i].Next() * gains[i];
-            double Op(int i, double mod) => Math.Sin(Tau * phase[i] + mod) * e4[i];
-            double o1 = Math.Sin(Tau * phase[0] + fbScale * (s1a + s1b)) * e4[0];
+            double Op(int i, double mod) => e4[i] < 1e-6 ? 0 : FastSin(Tau * phase[i] + mod) * e4[i];
+            double o1 = e4[0] < 1e-6 ? 0 : FastSin(Tau * phase[0] + fbScale * (s1a + s1b)) * e4[0];
             s1b = s1a; s1a = o1;
             const double M = 4 * Math.PI;
             double o2, o3, o4, outp;

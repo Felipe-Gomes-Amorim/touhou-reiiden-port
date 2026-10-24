@@ -1,3 +1,4 @@
+using Th01.Core.Audio;
 using Th01.Core.Game;
 using Th01.Core.Graphics;
 using Th01.Core.Input;
@@ -5,7 +6,7 @@ using Th01.Core.Sim;
 
 namespace Th01.Platform.MonoGame;
 
-public enum Screen { Logo, Title, InGame, GameOver, NameEntry, Ranking }
+public enum Screen { Logo, Title, InGame, GameOver, NameEntry, Ranking, Cutscene }
 
 /// <summary>Loads a full-screen picture by file name (e.g. "REIIDEN2.GRP"). Returns false if it is not available.</summary>
 public interface IScreenImages
@@ -28,6 +29,17 @@ public sealed class GameFlow
 {
     public const int LogoTicks = 170;
     public const int LastStage = 19;
+    /// <summary>Last 0-based stage playable on the Makai route (see IsPlayable for the others).</summary>
+    public const int LastPlayableStage = 8;
+
+    /// <summary>
+    /// Whether a stage can be played yet: every card stage, the stage 5 boss, and the stage 10 boss on the Jigoku route (Mima).
+    /// The other bosses are not ported, so a run ends before reaching them.
+    /// </summary>
+    public static bool IsPlayable(int stageId, int route) =>
+        stageId % StageSetup.StagesPerScene != StageSetup.BossStage
+        || stageId == StageSetup.BossStage
+        || (stageId == 2 * StageSetup.StagesPerScene - 1 && route == 1);
     public const int FadeTicks = 15;
     const string NameChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.";
     static readonly string[] RankNames = ["EASY", "NORMAL", "HARD", "LUNATIC"];
@@ -37,7 +49,11 @@ public sealed class GameFlow
     readonly IScreenImages _images;
     readonly IFontSource _font;
     readonly Action<GameSettings>? _saveSettings;
-    readonly HiScoreTable[] _tables = [new(), new(), new(), new()];
+    readonly HiScoreTable?[] _tables = new HiScoreTable?[4];
+    readonly IScoreStore _scores;
+    readonly ISoundSink? _sound;
+    Slideshow? _show;
+    string? _endNote;
     readonly ButtonRepeater _repeat = new(delayTicks: 14, intervalTicks: 4);
     readonly PaletteFader _fader = new();
 
@@ -82,18 +98,29 @@ public sealed class GameFlow
 
     /// <param name="startStage">If set (0-based), skips logo and title and starts that stage directly.</param>
     public GameFlow(IStageProvider stages, IScreenImages images, IFontSource font, GameSettings settings,
-        Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0)
+        Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0,
+        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null)
     {
+        _sound = sound;
+        _scores = scores ?? new MemoryScoreStore();
         _stages = stages;
         _images = images;
         _font = font;
         Settings = settings;
         _saveSettings = saveSettings;
         _route = route;
-        if (startStage is int s) StartNewGame(s);
+        if (startCutscene is int c) StartCutscene(c == 1 ? Cutscenes.EndingOne() : Cutscenes.BossSlides(c == 3 ? 1 : 0));
+        else if (startStage is int s) StartNewGame(s);
     }
 
-    public HiScoreTable TableFor(Rank rank) => _tables[(int)rank];
+    public HiScoreTable TableFor(Rank rank) => _tables[(int)rank] ??= _scores.Load(rank);
+
+    /// <summary>Plays a picture sequence, then returns to the title screen. Any button skips it.</summary>
+    public void StartCutscene(IReadOnlyList<SlideStep> steps)
+    {
+        _show = new Slideshow(_images, steps);
+        GoTo(Screen.Cutscene);
+    }
 
     // ---------------------------------------------------------------- ticks
 
@@ -118,6 +145,10 @@ public sealed class GameFlow
             case Screen.Ranking:
                 if (ok || cancel) GoTo(Screen.Title);
                 break;
+            case Screen.Cutscene:
+                _show!.Tick();
+                if (_show.Finished || ok || cancel) GoTo(Screen.Title);
+                break;
         }
     }
 
@@ -125,6 +156,7 @@ public sealed class GameFlow
     {
         Screen = s;
         _screenStart = _tick;
+        if (s != Screen.InGame) _sound?.StopBgm();
         if (s == Screen.Title)
         {
             _inOptions = false;
@@ -186,6 +218,7 @@ public sealed class GameFlow
     {
         _continue = null;
         _lastCarry = null;
+        _endNote = null;
         uint frameRand = (uint)_tick;
         LoadStage(stageId, setup => new GameOptions
         {
@@ -213,6 +246,8 @@ public sealed class GameFlow
             ?? throw new InvalidOperationException("The stage provider must return a GameSession.");
         _missTicks = 0;
         GoTo(Screen.InGame);
+        // One track per scene (ST0..ST6.MDT), the same number the stage picture uses. Boss tracks are not mapped yet.
+        if (Settings.Music) _sound?.PlayBgm($"ST{SessionFactory.SceneId(stageId, _route)}.MDT");
     }
 
     void TickGame(GameButtons input)
@@ -224,7 +259,15 @@ public sealed class GameFlow
         if (g.Outcome == SessionOutcome.Cleared)
         {
             var carry = g.CarryOver!;
+            // The menu after the stage 5 boss decides the route of every later scene.
+            if (_stageId == StageSetup.BossStage) _route = carry.RouteChosen;
             if (_stageId >= LastStage) { FinishRun(carry.Score, _route == 1 ? HiScoreTable.ClearedJigoku : HiScoreTable.ClearedMakai, ScoreRoute.Clear); return; }
+            if (!IsPlayable(_stageId + 1, _route))
+            {
+                _endNote = "END OF THE STAGES PORTED SO FAR (THE NEXT BOSS IS NOT DONE YET)";
+                FinishRun(carry.Score, _stageId + 2, _route == 1 ? ScoreRoute.Jigoku : ScoreRoute.Makai, cleared: false);
+                return;
+            }
             _lastCarry = carry;
             int next = _stageId + 1;
             LoadStage(next, setup => new GameOptions { Stage = setup, Rank = Settings.Rank, CarryOver = carry, Entrance = true });
@@ -253,7 +296,7 @@ public sealed class GameFlow
     /// <summary>Ends a run: if the score makes the table, ask for a name; otherwise show the ranking.</summary>
     void FinishRun(uint score, int stage, ScoreRoute route, bool cleared = true)
     {
-        var table = _tables[(int)Settings.Rank];
+        var table = TableFor(Settings.Rank);
         _rankingTable = table;
         _entryScore = score;
         _entryStage = stage;
@@ -280,21 +323,22 @@ public sealed class GameFlow
         if (ok)
         {
             char c = NameChars[_charIdx];
-            if (e.Put(c == ' ' ? NameEntry.Blank : c)) e.Confirm();
+            if (e.Put(ScoreConvert.EncodeNameChar(c))) e.Confirm();
         }
         if (cancel) e.Confirm();
         if (e.Confirmed || e.TimedOut)
         {
             var table = _rankingTable!;
             table.Insert(_entryPlace, e.Name, (int)Math.Min(_entryScore, int.MaxValue), _entryStage, _entryRoute);
+            _scores.Save(Settings.Rank, table);
             _rankingHighlight = _entryPlace;
             _entry = null;
             GoTo(Screen.Ranking);
         }
     }
 
-    /// <summary>Name cell to text. TODO(Japanese font): the table stores Shift-JIS kanji codes; only ASCII is shown until a font is chosen.</summary>
-    public static char DecodeNameCell(ushort code) => code == NameEntry.Blank ? ' ' : code is >= 0x20 and < 0x7F ? (char)code : '?';
+    /// <summary>Name cell to text. TODO(Japanese font): the table stores Shift-JIS kanji codes; only letters, digits and a few signs are shown until a font is chosen.</summary>
+    public static char DecodeNameCell(ushort code) => ScoreConvert.DecodeNameCell(code);
 
     // ---------------------------------------------------------------- drawing
 
@@ -309,8 +353,9 @@ public sealed class GameFlow
             case Screen.GameOver: RenderGame(fb); RenderGameOver(fb); break;
             case Screen.NameEntry: RenderNameEntry(fb); break;
             case Screen.Ranking: RenderRanking(fb); break;
+            case Screen.Cutscene: _show!.Render(fb); break;
         }
-        ApplyFadeIn(fb);
+        if (Screen != Screen.Cutscene) ApplyFadeIn(fb); // cutscenes carry their own tone
         if (Screen == Screen.InGame) fb.ScrollY = ShakeLine();
     }
 
@@ -394,22 +439,8 @@ public sealed class GameFlow
 
     void RenderGame(Framebuffer fb)
     {
-        if (_game is null) return;
-        // The renderer draws the stage background itself. Do not composite through a colour-0 key: black is a real
-        // sprite colour.
-        _game.Render(fb);
-
-        if (_game.Phase == SessionPhase.StageBonus && _game.Bonus is StageBonus b)
-        {
-            SceneCompositor.DrawMessage(fb, _font,
-                $"STAGE {_stageId + 1} CLEAR",
-                $"TIME      {b.Time * 10}",
-                $"COMBO     {b.CardCombo * 10}",
-                $"RESOURCES {b.Resources * 10}",
-                $"STAGE     {b.StageNumber * 10}",
-                $"TOTAL     {b.Total}",
-                "SHOT / OK: CONTINUE");
-        }
+        // The session draws everything itself: background and sprites from its art, the HUD and the bonus box.
+        _game?.Render(fb);
     }
 
     void RenderGameOver(Framebuffer fb)
@@ -442,7 +473,7 @@ public sealed class GameFlow
     {
         Grayscale(fb);
         fb.Clear(0);
-        var table = _rankingTable ?? _tables[(int)Settings.Rank];
+        var table = _rankingTable ?? TableFor(Settings.Rank);
         TextCentered(fb, $"HIGH SCORES - {RankNames[(int)Settings.Rank]}", 40, 15);
         for (int i = 0; i < HiScoreTable.Places; i++)
         {
@@ -453,6 +484,7 @@ public sealed class GameFlow
             string line = $"{i + 1,2}  {name}  {e.Score,9}  {stage,-8} {route}";
             Text(fb, line, 100, 90 + i * 24, (byte)(i == _rankingHighlight ? 15 : 9));
         }
-        TextCentered(fb, "OK: BACK TO TITLE", 360, 8);
+        if (_endNote is not null) TextCentered(fb, _endNote, 340, 8);
+        TextCentered(fb, "OK: BACK TO TITLE", 364, 8);
     }
 }

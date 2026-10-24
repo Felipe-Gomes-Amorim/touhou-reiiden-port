@@ -14,6 +14,12 @@ public readonly record struct ArtFrame(
 /// </summary>
 public interface IGameArt
 {
+    // Sheet names. Colour sheets use the file name in the archive ("STG.PTN", "MIKO_AC.BOS", ...). Monochrome sheets compiled
+    // into REIIDEN.EXE use fixed lower-case names: "pellet" (3 frames of 8x8: solid, ring, dotted ring), "pellet_c" (cloud, 2 of 16x16),
+    // "laser_s" (8 of 16x8), "bonusbox" (1 of 8x4), "pillar" (2 of 32x8), "shape8x8" (7 of 8x8), "leaf_s", "leaf_l", "leaf_r"
+    // (1 of 8x8 each), "ileave_m" (10 of 8x8), "mousecur" (2 of 16x16). Their frames are monochrome: Pixels are 0/1, Alpha == Pixels,
+    // Palette is empty; paint them with Framebuffer.DrawMono in the colour you want.
+
     /// <summary>Number of frames in the sheet, or 0 if the sheet is not available.</summary>
     int FrameCount(string sheet);
 
@@ -33,6 +39,19 @@ public sealed class NullGameArt : IGameArt
 
 public static class ArtFrameExtensions
 {
+    /// <summary>
+    /// Draws a monochrome sheet frame (the sprites compiled into the executable, and .GRC): <see cref="ArtFrame.Pixels"/> are 0/1 and
+    /// <see cref="ArtFrame.Alpha"/> equals the bits, so every set bit is painted in <paramref name="color"/>, the rest is left alone.
+    /// The drawing code picks the colour (the original's GRCG did the same).
+    /// </summary>
+    public static void DrawMono(this Framebuffer fb, in ArtFrame art, int x, int y, byte color)
+    {
+        var alpha = art.Alpha.Span;
+        for (int sy = 0; sy < art.Height; sy++)
+            for (int sx = 0; sx < art.Width; sx++)
+                if (alpha[sy * art.Width + sx] != 0) fb.SetPixel(x + sx, y + sy, color);
+    }
+
     /// <summary>Sets the framebuffer palette from the frame's 48-byte palette, if it has one.</summary>
     public static void ApplyPalette(this Framebuffer fb, in ArtFrame art)
     {

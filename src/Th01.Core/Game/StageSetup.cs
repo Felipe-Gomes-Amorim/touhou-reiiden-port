@@ -10,9 +10,6 @@ public sealed class StageSetup
     public const int Rows = 10;
     public const int StagesPerScene = 5;
     public const int BossStage = 4;
-    /// <summary>0-based stage id of Mima, the Jigoku boss of stage 10.</summary>
-    public const int MimaStage = 9;
-    public const int RouteMakai = 0, RouteJigoku = 1;
 
     /// <summary>0-based stage id across the whole game (stage_num - 1).</summary>
     public int StageId { get; init; }

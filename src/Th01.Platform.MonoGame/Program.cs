@@ -7,17 +7,22 @@ using Th01.Platform.MonoGame.Launcher;
 //   no arguments: the first run asks for your .hdi (remembered afterwards), then logo -> title/menu.
 //   --select: ask for the game file again (holding Shift at startup does the same on Windows).
 //   --game: use this .hdi/folder instead of asking (remembered). --data: use this folder as is (not remembered).
+//   --cutscene 1|2|3 plays ending pictures (1 = ED1A..E, 2/3 = boss slides Makai/Jigoku) and then goes to the title.
+//   --log-missing-art prints every art lookup that fails, as it happens (F9 / closing the game write missing-art.local.txt).
 //   --stage N (1..20) starts that stage directly, skipping the title; route 0 = Makai, 1 = Jigoku.
-int? stage = null;
+int? stage = null, cutscene = null;
+bool logMissingArt = false;
 int route = 0;
 string? dataArg = null, gameArg = null;
 bool forceSelect = UserPrompts.ShiftHeld();
 for (int i = 0; i < args.Length; i++)
 {
     if (args[i] == "--stage" && i + 1 < args.Length && int.TryParse(args[++i], out int s) && s is >= 1 and <= 20) stage = s - 1;
+    else if (args[i] == "--cutscene" && i + 1 < args.Length && int.TryParse(args[++i], out int cs) && cs is >= 1 and <= 3) cutscene = cs;
     else if (args[i] == "--route" && i + 1 < args.Length && int.TryParse(args[++i], out int r) && r is 0 or 1) route = r;
     else if (args[i] == "--data" && i + 1 < args.Length) dataArg = args[++i];
     else if (args[i] == "--game" && i + 1 < args.Length) gameArg = args[++i];
+    else if (args[i] == "--log-missing-art") logMissingArt = true;
     else if (args[i] == "--select") forceSelect = true;
     else { Console.Error.WriteLine($"Ignoring argument '{args[i]}'. Usage: [--stage 1..20] [--route 0|1] [--select] [--game <file>] [--data <folder>]"); }
 }
@@ -36,8 +41,11 @@ if (dataArg is null && GameDataConfig.Resolve() is null)
     catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* keep the current directory */ }
 }
 Console.WriteLine($"Game data folder: {dataPath}");
-Console.WriteLine("Keys: F11 fullscreen | F10 scale mode | F5 pause | F6 step one tick | F3 debug title | F7 record input | F8 replay | Esc quit");
+Console.WriteLine("Keys: F11 fullscreen | F10 scale mode | F5 pause | F6 step one tick | F3 debug title | F7 record input | F8 replay | F12 screenshot | F9 missing-art list | Esc quit");
 
+var missingArt = new MissingArtLog { Realtime = logMissingArt };
+Th01.Audio.Playback.MdrvSoundSink? sound = null;
+MonoGameAudioOutput? audioOut = null;
 Func<GameFlow?>? factory = null;
 if (dataPath is not null)
 {
@@ -54,15 +62,22 @@ if (dataPath is not null)
             try { s.Save(); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.Error.WriteLine($"Could not save {GameSettings.FileName}: {e.Message}"); }
         }
-        factory = () => new GameFlow(new AssetStageProvider(assets), new AssetScreenImages(assets), font, settings, Save, stage, route);
+        // High scores live in the user data folder (a copy of REYHI*.DAT); the game folder is only read.
+        var scores = new FileScoreStore(userDir, dataPath);
+        // Music and effects are rendered from the game's own .MDT/.MDE files at run time. If one is missing, that sound is just silent.
+        sound = new Th01.Audio.Playback.MdrvSoundSink(name => File.Exists(Path.Combine(dataPath, name)) ? File.ReadAllBytes(Path.Combine(dataPath, name)) : null);
+        audioOut = new MonoGameAudioOutput(sound.Mixer);
+        factory = () => new GameFlow(new AssetStageProvider(assets, font, missingArt, sound), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene, sound);
         Console.WriteLine(stage is int st ? $"Starting stage {st + 1}, route {(route == 0 ? "Makai" : "Jigoku")}." : "Starting at the logo and title screen.");
     }
 }
 
 try
 {
-    using var game = new Th01Game(factory);
+    using var game = new Th01Game(factory) { AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
     game.Run();
+    audioOut?.Dispose();
+    sound?.Dispose();
     if (game.Fatal is not null) return ReportCrash(game.Fatal);
 }
 catch (Exception e)

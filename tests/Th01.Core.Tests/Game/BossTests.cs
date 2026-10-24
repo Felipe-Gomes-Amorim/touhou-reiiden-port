@@ -45,7 +45,7 @@ public class BossTests
     public void Only_stage_5_gets_this_boss()
     {
         Assert.NotNull(World().Boss);
-        Assert.Null(new GameWorld(new GameOptions { Stage = BossStage(9) }, NullSoundSink.Instance).Boss);
+        Assert.IsNotType<SinGyoku>(new GameWorld(new GameOptions { Stage = BossStage(9) }, NullSoundSink.Instance).Boss);
         Assert.Null(new GameWorld(new GameOptions { Stage = BossStage(3) }, NullSoundSink.Instance).Boss);
     }
 
@@ -65,7 +65,7 @@ public class BossTests
         int image = 0, interval = 18;
         for (int f = 1; f <= 200; f++)
             if (f % interval == 0) { image = (image + 1) % 8; interval = Math.Max(1, interval - 2); }
-        Assert.Equal(image, b.SphereImage);
+        Assert.Equal(image, ((SinGyoku)b).SphereImage);
     }
 
     // ---- being hit ----
@@ -643,7 +643,7 @@ public class BossTests
         var boss = arted.World.Boss!;
         Assert.Equal(7, a.GetPixel(boss.Left + 40, boss.Top + 40));
         Assert.Equal(12, b.GetPixel(boss.Left + 40, boss.Top + 40));       // box fallback
-        Assert.Equal(9, b.GetPixel(128 + 2, 42));                          // first HP box
+        Assert.Equal(10, b.GetPixel(128 + 2, 50));                         // first HP point (red)
     }
 }
 

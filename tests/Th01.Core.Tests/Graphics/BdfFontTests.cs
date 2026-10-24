@@ -21,7 +21,7 @@ public class BdfFontTests
     public void Shinonome_HasKanaAndKanji_In16PixelCells()
     {
         var font = BdfFont.LoadShinonome16();
-        foreach (int c in new[] { 0x3042, 0x30A2, 0x6771, 0x65B9, 0x6B8B }) // あ ア 東 方 残
+        foreach (int c in new[] { 0x3042, 0x30A2, 0x6771, 0x65B9, 0x6B8B })
         {
             Assert.True(font.TryGetGlyph(c, out var g), $"missing U+{c:X4}");
             Assert.Equal(16, g.Width);
