@@ -22,7 +22,7 @@ public sealed class FlowFakeStages : IStageProvider
 
     public static void Die(GameFlow f)
     {
-        for (int i = 0; i < GameSession.EntranceTicks + 5; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < EntranceOverlay.TotalTicks(true) + 5; i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         var w = f.Game!.World;
         w.Orb.Left = w.Player.Left; w.Orb.Top = Playfield.PlayerTop - 8;

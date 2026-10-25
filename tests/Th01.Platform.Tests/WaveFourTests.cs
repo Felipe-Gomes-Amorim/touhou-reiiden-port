@@ -202,7 +202,7 @@ public class WaveFourTests : IDisposable
     {
         var stages = new FlowFakeStages { Lives = 3 };
         var f = new GameFlow(stages, new NoScreenImages(), BdfFont.LoadSpleen8x16(), new GameSettings(), startStage: GameFlow.LastPlayableStage);
-        for (int i = 0; i < GameSession.EntranceTicks + 5; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < EntranceOverlay.TotalTicks(true) + 5; i++) f.Tick(GameButtons.None);
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.Shot);
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);

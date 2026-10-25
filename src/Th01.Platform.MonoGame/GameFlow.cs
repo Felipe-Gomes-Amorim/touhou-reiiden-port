@@ -397,6 +397,7 @@ public sealed class GameFlow
     public void Render(Framebuffer fb)
     {
         fb.ScrollY = 0;
+        fb.ClearTextLayer(); // a stage banner abandoned half-way must not stay on top of another screen
         switch (Screen)
         {
             case Screen.Warning: RenderWarning(fb); break;

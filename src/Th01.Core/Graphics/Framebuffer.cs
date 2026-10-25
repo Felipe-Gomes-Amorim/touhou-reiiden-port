@@ -47,5 +47,6 @@ public sealed partial class Framebuffer
             int dst = y * Width;
             for (int x = 0; x < Width; x++) dest[dst + x] = _palette[_pixels[src + x]];
         }
+        ApplyTextLayer(dest); // the text layer is not scrolled
     }
 }

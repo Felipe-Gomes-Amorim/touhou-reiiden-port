@@ -114,7 +114,8 @@ public class StageBonusTests
         var g = new GameSession(new GameOptions { Stage = OneCard(), Entrance = true });
         Assert.Equal(SessionPhase.Entrance, g.Phase);
         int left = g.World.Player.Left;
-        for (int i = 0; i < GameSession.EntranceTicks - 1; i++)
+        int total = EntranceOverlay.TotalTicks(withTitle: true);    // stage 0 is the first of its scene: title + banner
+        for (int i = 0; i < total - 1; i++)
         {
             g.Step(GameButtons.Left | GameButtons.Shot);        // input is ignored meanwhile
             Assert.Equal(SessionPhase.Entrance, g.Phase);
@@ -123,7 +124,9 @@ public class StageBonusTests
         Assert.Equal(SessionPhase.WaitForShot, g.Phase);
         Assert.Equal(left, g.World.Player.Left);
         Assert.False(g.World.Input.Shot);
-        Assert.Equal(70, GameSession.EntranceTicks);            // ASSUMPTION: 2 x frame_delay(35), TODO(T5)
+        Assert.Equal(70, GameSession.EntranceTicks);            // 2 x frame_delay(35); not yet measured on the original (T5)
+        Assert.Equal(48, GameSession.EntranceTitleTicks);       // 6 characters x frame_delay(8)
+        Assert.Equal(118, total);
     }
 
     [Fact]

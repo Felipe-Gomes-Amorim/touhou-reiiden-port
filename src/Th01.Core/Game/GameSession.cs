@@ -72,9 +72,11 @@ public sealed class GameSession : IGameSession, ITraceSource
     /// <summary>ASSUMPTION (not measured): HARRY UP banner = 2 x frame_delay(27). TODO(T5): calibrate.</summary>
     public const int HarryUpBannerTicks = 54;
 
-    /// <summary>ASSUMPTION (not measured): stage_num_animate = 2 x frame_delay(35). TODO(T5): calibrate. The
-    /// scene title animation and the card flip-in of later stages are not modelled.</summary>
-    public const int EntranceTicks = 70;
+    /// <summary>The "STAGE nn" banner: stage_num_animate waits frame_delay(35) twice (from the source; not yet measured
+    /// against the running original, TODO(T5)). On the first stage of a scene and on boss stages it is preceded by the
+    /// title animation, <see cref="EntranceTitleTicks"/> ticks.</summary>
+    public const int EntranceTicks = EntranceOverlay.BannerTicks;
+    public const int EntranceTitleTicks = EntranceOverlay.TitleTicks;
 
     /// <summary>ASSUMPTION (not measured): fade after the white-out lines, 15 palette levels x 15 frames, and the
     /// 50-frame pause before the route menu accepts input. TODO(T5).</summary>
@@ -92,6 +94,12 @@ public sealed class GameSession : IGameSession, ITraceSource
     bool _routePrevUp, _routePrevDown, _routePrevOk;
 
     int _entranceWait;
+    int _entranceTotal;
+    bool _entranceTitle;
+    SessionPhase _entranceNext = SessionPhase.WaitForShot;
+    /// <summary>Drawing only: ticks since the stage entrance began, and whether it starts with the title animation.</summary>
+    internal int EntranceElapsed => _entranceTotal - Math.Max(_entranceWait, 0);
+    internal bool EntranceHasTitle => _entranceTitle;
     bool _bonusPrevShot, _bonusPrevOk;
     /// <summary>The numbers shown by the bonus box; null until the stage is cleared.</summary>
     public StageBonus? Bonus { get; private set; }
@@ -129,14 +137,18 @@ public sealed class GameSession : IGameSession, ITraceSource
         {
             StartPlaying();                      // the fight begins at once
         }
+        else if (options.Entrance)
+        {
+            // stage_entrance() runs for every stage but Konngara's and Sariel's: the title animation (first stage of a
+            // scene and boss stages), then the "STAGE nn" banner, then a boss's own entrance.
+            _entranceTitle = _w.StageId % StageSetup.StagesPerScene is 0 or StageSetup.BossStage;
+            _entranceTotal = _entranceWait = EntranceOverlay.TotalTicks(_entranceTitle);
+            _entranceNext = _w.Boss != null ? SessionPhase.BossEntrance : SessionPhase.WaitForShot;
+            Phase = SessionPhase.Entrance;
+        }
         else if (_w.Boss != null)
         {
             Phase = SessionPhase.BossEntrance;
-        }
-        else if (options.Entrance)
-        {
-            Phase = SessionPhase.Entrance;
-            _entranceWait = EntranceTicks;
         }
     }
 
@@ -213,10 +225,11 @@ public sealed class GameSession : IGameSession, ITraceSource
                 return;
             case SessionPhase.Entrance:
                 // The first stage of a scene and the boss stages type the title in one character at a time, a click each
-                // (entrance.hpp: 6 characters, 8 frames apart). ref: th01/main_01.cpp stage_entrance
-                if ((w.StageId % StageSetup.StagesPerScene is 0 or StageSetup.BossStage) && EntranceTicks - _entranceWait is var e and < 48 && e % 8 == 0)
+                // (entrance.hpp: 6 characters, 8 frames apart), and only then comes the "STAGE nn" banner.
+                // ref: th01/main_01.cpp stage_entrance
+                if (_entranceTitle && EntranceElapsed is var e and < EntranceOverlay.TitleTicks && e % EntranceOverlay.TitleCharTicks == 0)
                     w.Sound.PlaySe(14);
-                if (--_entranceWait <= 0) Phase = SessionPhase.WaitForShot;
+                if (--_entranceWait <= 0) Phase = _entranceNext;
                 return;
             case SessionPhase.StageBonus:
                 StepBonus(input);

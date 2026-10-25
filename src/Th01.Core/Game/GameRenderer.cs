@@ -46,6 +46,7 @@ internal sealed class GameRenderer
         var w = _s.World;
         _paletteFromArt = false;
         fb.Clear(0);
+        fb.ClearTextLayer();
         if (_art != null) DrawBackground(fb);
         if (!_paletteFromArt) FallbackPalette(fb);
         if (_s.Phase == SessionPhase.RouteSelect)
@@ -77,6 +78,9 @@ internal sealed class GameRenderer
         if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
         else if (w.Boss is { FlashOn: true } flashing) FlashColors(fb, flashing.FlashColors);
         if (_s.Phase == SessionPhase.StageBonus) DrawBonus(fb);
+        // The scene title and the red "STAGE nn" letters live on the PC-98 text layer, over everything else.
+        if (_s.Phase == SessionPhase.Entrance)
+            EntranceOverlay.Draw(fb, _font, _s.EntranceElapsed, _s.EntranceHasTitle, w.StageId + 1);
     }
 
     // ---- palette effects (drawing only; the simulation never sees them) ----

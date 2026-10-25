@@ -44,7 +44,7 @@ public class GameFlowTests
     /// <summary>Plays through the entrance banner and the first shot, then puts the Orb on Reimu so she is hit.</summary>
     static void Die(GameFlow f)
     {
-        Run(f, GameSession.EntranceTicks + 5);
+        Run(f, EntranceOverlay.TotalTicks(true) + 5);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         var w = f.Game!.World;
         w.Orb.Left = w.Player.Left; w.Orb.Top = Playfield.PlayerTop - 8;
@@ -150,7 +150,7 @@ public class GameFlowTests
         var stages = new FakeStages();
         var f = NewFlow(stages, startStage: 0);
         Assert.Equal(Screen.InGame, f.Screen);
-        Run(f, GameSession.EntranceTicks + 5);
+        Run(f, EntranceOverlay.TotalTicks(true) + 5);
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.Shot); // Shot held: starts the stage, then the clear is processed
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
