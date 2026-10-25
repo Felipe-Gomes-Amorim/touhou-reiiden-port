@@ -37,6 +37,8 @@ public class StageTests
     /// <summary>Presses and releases Shot, which closes the stage bonus box.</summary>
     internal static void Dismiss(GameSession g)
     {
+        // The box opens first (24 ticks) and takes no input meanwhile; the boss bonus has no box.
+        if (g.World.Boss == null) for (int i = 0; i < GameSession.BonusBoxTicks; i++) g.Step(None);
         g.Step(GameButtons.Shot);
         g.Step(None);
     }

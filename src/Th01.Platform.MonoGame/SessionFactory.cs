@@ -21,6 +21,7 @@ public sealed class SessionFactory
     readonly int _stageId;
     readonly int _route;
     readonly IFontSource? _font;
+    UiTexts? _texts;
     readonly MissingArtLog? _log;
     readonly ISoundSink? _sound;
 
@@ -86,7 +87,8 @@ public sealed class SessionFactory
         string grp = BackgroundFile(_stageId, _route, scene);
         if (_assets.Exists(grp)) art.SetBackground(Load(grp, GrpImage.Load));
         // frame_rand is the title screen's frame counter in the original; callers pass a deterministic value.
-        var session = new GameSession(makeOptions(setup), sound: _sound, art: art, font: _font);
+        _texts ??= Th01.Assets.Text.UiTextLoader.Load(_assets);   // labels of the route menu and the bonus box, from the user's own exe
+        var session = new GameSession(makeOptions(setup), sound: _sound, art: art, font: _font, texts: _texts);
         return new GameStart(session, art);
     }
 

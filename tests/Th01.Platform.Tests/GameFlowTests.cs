@@ -154,6 +154,7 @@ public class GameFlowTests
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.Shot); // Shot held: starts the stage, then the clear is processed
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < GameSession.BonusBoxTicks; i++) f.Tick(GameButtons.None);
         Assert.Equal(SessionPhase.StageBonus, f.Game!.Phase);
         f.Render(new Framebuffer()); // bonus panel must draw
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None); // release edge dismisses it

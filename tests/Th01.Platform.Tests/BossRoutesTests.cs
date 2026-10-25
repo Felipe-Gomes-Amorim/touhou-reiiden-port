@@ -50,6 +50,7 @@ public class BossRoutesTests
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.Shot);
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < GameSession.BonusBoxTicks; i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         Assert.Contains((lastCardStage + 1, route), stages.Requests);
         Assert.Equal(Screen.InGame, f.Screen);
@@ -66,6 +67,7 @@ public class BossRoutesTests
             f.Game!.World.StageCleared = true;
             f.Tick(GameButtons.Shot);
             for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
+            for (int i = 0; i < GameSession.BonusBoxTicks; i++) f.Tick(GameButtons.None);
             f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
             Assert.DoesNotContain((19, route), stages.Requests);
         }

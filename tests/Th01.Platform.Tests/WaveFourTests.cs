@@ -206,6 +206,7 @@ public class WaveFourTests : IDisposable
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.Shot);
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < GameSession.BonusBoxTicks; i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         Assert.Contains(f.Screen, new[] { Screen.NameEntry, Screen.Ranking });
         Assert.Single(stages.Requests);                       // no stage 20 was requested

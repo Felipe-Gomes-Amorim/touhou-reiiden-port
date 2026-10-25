@@ -78,6 +78,7 @@ public class StageBonusTests
     public void Ok_also_closes_the_box_and_a_key_held_on_entry_counts()
     {
         var g = Cleared(new GameOptions { Stage = OneCard() });
+        for (int i = 0; i < GameSession.BonusBoxTicks; i++) g.Step(GameButtons.None);   // the box opens first, without input
         g.Step(GameButtons.Ok);
         Assert.Equal(SessionPhase.StageBonus, g.Phase);
         g.Step(GameButtons.None);
