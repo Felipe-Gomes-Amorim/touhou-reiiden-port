@@ -69,8 +69,8 @@ public sealed class GameSession : IGameSession, ITraceSource
     public SessionPhase Phase { get; private set; } = SessionPhase.WaitForShot;
     public long Tick { get; private set; }
 
-    /// <summary>ASSUMPTION (not measured): HARRY UP banner = 2 x frame_delay(27). TODO(T5): calibrate.</summary>
-    public const int HarryUpBannerTicks = 54;
+    /// <summary>HARRY UP banner = 2 x frame_delay(27) (from the source; not yet measured against the running original, TODO(T5)).</summary>
+    public const int HarryUpBannerTicks = 2 * EntranceOverlay.HarryUpWordTicks;
 
     /// <summary>The "STAGE nn" banner: stage_num_animate waits frame_delay(35) twice (from the source; not yet measured
     /// against the running original, TODO(T5)). On the first stage of a scene and on boss stages it is preceded by the
@@ -108,6 +108,8 @@ public sealed class GameSession : IGameSession, ITraceSource
     public GameOverResult? GameOverResult { get; private set; }
 
     int _harryUpWait;
+    /// <summary>Drawing only: ticks since the HARRY UP banner began.</summary>
+    internal int HarryUpElapsed => HarryUpBannerTicks - Math.Max(_harryUpWait, 0);
     int _bonusSteps;
     int _missStage;
     int _missTick;

@@ -84,6 +84,8 @@ internal sealed class GameRenderer
         // The scene title and the red "STAGE nn" letters live on the PC-98 text layer, over everything else.
         if (_s.Phase == SessionPhase.Entrance)
             EntranceOverlay.Draw(fb, _font, _s.EntranceElapsed, _s.EntranceHasTitle, w.StageId + 1);
+        else if (_s.Phase == SessionPhase.HarryUp)
+            EntranceOverlay.DrawHarryUp(fb, _font, _s.HarryUpElapsed);
     }
 
     // ---- palette effects (drawing only; the simulation never sees them) ----

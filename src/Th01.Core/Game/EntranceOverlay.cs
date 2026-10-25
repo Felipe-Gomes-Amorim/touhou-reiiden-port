@@ -21,6 +21,7 @@ public static class EntranceOverlay
     public const int WordTicks = 35;
     public const int NumberTicks = 35;
     public const int BannerTicks = WordTicks + NumberTicks;
+    public const int HarryUpWordTicks = 27;
 
     const int Dot = 16;          // one glyph dot = one 16x16 block
     const int Top = 80;          // glyph row 0 is on text row 5
@@ -44,6 +45,14 @@ public static class EntranceOverlay
         }
         if (t < WordTicks) DrawAnk(fb, font, "STAGE", 0);
         else if (t < BannerTicks) DrawAnk(fb, font, $"{Math.Clamp(stageNumber, 0, 99):00}", KanjiLeft);
+    }
+
+    /// <summary>The red "HARRY" then "UP" banner (27 ticks each), the same text-layer routine as "STAGE nn". ref: th01/main/stage/timer.cpp harryup_animate</summary>
+    public static void DrawHarryUp(Framebuffer fb, IFontSource? font, int elapsed)
+    {
+        if (font == null || elapsed < 0) return;
+        if (elapsed < HarryUpWordTicks) DrawAnk(fb, font, "HARRY", 0);
+        else if (elapsed < 2 * HarryUpWordTicks) DrawAnk(fb, font, "UP", KanjiLeft);
     }
 
     static void DrawTitleChar(Framebuffer fb, IFontSource font, char c)

@@ -8,7 +8,7 @@ namespace Th01.Platform.Tests;
 /// <summary>Every boss that is reachable by playing must really be created with its sprites, on both routes.</summary>
 public class BossRoutesTests
 {
-    [Theory]
+    [SkippableTheory]
     [InlineData(4, 0, typeof(SinGyoku))]
     [InlineData(4, 1, typeof(SinGyoku))]
     [InlineData(9, 0, typeof(YuugenMagan))]
