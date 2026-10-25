@@ -208,7 +208,7 @@ public class WaveFourTests : IDisposable
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         Assert.Contains(f.Screen, new[] { Screen.NameEntry, Screen.Ranking });
-        Assert.Single(stages.Requests);                       // no stage 10 was requested
+        Assert.Single(stages.Requests);                       // no stage 20 was requested
     }
 
     // ---- real data: the problem found in review (sprites were never wired)
