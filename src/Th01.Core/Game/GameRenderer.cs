@@ -37,6 +37,8 @@ internal sealed class GameRenderer
     readonly IFontSource? _font;
     bool _paletteFromArt;
 
+    readonly BombEffects _bomb = new();
+
     public GameRenderer(GameSession s, IGameArt? art, IFontSource? font)
     {
         _s = s;
@@ -74,6 +76,8 @@ internal sealed class GameRenderer
         if (_s.Phase != SessionPhase.RouteSelect) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
         DrawPlayer(fb, w);
         DrawHud(fb, w);
+        if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame);
+        else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb
         if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
         else if (w.Boss is { FlashOn: true } flashing) FlashColors(fb, flashing.FlashColors);
         // The route menu is drawn over the stage picture (the boss is gone, the HUD and Reimu stay), under a darker palette.
@@ -635,6 +639,13 @@ internal sealed class GameRenderer
     void DrawPlayer(Framebuffer fb, GameWorld w)
     {
         var p = w.Player;
+        if (p.Bombing && _s.Phase == SessionPhase.Playing)
+        {
+            // The bomb puts the casting pose on screen at its first frame and nothing redraws Reimu until it is over.
+            if (!Draw(fb, Miko, PtnId.MikoLCast - 64, p.Left, Player.Top))
+                fb.FillRect(p.Left, Player.Top, Playfield.PlayerW, Playfield.PlayerH, 9);
+            return;
+        }
         if (_s.Phase == SessionPhase.MissAnimation && _s.MissStage == 1)
         {
             int cel = _s.MissFrame % 2;

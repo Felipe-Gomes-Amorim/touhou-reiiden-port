@@ -95,6 +95,8 @@ public sealed class Player
     public PlayerSpriteKind SpriteKind { get; private set; } = PlayerSpriteKind.None;
     public int SpriteCel { get; private set; }
     public int SpriteLeft { get; private set; }
+    /// <summary>A bomb is running (drawing uses it for the casting pose and the effects).</summary>
+    public bool Bombing => _bombing;
 
     public Player(GameWorld w) => _w = w;
 
