@@ -536,14 +536,15 @@ internal sealed class GameRenderer
                     }
         }
         DrawHpBar(fb, m);
-        // Standing pillars (V_RED boxes: the embedded "pillar" sprite is a 2-row 1-bit pattern, not needed for a box)
+        // Standing pillars: segments of the embedded "pillar" sprite in V_RED; a plain box when the sprite is not available
         for (int i = 0; i < 8; i++)
         {
             var (time, cx) = m.Pillar(i);
             if (time is > 16 and <= 32 && m.Phase == 3)
             {
                 int h = 8 * 2 * (32 + 2 - time);
-                fb.FillRect(cx - 16, Playfield.Bottom - h, 32, h, ColRed);
+                if (!PillarDrawing.Draw(fb, _art, cx - 16, Playfield.Bottom, h, ColRed))
+                    fb.FillRect(cx - 16, Playfield.Bottom - h, 32, h, ColRed);
             }
         }
     }
