@@ -113,6 +113,8 @@ public sealed class GameSession : IGameSession, ITraceSource
     int _bonusTick;
     /// <summary>Drawing only: ticks since the bonus began (the box is fully open from <see cref="BonusBoxTicks"/>).</summary>
     internal int BonusElapsed => _bonusTick;
+    /// <summary>The same, for tests that drive the timeline without access to internals.</summary>
+    public int BonusElapsedForTests => _bonusTick;
     internal UiTexts Texts { get; }
 
     int _harryUpWait;
@@ -407,8 +409,8 @@ public sealed class GameSession : IGameSession, ITraceSource
         // waits delay(4) per step) and the input is not blocked meanwhile. TODO(T5)
         _bonusSteps = boss ? b.TotleSoundSteps() : 0;
         // The stage bonus box opens from its middle row outwards first (stagebonus_box_open_animate), and the original
-        // only starts sensing the keys once everything is drawn. The boss bonus has no box.
-        _bonusTick = boss ? BonusBoxTicks : 0;
+        // only starts sensing the keys once everything is drawn. The boss bonus slides its picture in instead (TotleTimeline).
+        _bonusTick = 0;
         Phase = SessionPhase.StageBonus;
     }
 
@@ -416,12 +418,17 @@ public sealed class GameSession : IGameSession, ITraceSource
     // release edge of Shot or OK (a key already held on entry counts as pressed).
     void StepBonus(GameButtons input)
     {
-        if (_bonusTick < BonusBoxTicks) { _bonusTick++; return; }   // the box is still opening: no input yet
-        if (_bonusSteps > 0)
+        bool totle = _w.Boss != null;
+        int sensingFrom = totle ? TotleTimeline.InputAt : BonusBoxTicks;
+        int tick = _bonusTick;
+        if (_bonusTick < sensingFrom) _bonusTick++;
+        // The digits of the boss bonus count up one after the other once the picture is in, each step with a sound.
+        if (totle && tick >= TotleTimeline.TimeAt && _bonusSteps > 0)
         {
             _bonusSteps--;
             _w.Sound.PlaySe(2);
         }
+        if (tick < sensingFrom) return;                   // still drawing: the original is not sensing keys yet
         bool shot = (input & GameButtons.Shot) != 0, ok = (input & GameButtons.Ok) != 0;
         bool done = (_bonusPrevShot && !shot) || (_bonusPrevOk && !ok);
         _bonusPrevShot = shot;

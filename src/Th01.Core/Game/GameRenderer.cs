@@ -78,7 +78,7 @@ internal sealed class GameRenderer
         else if (w.Boss is { FlashOn: true } flashing) FlashColors(fb, flashing.FlashColors);
         // The route menu is drawn over the stage picture (the boss is gone, the HUD and Reimu stay), under a darker palette.
         if (_s.Phase == SessionPhase.RouteSelect) DrawRouteMenu(fb);
-        if (_s.Phase == SessionPhase.StageBonus) DrawBonus(fb);
+        if (_s.Phase == SessionPhase.StageBonus && !(w.Boss != null && DrawTotle(fb))) DrawBonus(fb);
         // The scene title and the red "STAGE nn" letters live on the PC-98 text layer, over everything else.
         if (_s.Phase == SessionPhase.Entrance)
             EntranceOverlay.Draw(fb, _font, _s.EntranceElapsed, _s.EntranceHasTitle, w.StageId + 1);
@@ -694,6 +694,76 @@ internal sealed class GameRenderer
         // Right-aligned, zero-padded like the HUD's fullwidth numbers, one cell of 16 px per digit.
         for (int i = digits - 1; i >= 0; i--, value /= 10)
             TextRenderer.DrawString(fb, _font!, ((char)('0' + value % 10)).ToString(), x + i * ColW + 4, y, ColWhite);
+    }
+
+    // ---- full-screen results after a boss (ref: th01/main/bonus.cpp totle_animate) ----
+
+    const string TotleSheet = "CLEAR3.GRP", NumbSheet = "NUMB.PTN";
+
+    /// <summary>
+    /// The picture of the results screen slides in over the stage (even rows to the left, odd rows to the right, the palette
+    /// following), then the stage number and the five numbers appear one after the other. Returns false when the picture is
+    /// not available, so the caller falls back to the plain box.
+    /// </summary>
+    bool DrawTotle(Framebuffer fb)
+    {
+        if (_s.Bonus is not { } b) return false;
+        if (_art == null || !_art.TryGetFrame(TotleSheet, 0, out var pic) || pic.Width != Framebuffer.Width || pic.Height != Framebuffer.Height)
+            return false;
+        int t = _s.BonusElapsed;
+        if (t < TotleTimeline.SceneTicks) return true;            // the stage is still on screen
+
+        const int W = Framebuffer.Width;
+        byte[] old = fb.Pixels.ToArray();
+        var fresh = pic.Pixels.Span;
+        for (int y = 0; y < Framebuffer.Height; y++)
+        {
+            int shift = Math.Min(W, TotleTimeline.RowSteps(t, y) * TotleTimeline.SlideDots);
+            if (shift == 0) continue;
+            for (int x = 0; x < W; x++)
+            {
+                int sx = (y & 1) == 0 ? x + shift : x - shift;
+                byte c = (uint)sx < W ? old[y * W + sx] : fresh[y * W + (sx < 0 ? sx + W : sx - W)];
+                fb.SetPixel(x, y, c);
+            }
+        }
+
+        // The palette steps from the stage's to the picture's while the rows slide.
+        if (pic.Palette.Length == 3 * Framebuffer.ColorCount)
+        {
+            int progress = TotleTimeline.SlideProgress(t);
+            var target = pic.Palette.Span;
+            for (int i = 0; i < Framebuffer.ColorCount; i++)
+            {
+                uint p = fb.Palette[i];
+                int Mix(int from, int to) => from + (to - from) * progress / TotleTimeline.Steps;
+                fb.SetPalette4(i, Mix(Comp(p, 16), target[i * 3]), Mix(Comp(p, 8), target[i * 3 + 1]), Mix(Comp(p, 0), target[i * 3 + 2]));
+            }
+        }
+
+        if (t >= TotleTimeline.PictureAt)
+        {
+            int stage = _s.World.StageId + 1;
+            Draw(fb, NumbSheet, stage / 10, TotleTimeline.StageNumberLeft, TotleTimeline.StageNumberTop);
+            Draw(fb, NumbSheet, stage % 10, TotleTimeline.StageNumberLeft + 32, TotleTimeline.StageNumberTop);
+        }
+        // Each number is a run of 16x16 numerals starting at place `first` (it can be -1: one column to the left).
+        void Number(int at, int top, int first, params int[] digits)
+        {
+            if (t < at) return;
+            for (int i = 0; i < digits.Length; i++)
+                DrawQuarter(fb, NumbSheet, 10 + digits[i] / 4, digits[i] % 4, TotleTimeline.MetricLeft + (first + i) * TotleTimeline.DigitW, top);
+        }
+        int[] Four(int v) => [v / 1000 % 10, v / 100 % 10, v / 10 % 10, v % 10];
+        Number(TotleTimeline.TimeAt, TotleTimeline.TimeTop, 0, [.. Four(b.Time), 0]);
+        Number(TotleTimeline.ComboAt, TotleTimeline.ComboTop, 0, [.. Four(b.CardCombo), 0]);
+        Number(TotleTimeline.ResourcesAt, TotleTimeline.ResourcesTop, 0, [.. Four(b.Resources), 0]);
+        int s = b.StageNumber;
+        Number(TotleTimeline.StageMetricAt, TotleTimeline.StageMetricTop, -1, s / 10000 % 10, s / 1000 % 10, s / 100 % 10, s / 10 % 10, 0, 0);
+        uint total = b.Total;
+        Number(TotleTimeline.TotalAt, TotleTimeline.TotalTop, -1,
+            (int)(total / 100000 % 10), (int)(total / 10000 % 10), (int)(total / 1000 % 10), (int)(total / 100 % 10), (int)(total / 10 % 10), (int)(total % 10));
+        return true;
     }
 
     // ---- stage bonus box (ref: th01/main/bonus.cpp stagebonus_animate) ----
