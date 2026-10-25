@@ -21,6 +21,9 @@ internal sealed class GameRenderer
         new[] { 8, 9, 10, 9, 8 },
     };
 
+    /// <summary>The cel of <see cref="CardAnim"/> a card ends on (CARD_CEL_FLIPPED): "removed" for a card with no flips left.</summary>
+    const int CardRemovedCel = 4;
+
     // ref: th01/main/hud/hud.cpp
     const int LivesLeft = 128, LivesTop = 0, BombsLeft = 128, BombsTop = 16, LivesPerRow = 6;
     const int ScoreLeft = 256, ScoreTop = 16, MaxTop = 0, ComboLeft = 256 + 9 * 16, RankCenterX = 600, RankTop = 48;
@@ -229,7 +232,13 @@ internal sealed class GameRenderer
     {
         for (int i = 0; i < st.CardCount; i++)
         {
-            if (st.CardFlagArr[i] == CardFlag.Removed) continue;
+            if (st.CardFlagArr[i] == CardFlag.Removed)
+            {
+                // The last cel of the final flip (PTN_CARD_REMOVED, an empty frame) is blitted to both VRAM pages, so it
+                // becomes part of the background and stays for the rest of the stage. Without art nothing is left behind.
+                Draw(fb, Stg, CardAnim[0][CardRemovedCel], st.CardLeft[i], st.CardTop[i]);
+                continue;
+            }
             int hp = Math.Min(st.CardHp[i], 4);
             int cel = st.CardFlagArr[i] == CardFlag.Flipping ? Math.Min(st.CardFlipFrame[i] / StageObjects.CardFramesPerCel, 4) : 0;
             if (!Draw(fb, Stg, CardAnim[hp][cel], st.CardLeft[i], st.CardTop[i]))
