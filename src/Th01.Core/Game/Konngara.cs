@@ -131,6 +131,8 @@ public sealed class Konngara : Boss
     public override int Width => HitboxOrbW;
     public override int Height => HitboxOrbH;
     public override bool Defeated => Phase == 7 && Hp <= 0;
+    public override uint DefeatBonus => 5 * 10000;      // "Jigoku clear!" granted in the fanciest way
+    public override bool ClearsGame => true;
     public override IReadOnlyList<int> FlashColors { get; } = new[] { 3, 4, 5 };
     public override int HpFirstRedWhite => HpFirstRedWhiteValue;
     public override int HpFirstWhite => HpFirstWhiteValue;

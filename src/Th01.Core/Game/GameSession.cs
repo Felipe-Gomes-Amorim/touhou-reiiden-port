@@ -222,6 +222,11 @@ public sealed class GameSession : IGameSession, ITraceSource
                 if (w.Boss!.EntranceFrame()) StartPlaying();
                 return;
             case SessionPhase.BossDefeat:
+                if (_defeatWait == 1)
+                {
+                    w.Score += w.Boss!.DefeatBonus;
+                    if (w.Boss.ClearsGame) w.GameCleared = true;
+                }
                 if (--_defeatWait <= 0 && !w.Boss!.HasRouteSelect)
                 {
                     w.StageCleared = true;
@@ -603,7 +608,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         h.Add(_harryUpWait); h.Add(_defeatWait); h.Add(_routeDelay); h.Add(_routePrevUp); h.Add(_routePrevDown); h.Add(_routePrevOk); h.Add(w.RouteChosen);
         w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk); h.Add(_bonusSteps);
         if (Bonus is { } bn) { h.Add(bn.Time); h.Add(bn.CardCombo); h.Add(bn.Resources); h.Add(bn.StageNumber); h.Add(bn.Total); }
-        foreach (var v in w.BonusPerStage) h.Add(v); h.Add(w.StageCleared); h.Add(w.CardFlipCycle); h.Add(w.PointValue);
+        foreach (var v in w.BonusPerStage) h.Add(v); h.Add(w.StageCleared); h.Add(w.GameCleared); h.Add(w.CardFlipCycle); h.Add(w.PointValue);
         w.Items.Hash(ref h); w.Sparkles.Hash(ref h); w.Particles.Hash(ref h); w.Missiles.Hash(ref h); w.Lasers.Hash(ref h); w.Pellets.Hash(ref h); w.Timer.Hash(ref h); w.Stage?.Hash(ref h);
         w.Input.Hash(ref h);
         w.Player.Hash(ref h);

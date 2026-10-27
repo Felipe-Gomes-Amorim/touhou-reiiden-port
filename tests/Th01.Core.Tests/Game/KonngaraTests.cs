@@ -363,6 +363,25 @@ public class KonngaraTests
         Assert.False(K(w).DiamondsActive);
     }
 
+    [Fact]
+    public void The_defeat_grants_50000_points_once_and_clears_the_game()
+    {
+        var g = new GameSession(new GameOptions { FrameRand = 12, Stage = Stage(), Lives = 3, Bombs = 1 });
+        for (int i = 0; i < Konngara.EntranceTotal + 5; i++) g.Step(GameButtons.None);
+        Assert.Equal(SessionPhase.Playing, g.Phase);
+        var k = (Konngara)g.World.Boss!;
+        k.Phase = 7; k.Hp = 0;
+        g.Step(GameButtons.None);
+        Assert.Equal(SessionPhase.BossDefeat, g.Phase);
+        uint before = g.World.Score;
+        Assert.False(g.World.GameCleared);
+        int guard = 0;
+        while (g.Phase == SessionPhase.BossDefeat && guard++ < 5000) { Assert.False(g.World.GameCleared && g.World.Score == before); g.Step(GameButtons.None); }
+        Assert.Equal(SessionPhase.StageBonus, g.Phase);
+        Assert.True(g.World.GameCleared);
+        Assert.Equal(before + 50000u + g.Bonus!.Value.Total, g.World.Score);
+    }
+
     // ---- determinism ----
 
     static (ulong hash, int maxPhase, int maxAlive) Fight(uint seed, Rank rank)
