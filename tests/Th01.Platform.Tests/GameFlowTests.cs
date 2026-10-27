@@ -39,7 +39,7 @@ public class GameFlowTests
         Run(f, GameFlow.LogoTicks);
         Assert.Equal(Screen.Title, f.Screen);
         // the title's intro (fade, white lines), then any key opens the menu
-        Run(f, TitleScene.FadeInTicks + TitleScene.PauseTicks + TitleScene.WhiteLineSteps);
+        Run(f, TitleScene.FadeInTicks + TitleScene.PauseTicks + TitleScene.WhiteLineSteps + 1);
         Press(f, GameButtons.Shot);
         return f;
     }

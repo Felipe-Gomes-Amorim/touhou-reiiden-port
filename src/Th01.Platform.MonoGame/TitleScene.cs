@@ -19,7 +19,11 @@ public enum TitleAction { None, Start, Continue, Quit }
 public sealed class TitleScene
 {
     // Timeline of the intro, in ticks. ref: title_init (z_palette_black_in = 16 steps, frame_delay(100)), whitelines_animate (RES_Y / 4 steps)
-    public const int FadeInTicks = 16, PauseTicks = 100, WhiteLineSteps = Framebuffer.Height / 4;
+    // Measured on the original (T5): the white lines are ticks 101-200 and the prompt first shows at tick 202. frame_delay(100) counts
+    // from the last reset of the VSync counter, which the fade-in does not reset, so fade-in + pause add up to 100 ticks.
+    public const int FadeInTicks = 16, PauseTicks = 100 - FadeInTicks, WhiteLineSteps = Framebuffer.Height / 4;
+    /// <summary>Tick on which the prompt first shows (tick 1 is the first call to <see cref="Tick"/>).</summary>
+    public const int FirstHitKeyTick = FadeInTicks + PauseTicks + WhiteLineSteps + 1 + 1;
     public const int HitKeyPeriod = 70, HitKeyVisible = 50;
     /// <summary>Wait when a sub-menu is left or entered (frame_delay(15) in the original; it keeps the menu from re-triggering).</summary>
     public const int MenuSwitchDelay = 15;
@@ -30,7 +34,7 @@ public sealed class TitleScene
     public const byte ColActive = 15, ColInactive = 5;
     const int TrackCount = TitleTexts.MusicTrackCount;
 
-    public enum Phase { FadeIn, Pause, WhiteLines, HitKey, Menu }
+    public enum Phase { FadeIn, Pause, WhiteLines, Restore, HitKey, Menu }
     public enum Menu { Main, Option, Music, LeaveOptionDelay, LeaveMusicDelay }
 
     readonly IScreenImages _images;
@@ -65,7 +69,8 @@ public sealed class TitleScene
     public void ClearAction() => Action = TitleAction.None;
     public int MenuSelection => _menuSel;
     public int MusicSelection => _musicSel;
-    public bool HitKeyVisibleNow => CurrentPhase == Phase.HitKey && _hitKeyFrame % HitKeyPeriod < HitKeyVisible;
+    /// <summary>Whether the prompt was drawn (not erased) on the last tick; false until the first frame has been put.</summary>
+    public bool HitKeyVisibleNow => CurrentPhase == Phase.HitKey && _hitKeyFrame > 0 && (_hitKeyFrame - 1) % HitKeyPeriod < HitKeyVisible;
 
     public TitleScene(IScreenImages images, IFontSource font, GameSettings settings, TitleTexts texts,
         ISoundSink? sound = null, Action<GameSettings>? saveSettings = null)
@@ -118,12 +123,13 @@ public sealed class TitleScene
                 break;
             case Phase.WhiteLines:
                 WhiteLineStep();
-                if (_phaseTick >= WhiteLineSteps)
-                {
-                    // graph_copy_accessed_page_to_other: page 1 over page 0 (pixels only; the palette is hardware)
-                    _pages.RestoreAllPixels();
-                    Next(Phase.HitKey);
-                }
+                if (_phaseTick >= WhiteLineSteps) Next(Phase.Restore);
+                break;
+            case Phase.Restore:
+                // graph_copy_accessed_page_to_other: page 1 over page 0 (pixels only; the palette is hardware). The screen is back without
+                // lines one tick after the last step; the prompt follows on the next.
+                _pages.RestoreAllPixels();
+                Next(Phase.HitKey);
                 break;
             case Phase.HitKey:
                 // while(!key_sense_bios()) { frame_delay(1); title_hit_key_put(frame++); }

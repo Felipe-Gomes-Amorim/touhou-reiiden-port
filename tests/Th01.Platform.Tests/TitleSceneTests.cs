@@ -47,7 +47,8 @@ public class TitleSceneTests
     static void Run(TitleScene t, int n, GameButtons b = GameButtons.None) { for (int i = 0; i < n; i++) t.Tick(b); }
     static void Press(TitleScene t, GameButtons b) { t.Tick(b); t.Tick(GameButtons.None); }
 
-    const int IntroTicks = TitleScene.FadeInTicks + TitleScene.PauseTicks + TitleScene.WhiteLineSteps;
+    /// <summary>Ticks before the prompt phase: 100 (fade + pause), 100 line steps, 1 restore tick (measured: lines are ticks 101-200, the prompt shows at 202).</summary>
+    const int IntroTicks = TitleScene.FadeInTicks + TitleScene.PauseTicks + TitleScene.WhiteLineSteps + 1;
 
     static TitleScene AtMenu(GameSettings? s = null, RecordingSink? sink = null)
     {
@@ -91,6 +92,8 @@ public class TitleSceneTests
         Run(t, TitleScene.PauseTicks);
         Assert.Equal(TitleScene.Phase.WhiteLines, t.CurrentPhase);
         Run(t, TitleScene.WhiteLineSteps);
+        Assert.Equal(TitleScene.Phase.Restore, t.CurrentPhase);
+        Run(t, 1);
         Assert.Equal(TitleScene.Phase.HitKey, t.CurrentPhase);
         t.Render(fb);
         Assert.Equal(3, fb.GetPixel(100, 100));                           // the second picture is now all there
@@ -112,6 +115,32 @@ public class TitleSceneTests
                 if (fb.GetPixel(0, y) == 15) Assert.True(seenWhite.Add(y), $"row {y} drawn twice");
         }
         Assert.Equal(2 * (TitleScene.WhiteLineSteps - 1), seenWhite.Count);
+    }
+
+    [Fact]
+    public void Measured_LinesAreTicks101To200_AndThePromptFirstShowsOnTick202_ThenBlinks50On20Off()
+    {
+        var t = New();
+        var fb = new Framebuffer();
+        var visible = new List<bool>();
+        for (int tick = 1; tick <= 202 + 140; tick++)
+        {
+            t.Tick(GameButtons.None);
+            if (tick is 100) { t.Render(fb); Assert.Equal(0, RowsOfColour(fb, 15)); }  // still waiting: no lines yet
+            if (tick is 101 or 200)
+            {
+                t.Render(fb);
+                Assert.Equal(2, RowsOfColour(fb, 15));                                // the lines are on screen on 101..200
+            }
+            if (tick == 201) { t.Render(fb); Assert.Equal(0, RowsOfColour(fb, 15)); } // back to the picture without lines
+            visible.Add(t.HitKeyVisibleNow);
+        }
+        Assert.DoesNotContain(true, visible.Take(201));                              // nothing before tick 202
+        Assert.True(visible[201]);                                                   // tick 202
+        Assert.Equal(Enumerable.Repeat(true, 50), visible.Skip(201).Take(50));       // 202-251 visible
+        Assert.Equal(Enumerable.Repeat(false, 20), visible.Skip(251).Take(20));      // 252-271 erased
+        Assert.True(visible[271]);                                                   // 272: next cycle
+        Assert.Equal(202, TitleScene.FirstHitKeyTick);
     }
 
     [Fact]
@@ -242,6 +271,45 @@ public class TitleSceneTests
     }
 
     [Fact]
+    public void Measured_NoKeyRepeat_Defaults_AndEscapeTargets()
+    {
+        var s = new GameSettings();
+        Assert.Equal((Rank.Normal, true, 2), (s.Rank, s.Music, s.LivesExtra));       // NORMAL, FM (on), PLAYER shown as 5
+        var t = AtMenu(s);
+        Run(t, 60, GameButtons.Down);                                                // held 60 ticks: moves once
+        Assert.Equal(1, t.MenuSelection);
+        Press(t, GameButtons.Up);
+        Press(t, GameButtons.Down); Press(t, GameButtons.Down); Press(t, GameButtons.Ok);   // OPTION
+        Run(t, 120, GameButtons.Right);                                              // held right: rank changes once
+        Assert.Equal(Rank.Hard, s.Rank);
+        Press(t, GameButtons.Down); Press(t, GameButtons.Down);
+        Press(t, GameButtons.Right);                                                 // PLAYER 5 -> 6
+        Assert.Equal(3, s.LivesExtra);
+
+        // Esc in the options: back to the main menu with OPTION active, after ~17 ticks with keys ignored
+        t.Tick(GameButtons.Cancel);
+        Run(t, 3, GameButtons.None);
+        Assert.NotEqual(TitleScene.Menu.Option, t.CurrentMenu);
+        Run(t, 20);
+        Assert.Equal(TitleScene.Menu.Main, t.CurrentMenu);
+        Assert.Equal(2, t.MenuSelection);
+
+        // Esc in the music test: back to the options with RANK active
+        Press(t, GameButtons.Ok);
+        Press(t, GameButtons.Down); Press(t, GameButtons.Down); Press(t, GameButtons.Down); Press(t, GameButtons.Ok);
+        Assert.Equal(TitleScene.Menu.Music, t.CurrentMenu);
+        t.Tick(GameButtons.Cancel);
+        Run(t, 25);
+        Assert.Equal(TitleScene.Menu.Option, t.CurrentMenu);
+        Assert.Equal(0, t.MenuSelection);
+
+        // Esc in the main menu quits
+        var q = AtMenu();
+        Press(q, GameButtons.Cancel);
+        Assert.Equal(TitleAction.Quit, q.Action);
+    }
+
+    [Fact]
     public void MusicMode_ChangeStopsOrRestartsTheTitleMusicWhenLeavingTheOptions()
     {
         var sink = new RecordingSink();
@@ -345,7 +413,7 @@ public class TitleSceneRealDataTests
         Assert.Empty(missing);
 
         var t = new TitleScene(new AssetScreenImages(assets), font, new GameSettings(), texts);
-        for (int i = 0; i < TitleScene.FadeInTicks + TitleScene.PauseTicks + TitleScene.WhiteLineSteps + 10; i++) t.Tick(GameButtons.None);
+        for (int i = 0; i < TitleScene.FadeInTicks + TitleScene.PauseTicks + TitleScene.WhiteLineSteps + 11; i++) t.Tick(GameButtons.None);
         var fb = new Framebuffer();
         t.Render(fb);
         int hitKeyInk = 0;
