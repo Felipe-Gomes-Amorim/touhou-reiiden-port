@@ -15,4 +15,10 @@ public sealed record VisualOptions
     public BombFlash BombFlash { get; init; } = BombFlash.Softened;
     /// <summary>false = the vertical shake of the bomb (frames 52..139) is not applied.</summary>
     public bool ScreenShake { get; init; } = true;
+    /// <summary>
+    /// true (the default) = no flashing lights: the boss hit flash is a light, steady tint instead of white blinking every
+    /// other frame, and the boss defeat has no blinking white lines and only brightens the palette moderately (slower).
+    /// false = the original white flashes. Durations never change.
+    /// </summary>
+    public bool SoftFlashes { get; init; } = true;
 }
