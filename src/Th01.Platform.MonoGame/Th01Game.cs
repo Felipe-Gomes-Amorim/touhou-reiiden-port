@@ -75,7 +75,8 @@ public sealed class Th01Game : Game
     readonly LauncherCanvas _lcanvas = new();
     readonly uint[] _lrgba = new uint[LauncherCanvas.Width * LauncherCanvas.Height];
     readonly LauncherInputState _linput = new();
-    Texture2D? _ltex, _scanTex;
+    Texture2D? _ltex;
+    ImagePresenter? _presenter;
     int _filter;
     LauncherApplier _applier = null!;
     bool _inLauncher;
@@ -105,10 +106,7 @@ public sealed class Th01Game : Game
         _batch = new SpriteBatch(GraphicsDevice);
         _tex = new Texture2D(GraphicsDevice, Framebuffer.Width, Framebuffer.Height, false, SurfaceFormat.Color);
         _ltex = new Texture2D(GraphicsDevice, LauncherCanvas.Width, LauncherCanvas.Height, false, SurfaceFormat.Color);
-        _scanTex = new Texture2D(GraphicsDevice, 1, Framebuffer.Height * 2, false, SurfaceFormat.Color);
-        var scan = new Color[Framebuffer.Height * 2];
-        for (int i = 0; i < scan.Length; i++) scan[i] = i % 2 == 1 ? new Color(0, 0, 0, 120) : Color.Transparent;
-        _scanTex.SetData(scan);
+        _presenter = new ImagePresenter(GraphicsDevice);
         Launcher?.Attach(LauncherSvc, _bindings, () => GameSettings.Load(null, GameFolder?.Invoke()));
         ApplyLauncherSettings();
         _inLauncher = ShowLauncher && Launcher is not null && LauncherFont is not null;
@@ -411,9 +409,8 @@ public sealed class Th01Game : Game
                 _ltex!.SetData(_lrgba);
                 var lv = GraphicsDevice.Viewport;
                 var (fx, fy, lw, lh) = LauncherViewport.Fit(lv.Width, lv.Height);
-                _batch!.Begin(samplerState: lw % LauncherCanvas.Width == 0 ? SamplerState.PointClamp : SamplerState.LinearClamp);
-                _batch.Draw(_ltex, new Rectangle(fx, fy, lw, lh), Color.White);
-                _batch.End();
+                // The same filter path as the game, so a change in the options shows in the launcher at once (read from the live setting).
+                _presenter!.Present(_batch!, _ltex, new Rectangle(fx, fy, lw, lh), (ImageFilter)Launcher!.Settings.Filter);
                 base.Draw(gameTime);
                 return;
             }
@@ -431,15 +428,7 @@ public sealed class Th01Game : Game
             var vp = GraphicsDevice.Viewport;
             var r = ViewportLayout.Compute(vp.Width, vp.Height, _scaleMode);
             var dest = new Rectangle(r.X, r.Y, r.Width, r.Height);
-            _batch!.Begin(samplerState: _filter == 1 ? SamplerState.LinearClamp : SamplerState.PointClamp);
-            _batch.Draw(_tex, dest, Color.White);
-            _batch.End();
-            if (_filter == 2)
-            {
-                _batch.Begin(samplerState: SamplerState.PointClamp, blendState: BlendState.NonPremultiplied);
-                _batch.Draw(_scanTex, dest, Color.White);
-                _batch.End();
-            }
+            _presenter!.Present(_batch!, _tex, dest, (ImageFilter)_filter);
         }
         catch (Exception e) { Fail(e); }
         base.Draw(gameTime);
