@@ -559,20 +559,111 @@ internal sealed class GameRenderer
         DrawHpBar(fb, y);
     }
 
+    const string ElisGrc = "BOSS5_GR.GRC";
+    const byte ColElisFx = 4, ColEntranceSphere = 8, ColStar = 2;
+
     void DrawElis(Framebuffer fb, Elis e)
     {
         if (e.Phase >= 1 && e.Phase < 8) DrawHpBar(fb, e);
+
+        // Effects behind the girl: entrance spheres, rings, the Star of David, rifts and spheres of the patterns.
+        foreach (var (cel, l, t) in e.EntranceSpheres()) DrawGrc(fb, cel, l, t, ColEntranceSphere);
+        if (e.HandRing is { } ring) DrawArc(fb, ring.cx, ring.cy, ring.radius, 0, 0xFF, ColElisFx);
+        if (e.ActiveCircle(out bool star) is { } circle) DrawBigCircle(fb, circle, star);
+        foreach (var (l, t, cel) in e.PatternSpheres()) DrawGrc(fb, cel, l, t, ColElisFx);
+        int riftCel = Elis.RiftCel + e.PhaseFrame / 4 % 2;
+        foreach (var (l, t) in e.Rifts()) DrawGrc(fb, riftCel, l, t, ColElisFx);
+        if (e.StarsShown)
+            for (int i = 0; i < e.StarLeft.Length; i++)
+                if (!DrawMono(fb, Shape8Sheet, Shape8Star, e.StarLeft[i], e.StarTop[i], ColStar))
+                    fb.FillRect(e.StarLeft[i], e.StarTop[i], 8, 8, ColStar);
+
         bool girlGone = e.IsBat && e.Phase == 5;
-        if (e.Phase >= 1 && !girlGone || e.EntranceGirlVisible)
+        if (e.Phase >= 1 && !girlGone)
         {
-            // Wave teleport: the wave cels of BOSS5.BOS (hidden while she is "between" places); otherwise standing.
-            int cel = e.TeleportInProgress ? e.WaveCel : Elis.CStill;
-            if (cel >= 0 && !Draw(fb, "BOSS5.BOS", cel, e.Left, e.Top))
+            var (sheet, cel) = e.GirlPose();
+            if (cel >= 0 && !Draw(fb, sheet, cel, e.Left, e.Top))
                 fb.FillRect(e.Left, e.Top, Elis.GirlW, Elis.GirlH, (byte)(e.Invincible ? 15 : 12));
+        }
+        else if (e.EntranceGirlVisible)
+        {
+            // The wave-in: the standing girl with every line shifted sideways by a sine that fades out.
+            if (e.EntranceWave is { } w) DrawWavy(fb, Elis.GirlSheet, Elis.CStill, e.Left, e.Top, w.len, w.amp, w.phase);
+            else if (!Draw(fb, Elis.GirlSheet, Elis.CStill, e.Left, e.Top))
+                fb.FillRect(e.Left, e.Top, Elis.GirlW, Elis.GirlH, 12);
         }
         if (e.IsBat && e.Phase == 5 && !Draw(fb, "BOSS5_3.BOS", e.BatImage, e.BatLeft, e.BatTop))
             fb.FillRect(e.BatLeft, e.BatTop, Elis.BatW, Elis.BatH, (byte)(e.Invincible ? 15 : 12));
-        // TODO: attack cels (BOSS5_2.BOS), the wave-in of the entrance, rifts, spheres, stars and the circles are not drawn yet.
+    }
+
+    const int Shape8Star = 1;
+
+    /// <summary>A cel of the Elis effects sheet (spheres 1-3, rifts 4-5) in one colour; a centred square when the sheet is missing.</summary>
+    void DrawGrc(Framebuffer fb, int cel, int x, int y, byte color)
+    {
+        if (DrawMono(fb, ElisGrc, cel, x, y, color)) return;
+        int s = cel <= Elis.SphereLarge ? cel * 8 : 20;
+        fb.FillRect(x + (Elis.SphereW - s) / 2, y + (Elis.SphereH - s) / 2, s, s, color);
+    }
+
+    /// <summary>An arc of a circle from angle a0 to a1 (256 steps per turn), as short line segments.</summary>
+    static void DrawArc(Framebuffer fb, int cx, int cy, int r, int a0, int a1, byte color)
+    {
+        int px = AngleMath.PolarX(cx, r, a0), py = AngleMath.PolarY(cy, r, a0);
+        for (int a = a0 + 1; a <= a1; a++)
+        {
+            int x = AngleMath.PolarX(cx, r, a), y = AngleMath.PolarY(cy, r, a);
+            DrawLine(fb, px, py, x, y, color);
+            px = x; py = y;
+        }
+    }
+
+    // The Star of David's six lines, as pairs of angles on the circle.
+    static readonly (int a, int b)[] StarLines = { (-0x40, 0x16), (-0x40, 0x6A), (0x16, 0x6A), (0x40, -0x6A), (0x40, -0x16), (-0x6A, -0x16) };
+
+    /// <summary>
+    /// The summon of a big circle (four quarter arcs growing to a full circle), then its flash between the effect colour and
+    /// white; with the star, the six lines of the Star of David flash with it. ref: th01/main/boss/b15m.cpp bigcircle_*
+    /// </summary>
+    void DrawBigCircle(Framebuffer fb, Elis.BigCircle c, bool star)
+    {
+        const int r = Elis.GirlW;                           // BIGCIRCLE_RADIUS
+        if (c.Frame == 0)
+        {
+            // summon: a short arc at the start of each quarter, growing by 2 steps per even frame
+            for (int q = 0; q < 4; q++) DrawArc(fb, c.CenterX, c.CenterY, r, q * 0x40, q * 0x40 + Math.Min(c.Angle + 2, 0x40), ColWhite);
+            return;
+        }
+        byte color = c.Frame > 20 && c.Frame % 4 < 2 ? ColElisFx : ColWhite;
+        if (!star) color = c.Frame >= 8 && c.Frame % 8 < 4 ? ColElisFx : ColWhite;
+        DrawArc(fb, c.CenterX, c.CenterY, r, 0, 0xFF, color);
+        if (!star) return;
+        foreach (var (a, b) in StarLines)
+            DrawLine(fb, AngleMath.PolarX(c.CenterX, r, a & 0xFF), AngleMath.PolarY(c.CenterY, r, a & 0xFF),
+                AngleMath.PolarX(c.CenterX, r, b & 0xFF), AngleMath.PolarY(c.CenterY, r, b & 0xFF), color);
+    }
+
+    /// <summary>Draws a cel with each line shifted sideways by amp * sin(line * 256 / len + phase) (the wave-in of the entrance).</summary>
+    void DrawWavy(Framebuffer fb, string sheet, int cel, int x, int y, int len, int amp, int phase)
+    {
+        int Shift(int row) => amp * AngleMath.Sin8(row * 256 / Math.Max(len, 1) + phase) / 256;
+        if (_art == null || !_art.TryGetFrame(sheet, cel, out var f))
+        {
+            for (int row = 0; row < Elis.GirlH; row++) fb.FillRect(x + Shift(row), y + row, Elis.GirlW, 1, 12);
+            return;
+        }
+        var px = f.Pixels.Span;
+        var al = f.Alpha.Span;
+        for (int r = 0; r < f.Height; r++)
+        {
+            int dx = Shift(r);
+            for (int c = 0; c < f.Width; c++)
+            {
+                int k = r * f.Width + c;
+                bool on = al.Length != 0 ? al[k] != 0 : px[k] != 0;
+                if (on) fb.SetPixel(x + c + dx, y + r, px[k]);
+            }
+        }
     }
 
     void DrawKonngara(Framebuffer fb, Konngara k)
