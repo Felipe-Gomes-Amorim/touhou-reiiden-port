@@ -71,6 +71,13 @@ public sealed class GameAssets
     public IndexedImage GetGrp(string name) =>
         Cached("grp:" + name, () => Parse<IndexedImage>(name, FromFolder(name), d => GrpImage.Load(d)));
 
+    /// <summary>
+    /// A loose .GRP drawn with the colour key (colour 15 transparent), like the game does for OP_WIN.GRP: the window of
+    /// the title menu. The pixels keep their indices; Alpha is 0 where the index is the key.
+    /// </summary>
+    public IndexedImageA GetGrpWithColorKey(string name, int colorKey = GrpImage.ColorKey) =>
+        Cached($"grpkey:{name}:{colorKey}", () => GrpImage.WithColorKey(GetGrp(name), colorKey));
+
     /// <summary>A loose .GRZ file: one sheet per image, each frame being one planar stream.</summary>
     public IReadOnlyList<SpriteSheet> GetGrz(string name) =>
         Cached("grz:" + name, () => Parse(name, FromFolder(name), d => GrzImage.LoadGrz(d)));

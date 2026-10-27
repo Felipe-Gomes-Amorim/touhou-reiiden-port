@@ -8,6 +8,19 @@ namespace Th01.Assets.Formats;
 /// </summary>
 public static class GrpImage
 {
+    /// <summary>Colour index that the game treats as transparent when it draws with a colour key (OP_WIN.GRP, the boss overlays).
+    /// ref: th01/formats/grp.cpp grp_put_colorkey, PILOAD_OPT_COLORKEY(15)</summary>
+    public const int ColorKey = 15;
+
+    /// <summary>Copy of the image with Alpha 0 where the pixel equals the colour key and 1 elsewhere; the palette is kept.</summary>
+    public static IndexedImageA WithColorKey(IndexedImage image, int colorKey = ColorKey)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        byte[] alpha = new byte[image.Pixels.Length];
+        for (int i = 0; i < alpha.Length; i++) alpha[i] = (byte)(image.Pixels[i] == colorKey ? 0 : 1);
+        return new IndexedImageA(image.Width, image.Height, image.Pixels, alpha, image.Palette);
+    }
+
     private const int MaxDimension = 4096, MaxPadding = 4;
 
     public static IndexedImage Load(Stream s)

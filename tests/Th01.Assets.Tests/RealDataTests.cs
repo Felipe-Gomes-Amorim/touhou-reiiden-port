@@ -110,6 +110,7 @@ public class RealFolderInventoryTests
         // nothing required is missing; the only absent files are the optional ones
         Assert.All(ExpectedFiles.All.Where(f => f.Required), f => Assert.Contains(f.Name, onDisk, StringComparer.OrdinalIgnoreCase));
         var absent = expected.Where(n => !onDisk.Contains(n)).OrderBy(n => n).ToList();
-        Assert.Equal(["REIIDEN.CFG", "REYHINO.DAT", "ST7.MDT"], absent);
+        // absent files must all be optional ones (the game creates its own CFG/REYHI*.DAT; ST7.MDT is only on the translated copy)
+        Assert.All(absent, n => Assert.False(ExpectedFiles.All.First(f => string.Equals(f.Name, n, StringComparison.OrdinalIgnoreCase)).Required, n + " is required but missing"));
     }
 }

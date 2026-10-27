@@ -1,3 +1,4 @@
+using Th01.Assets;
 using Th01.Assets.Config;
 using Th01.Assets.Formats;
 
@@ -56,5 +57,39 @@ public class GrpTests
             Assert.NotNull(img.Palette);
             Assert.All(img.Pixels, p => Assert.True(p < 16));
         }
+    }
+}
+
+public class GrpColorKeyTests
+{
+    [Fact]
+    public void ColorKeyMakesOnlyThatIndexTransparent()
+    {
+        var img = new Th01.Assets.Model.IndexedImage(2, 2, [15, 0, 3, 15]);
+        var a = GrpImage.WithColorKey(img);
+        Assert.Equal(new byte[] { 0, 1, 1, 0 }, a.Alpha);
+        Assert.Equal(img.Pixels, a.Pixels);
+        Assert.Equal(new byte[] { 1, 1, 0, 1 }, GrpImage.WithColorKey(img, 3).Alpha);
+        Assert.Equal(15, GrpImage.ColorKey);
+    }
+
+    [SkippableFact]
+    public void TitleImagesLoadAndTheWindowHasTransparentAndOpaqueAreas()
+    {
+        string? folder = GameDataConfig.Resolve();
+        Skip.If(folder is null || !File.Exists(Path.Combine(folder!, "OP_WIN.GRP")), $"Game data not configured. Set {GameDataConfig.EnvVar}.");
+        var assets = new GameAssets(new FolderAssetSource(folder!));
+        foreach (string n in new[] { "OP_WIN.GRP", "REIIDEN2.GRP", "REIIDEN3.GRP" })
+        {
+            var g = assets.GetGrp(n);
+            Assert.Equal((640, 400), (g.Width, g.Height));
+            Assert.NotNull(g.Palette);
+        }
+        var win = assets.GetGrpWithColorKey("OP_WIN.GRP");
+        Assert.Contains((byte)0, win.Alpha);
+        Assert.Contains((byte)1, win.Alpha);
+        int transparent = win.Alpha.Count(a => a == 0);
+        Assert.True(transparent > win.Alpha.Length / 2, "most of the window image is transparent (it only holds the window frame)");
+        Assert.Same(win, assets.GetGrpWithColorKey("OP_WIN.GRP"));
     }
 }
