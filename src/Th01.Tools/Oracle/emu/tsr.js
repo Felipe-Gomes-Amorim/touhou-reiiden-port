@@ -8,10 +8,12 @@
 'use strict';
 
 const CFG = {
-  base: 0x400,            // header offset inside the COM segment (cfg file is read here)
+  base: 0x700,            // header offset inside the COM segment (cfg file is read here)
   sig: 0x000, cap: 0x004, slotParas: 0x006, nin: 0x008, gsOff: 0x00a, gsVal: 0x00c, frOff: 0x010, frVal: 0x012,
   seedOff: 0x016, seedVal: 0x018, nRangeBytes: 0x01c, ranges: 0x020 /* 8 x (off,len,seg,0): seg 0 = the game's DS */, tick: 0x060, started: 0x062,
-  seen7: 0x063, old18: 0x064, bufDelta: 0x06a, keepParas: 0x06c, startTick: 0x06e, pinOff: 0x070, pinVal: 0x072, n01: 0x074, n04a: 0x076, n04b: 0x078, pushed: 0x07a, cnt01: 0x07c, cnt04: 0x07e, table: 0x080,
+  seen7: 0x063, old18: 0x064, bufDelta: 0x06a, keepParas: 0x06c, startTick: 0x06e, pinOff: 0x070, pinVal: 0x072, n01: 0x074, n04a: 0x076, n04b: 0x078, pushed: 0x07a, cnt01: 0x07c, cnt04: 0x07e,
+  old21: 0x080, gameV: 0x084, vs: 0x088, vs0: 0x08a, vsPush: 0x08c, logDelta: 0x08e, logCap: 0x090, nSchedBytes: 0x092, hooked: 0x094,
+  sched: 0x098 /* 16 x (start w, end w, group b, bits b), relative to vsPush */, table: 0x100,
 };
 const A = o => CFG.base + o; // absolute offset in the COM segment
 
@@ -38,6 +40,10 @@ function assemble() {
   b(0x89, 0x1e); w(A(CFG.old18)); b(0x8c, 0x06); w(A(CFG.old18 + 2));     // mov [old18],bx ; mov [old18+2],es
   b(0xba, 0, 0); fix.push([out.length - 2, 'h18', true]);                 // mov dx,h18
   b(0xb8); w(0x2518); b(0xcd, 0x21);                                      // set int 18h
+  b(0xb8); w(0x3521); b(0xcd, 0x21);                                      // get int 21h -> es:bx
+  b(0x89, 0x1e); w(A(CFG.old21)); b(0x8c, 0x06); w(A(CFG.old21 + 2));
+  b(0xba, 0, 0); fix.push([out.length - 2, 'h21', true]);                 // mov dx,h21
+  b(0xb8); w(0x2521); b(0xcd, 0x21);                                      // set int 21h (captures the program's VSync handler, see h21)
   b(0x31, 0xc0, 0x8e, 0xc0);                                              // xor ax,ax ; mov es,ax
   b(0x26, 0xc7, 0x06); w(0x200); w(CFG.base);                             // es:[200h]=base  (IVT slot of INT 80h)
   b(0x8c, 0xc8, 0x26, 0xa3); w(0x202);                                    // mov ax,cs ; es:[202h]=ax
@@ -63,7 +69,8 @@ function assemble() {
   b(0x83, 0xc3, 0x02, 0x81, 0xfb, 0x22, 0x05, 0x72, 0x03, 0xbb, 0x02, 0x05); // add bx,2 ; cmp bx,522h ; jb +3 ; mov bx,502h
   b(0x26, 0x89, 0x1e, 0x26, 0x05, 0x26, 0xff, 0x06, 0x28, 0x05);          // mov es:[526h],bx ; inc word es:[528h]
   b(0x07, 0x5b);                                                          // pop es ; pop bx
-  csm([0xc6, 0x06], CFG.pushed); b(0x01);                                 // pushed=1
+  csm([0xc6, 0x06], CFG.pushed); b(0x01);
+  b(0x2e, 0xa1); w(A(CFG.vs)); b(0x2e, 0xa3); w(A(CFG.vsPush));          // vsPush = vs (scheduled keys are relative to it)                                 // pushed=1
   csm([0xc7, 0x06], CFG.cnt04); b(0x00, 0x00);                            // cnt04=0
   L('k1'); b(0x58); near('chain');                                        // pop ax ; jmp chain
   L('sense');
@@ -71,8 +78,23 @@ function assemble() {
   b(0x2e, 0x8b, 0x1e); w(A(CFG.gsOff));                                   // mov bx,cs:[gsOff]
   b(0x8b, 0x17); csm([0x3b, 0x16], CFG.gsVal); rel(0x75, 'notgame');      // mov dx,[bx] ; cmp dx,cs:[gsVal] ; jne
   b(0x8b, 0x57, 0x02); csm([0x3b, 0x16], CFG.gsVal + 2); rel(0x75, 'notgame');
-  rel(0xeb, 'gamechk');
+  near('gamechk');
   L('notgame'); b(0x1f, 0x07, 0x5f, 0x5e, 0x5a, 0x59, 0x5b);
+  // Scheduled keys (title/menu measurements): every key_sense(group) in a non-game program returns the OR of the
+  // schedule entries (start,end,group,bits) whose [start,end) contains (vs - vsPush) and whose group matches.
+  csm([0x83, 0x3e], CFG.nSchedBytes); b(0x00); rel(0x74, 'nosched');       // cmp word cs:[nSchedBytes],0 ; je nosched
+  csm([0x80, 0x3e], CFG.pushed); b(0x00); rel(0x74, 'nosched');           // cmp byte cs:[pushed],0 ; je nosched
+  b(0x53, 0x51, 0x52);                                                    // push bx cx dx
+  csm([0x8b, 0x0e], CFG.vs); csm([0x2b, 0x0e], CFG.vsPush);               // mov cx,vs ; sub cx,vsPush
+  b(0x30, 0xd2, 0x31, 0xdb);                                              // xor dl,dl ; xor bx,bx
+  L('sl'); csm([0x3b, 0x1e], CFG.nSchedBytes); rel(0x73, 'sd');           // cmp bx,nSchedBytes ; jae sd
+  b(0x2e, 0x3a, 0x87); w(A(CFG.sched + 4)); rel(0x75, 'sn');              // cmp al,[bx+sched+4] ; jne sn
+  b(0x2e, 0x3b, 0x8f); w(A(CFG.sched)); rel(0x72, 'sn');                  // cmp cx,[bx+sched] ; jb sn
+  b(0x2e, 0x3b, 0x8f); w(A(CFG.sched + 2)); rel(0x73, 'sn');              // cmp cx,[bx+sched+2] ; jae sn
+  b(0x2e, 0x0a, 0x97); w(A(CFG.sched + 5));                               // or dl,[bx+sched+5]
+  L('sn'); b(0x83, 0xc3, 0x06); rel(0xeb, 'sl');                          // add bx,6 ; jmp sl
+  L('sd'); b(0x88, 0xd4, 0x5a, 0x59, 0x5b, 0xcf);                         // mov ah,dl ; pop dx cx bx ; iret
+  L('nosched');
   csm([0x80, 0x3e], CFG.started); b(0x00); near2('chain', 0x75);          // started != 0 -> chain
   b(0x3c, 0x05); near2('chain', 0x75);                                    // al != 5 -> chain
   b(0x53, 0x2e, 0x8b, 0x1e); w(A(CFG.cnt04)); b(0x43, 0x2e, 0x89, 0x1e); w(A(CFG.cnt04)); // push bx ; bx=++cnt04
@@ -127,6 +149,38 @@ function assemble() {
   L('zero'); b(0xb4, 0x00);
   L('ret'); b(0x1f, 0x07, 0x5f, 0x5e, 0x5a, 0x59, 0x5b, 0xcf);            // pop ds es di si dx cx bx ; iret
 
+  // ---- INT 21h hook: when a program installs its VSync handler (AH=25h AL=0Ah) we put our wrapper in front of it ----
+  L('h21');
+  b(0x80, 0xfc, 0x25); rel(0x75, 'c21');                                  // cmp ah,25h ; jne c21
+  b(0x3c, 0x0a); rel(0x75, 'c21');                                        // cmp al,0Ah ; jne c21
+  b(0x2e, 0x89, 0x16); w(A(CFG.gameV)); b(0x2e, 0x8c, 0x1e); w(A(CFG.gameV + 2)); // gameV = ds:dx
+  csm([0xc6, 0x06], CFG.hooked); b(0x01);                                 // hooked = 1
+  b(0x50, 0x2e, 0xa1); w(A(CFG.vs)); b(0x2e, 0xa3); w(A(CFG.vs0)); b(0x58); // vs0 = vs  (program start marker)
+  b(0x1e, 0x52, 0x0e, 0x1f);                                              // push ds ; push dx ; push cs ; pop ds
+  b(0xba, 0, 0); fix.push([out.length - 2, 'vhook', true]);               // mov dx,vhook
+  b(0x9c, 0x2e, 0xff, 0x1e); w(A(CFG.old21));                             // pushf ; call far cs:[old21]
+  b(0x5a, 0x1f, 0xcf);                                                    // pop dx ; pop ds ; iret
+  L('c21'); b(0x2e, 0xff, 0x2e); w(A(CFG.old21));                         // jmp far cs:[old21]
+
+  // ---- VSync wrapper: counts VSyncs and logs 4 plane checksums of the current access page per VSync ----
+  L('vhook');
+  b(0x50, 0x53, 0x51, 0x52, 0x56, 0x57, 0x1e, 0x06);                      // push ax bx cx dx si di ds es
+  b(0x2e, 0xff, 0x06); w(A(CFG.vs));                                      // inc word cs:[vs]
+  csm([0x80, 0x3e], CFG.hooked); b(0x00); rel(0x74, 'vdone');             // cmp hooked,0 ; je vdone
+  b(0x2e, 0xa1); w(A(CFG.vs)); csm([0x2b, 0x06], CFG.vs0);                // ax = vs - vs0
+  csm([0x3b, 0x06], CFG.logCap); rel(0x73, 'vdone');                      // cmp ax,logCap ; jae vdone
+  b(0x89, 0xc3);                                                          // mov bx,ax
+  b(0xd1, 0xe0); csm([0x03, 0x06], CFG.logDelta);                         // shl ax,1 ; add ax,logDelta   (32 bytes = 2 paragraphs per entry)
+  b(0x8c, 0xca, 0x01, 0xd0, 0x8e, 0xc0, 0x31, 0xff);                      // mov dx,cs ; add ax,dx ; mov es,ax ; xor di,di
+  b(0x89, 0xd8, 0xab, 0xfc);                                              // mov ax,bx ; stosw ; cld
+  for (const seg of [0xa800, 0xb000, 0xb800, 0xe000]) {
+    b(0xb8); w(seg); b(0x8e, 0xd8, 0x31, 0xf6, 0xb9); w(0x3e80); b(0x31, 0xd2); // mov ax,seg ; mov ds,ax ; xor si,si ; mov cx,3E80h ; xor dx,dx
+    b(0xad, 0x01, 0xc2, 0xe2, 0xfb);                                      // lodsw ; add dx,ax ; loop -5
+    b(0x89, 0xd0, 0xab);                                                  // mov ax,dx ; stosw
+  }
+  L('vdone'); b(0x07, 0x1f, 0x5f, 0x5e, 0x5a, 0x59, 0x5b, 0x58);          // pop es ds di si dx cx bx ax
+  b(0x2e, 0xff, 0x2e); w(A(CFG.gameV));                                   // jmp far cs:[gameV]
+
   for (const f of fix) {
     const [pos, name, abs, isNear] = f;
     if (isNear) { const d = labels[name] - (pos + 2); out[pos] = d & 255; out[pos + 1] = (d >> 8) & 255; }
@@ -152,7 +206,8 @@ function buildCfg(cfg) {
   const slotParas = snap / 16;
   const tableEnd = CFG.table + nin * 10;
   const bufDelta = (A(tableEnd) + 15) >> 4;
-  const keep = bufDelta + cfg.cap * slotParas + 1;
+  const logDelta = bufDelta + cfg.cap * slotParas, logCap = cfg.logCap || 0;
+  const keep = logDelta + logCap * 2 + 1;
   if (keep > 0xf000) throw new Error('buffer too large');
   const b = Buffer.alloc(tableEnd);
   b.write('T5OR', CFG.sig, 'latin1');
@@ -162,9 +217,12 @@ function buildCfg(cfg) {
   b.writeUInt16LE(cfg.seedOff || 0, CFG.seedOff); b.writeUInt32LE((cfg.seed || 0) >>> 0, CFG.seedVal);
   b.writeUInt16LE(cfg.ranges.length * 8, CFG.nRangeBytes);
   cfg.ranges.forEach(([o, l, sg], i) => { b.writeUInt16LE(o, CFG.ranges + i * 8); b.writeUInt16LE(l, CFG.ranges + i * 8 + 2); b.writeUInt16LE(sg || 0, CFG.ranges + i * 8 + 4); });
+  const sched = cfg.sched || []; if (sched.length > 16) throw new Error('at most 16 scheduled keys');
+  b.writeUInt16LE(logDelta, CFG.logDelta); b.writeUInt16LE(logCap, CFG.logCap); b.writeUInt16LE(sched.length * 6, CFG.nSchedBytes);
+  sched.forEach(([st, en, g, bits], i) => { b.writeUInt16LE(st, CFG.sched + i * 6); b.writeUInt16LE(en, CFG.sched + i * 6 + 2); b[CFG.sched + i * 6 + 4] = g; b[CFG.sched + i * 6 + 5] = bits; });
   b.writeUInt16LE(cfg.startTick || 0, CFG.startTick); b.writeUInt16LE(cfg.pinOff || 0, CFG.pinOff); if (cfg.boot) { b.writeUInt16LE(cfg.boot.n01, CFG.n01); b.writeUInt16LE(cfg.boot.n04a, CFG.n04a); b.writeUInt16LE(cfg.boot.n04b, CFG.n04b); } b.writeUInt16LE(cfg.pinVal || 0, CFG.pinVal); b.writeUInt16LE(bufDelta, CFG.bufDelta); b.writeUInt16LE(keep, CFG.keepParas);
   if (cfg.inputs) Buffer.from(cfg.inputs).copy(b, CFG.table);
-  return { cfg: b, slotParas, bufDelta, keep };
+  return { cfg: b, slotParas, bufDelta, keep, logDelta };
 }
 
 module.exports = { assemble, buildCfg, CFG };
