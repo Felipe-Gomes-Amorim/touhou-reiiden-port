@@ -9,7 +9,11 @@ namespace Th01.Platform.MonoGame.Launcher;
 /// A missing or damaged file gives the defaults, and so does any single key that is missing or out of range.
 /// The file is shared with the remembered game (<see cref="LauncherFile"/> merges keys), so only our keys are written.
 /// </summary>
-public sealed record FlowOptions(bool ShowWarning, bool ScreenShake, bool TitleLines, VisualOptions Visuals);
+public sealed record FlowOptions(bool ShowWarning, bool ScreenShake, bool TitleLines, VisualOptions Visuals)
+{
+    /// <summary>The ending / boss-slide cutscenes: shake follows "reduce shake", the flicker follows "soften flashes".</summary>
+    public SlideEffects Slides => new(ScreenShake, Visuals.SoftFlashes);
+}
 
 public sealed class LauncherSettings
 {
@@ -54,6 +58,7 @@ public sealed class LauncherSettings
     public VisualOptions ToVisualOptions() => new()
     {
         BombFlash = SoftenBombFlash ? BombFlash.Softened : BombFlash.Original,
+        SoftFlashes = SoftenBombFlash,        // boss hit and boss defeat flashes follow the same switch
         ScreenShake = !ReduceShake,
     };
 

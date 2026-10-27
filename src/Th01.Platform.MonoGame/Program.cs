@@ -90,7 +90,7 @@ Func<GameFlow?> factory = () =>
     var scores = new FileScoreStore(userDir, dataPath);
     Console.WriteLine(stage is int st ? $"Starting stage {st + 1}, route {(route == 0 ? "Makai" : "Jigoku")}." : "Starting at the logo and title screen.");
     return new GameFlow(new AssetStageProvider(assets, font, missingArt, sound, flowOptions.Visuals), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene, sound, showWarning: flowOptions.ShowWarning, Th01.Assets.Text.TitleTextLoader.Load(assets),
-        screenShake: flowOptions.ScreenShake, titleLines: flowOptions.TitleLines);
+        screenShake: flowOptions.ScreenShake, titleLines: flowOptions.TitleLines, slideEffects: flowOptions.Slides);
 };
 
 try

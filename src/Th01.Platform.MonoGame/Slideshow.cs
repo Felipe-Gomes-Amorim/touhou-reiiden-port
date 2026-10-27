@@ -20,6 +20,19 @@ public sealed record ToneTo(int Target, int Ticks) : SlideStep;
 public sealed record SetTone(int Tone) : SlideStep;
 /// <summary>Scrolls the screen down by <c>Y</c> lines (the shake of a bad ending). Takes no time.</summary>
 public sealed record Scroll(int Y) : SlideStep;
+/// <summary>
+/// A tone that flips every tick in the explosion scene (a strobe): <c>Tone</c> normally, the steady <c>SoftTone</c> when flashes are softened.
+/// Takes no time.
+/// </summary>
+public sealed record StrobeTone(int Tone, int SoftTone) : SlideStep;
+/// <summary>A picture that flips every few ticks in the explosion scene: quarter <c>Quarter</c> normally, the steady <c>SoftQuarter</c> when flashes are softened. Takes no time.</summary>
+public sealed record StrobePic(int Quarter, int SoftQuarter) : SlideStep;
+
+/// <summary>What the player's accessibility options change in a slideshow (drawing only): the shake of the screen, and the flicker of tone and pictures.</summary>
+public sealed record SlideEffects(bool Shake, bool SoftFlashes)
+{
+    public static readonly SlideEffects Original = new(true, false);
+}
 public sealed record Wait(int Ticks) : SlideStep;
 /// <summary>
 /// Shows <c>Count</c> lines of text from <c>First</c> on, taken from the story scene of the user's own FUUIN.EXE named
@@ -61,6 +74,7 @@ public sealed class Slideshow
     readonly IReadOnlyList<SlideStep> _steps;
     readonly IFontSource? _font;
     readonly ICaptionSource? _captions;
+    readonly SlideEffects _effects;
     string[] _captionLines = [];
     int _captionY;
     readonly List<PutText> _texts = new();
@@ -79,8 +93,9 @@ public sealed class Slideshow
     public int Tone { get; set; } = -15;
     public int StepIndex => _index;
 
-    public Slideshow(IScreenImages images, IReadOnlyList<SlideStep> steps, IFontSource? font = null, ICaptionSource? captions = null)
+    public Slideshow(IScreenImages images, IReadOnlyList<SlideStep> steps, IFontSource? font = null, ICaptionSource? captions = null, SlideEffects? effects = null)
     {
+        _effects = effects ?? SlideEffects.Original;
         _images = images;
         _steps = steps;
         _font = font;
@@ -151,7 +166,14 @@ public sealed class Slideshow
                     Tone = Math.Clamp(t.Tone, -15, 15);
                     break;
                 case Scroll s:
-                    _scrollY = s.Y;
+                    _scrollY = _effects.Shake ? s.Y : 0;
+                    break;
+                case StrobeTone st:
+                    _toneTicks = 0;
+                    Tone = Math.Clamp(_effects.SoftFlashes ? st.SoftTone : st.Tone, -15, 15);
+                    break;
+                case StrobePic sp:
+                    SetQuarter(_effects.SoftFlashes ? sp.SoftQuarter : sp.Quarter);
                     break;
                 case Wait w:
                     _remaining = Math.Max(1, w.Ticks);
@@ -353,16 +375,16 @@ public static class Cutscenes
             yield return new Scroll((i & 3) == 0 ? 8 : 0);
             yield return new SetPic(1);
             yield return new Wait(1);
-            yield return new SetTone(ToneOf((i & 1) != 0 ? 170 : 100));
+            yield return new StrobeTone(ToneOf((i & 1) != 0 ? 170 : 100), ToneOf(135));   // the tone flips every tick: steady when softened
         }
         for (int i = 0; i <= boom; i++)
         {
             yield return new Scroll((i & 3) == 0 ? 8 : 0);
-            yield return new SetPic(1);
+            yield return new StrobePic(1, 2);                // softened: the boom picture stays up instead of flickering
             yield return new Wait(2);
             // The original shows the "boom" picture without any delay, so on real hardware it is only half-visible.
             // ASSUMPTION: show it for one tick, as ZUN clearly intended.
-            if ((i & 1) != 0) { yield return new SetPic(2); yield return new Wait(1); }
+            if ((i & 1) != 0) { yield return new StrobePic(2, 2); yield return new Wait(1); }
         }
     }
 

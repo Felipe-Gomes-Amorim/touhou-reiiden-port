@@ -93,6 +93,7 @@ public sealed class GameFlow
 
     public GameSettings Settings { get; }
     readonly bool _screenShake, _titleLines;
+    readonly SlideEffects _slideEffects;
     public Screen Screen { get; private set; } = Screen.Logo;
     public GameSession? Game => _game;
     public bool QuitRequested { get; private set; }
@@ -104,8 +105,9 @@ public sealed class GameFlow
     /// <param name="startStage">If set (0-based), skips logo and title and starts that stage directly.</param>
     public GameFlow(IStageProvider stages, IScreenImages images, IFontSource font, GameSettings settings,
         Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0,
-        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null, bool showWarning = false, TitleTexts? titleTexts = null, bool screenShake = true, bool titleLines = true)
+        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null, bool showWarning = false, TitleTexts? titleTexts = null, bool screenShake = true, bool titleLines = true, SlideEffects? slideEffects = null)
     {
+        _slideEffects = slideEffects ?? SlideEffects.Original;
         _screenShake = screenShake;
         _titleLines = titleLines;
         _titleTexts = titleTexts ?? TitleTexts.Default;
@@ -132,7 +134,7 @@ public sealed class GameFlow
     /// <summary>Plays a picture sequence, then returns to the title screen. Any button skips it.</summary>
     public void StartCutscene(IReadOnlyList<SlideStep> steps)
     {
-        _show = new Slideshow(_images, steps, _font, _images as ICaptionSource);
+        _show = new Slideshow(_images, steps, _font, _images as ICaptionSource, _slideEffects);
         _afterShow = null;
         GoTo(Screen.Cutscene);
     }
