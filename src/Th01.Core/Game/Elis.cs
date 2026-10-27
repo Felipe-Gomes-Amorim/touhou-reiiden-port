@@ -118,8 +118,177 @@ public sealed class Elis : Boss
             return CStill;
         }
     }
-    /// <summary>The entrance finishes with the girl waving in; she shows from entrance frame 20 of the second loop.</summary>
-    public bool EntranceGirlVisible => Phase == 0 && _entranceStage == 1 && InvincibilityFrame > 20;
+    /// <summary>The entrance finishes with the girl waving in; she shows from entrance frame 24 of the second loop.</summary>
+    public bool EntranceGirlVisible => Phase == 0 && _entranceStage == 1 && InvincibilityFrame >= 24;
+
+    // ---- drawing views (read-only; derived from the simulation state, nothing here is hashed or changes it) ----
+
+    public const string GirlSheet = "BOSS5.BOS", AttackSheet = "BOSS5_2.BOS";
+    public const int SphereSmall = 1, SphereMedium = 2, SphereLarge = 3, RiftCel = 4;
+    public const int EntranceSphereCount = 2;
+
+    /// <summary>The wave-in of the girl in the second entrance loop: (len, amp, phase) of the distortion, or null when she is plain or hidden.</summary>
+    public (int len, int amp, int phase)? EntranceWave
+    {
+        get
+        {
+            if (!EntranceGirlVisible) return null;
+            int f = InvincibilityFrame;
+            if (f < 100) { int g = f & ~3; return (g + 2, 100 - g, g * 6); }
+            if (f is 128 or 129) return (3, 8, 64);
+            return null;
+        }
+    }
+
+    const int MoveStep = Playfield.Width / 40 * 4;     // MOVE_VELOCITY * MOVE_INTERVAL
+
+    // Head of an entrance sphere on its ring (slightly off-centre, as in the original) at the given tick of the circling;
+    // k > 0 are the steps of the slide: sphere 0 goes right, sphere 1 left.
+    (int x, int y) EntranceHead(int sphere, int k)
+    {
+        if (k <= 0)
+        {
+            int tick = (_entranceStage == 0 ? Math.Max(InvincibilityFrame, 1) : 120) + k;
+            int angle = ((tick - 1) * (0x300 / 32) + sphere * (0x100 / EntranceSphereCount)) & 0xFF;
+            return (AngleMath.PolarX(BaseCenterX - SphereW / 2, GirlH, angle), AngleMath.PolarY(BaseCenterY - SphereH / 2 - 14, GirlH, angle));
+        }
+        var h0 = EntranceHead(sphere, 0);
+        return (h0.x + k * MoveStep * (sphere == 0 ? 1 : -1), h0.y);
+    }
+
+    /// <summary>
+    /// The entrance spheres on screen now: first two circling the girl with a two-image trail, then sliding sideways off the
+    /// screen. cel = SphereLarge (head), SphereMedium, SphereSmall (trail).
+    /// </summary>
+    public IEnumerable<(int cel, int left, int top)> EntranceSpheres()
+    {
+        if (Phase != 0 || !_entranceStarted) yield break;
+        int steps = _entranceStage == 1 ? InvincibilityFrame / 4 : 0;
+        int last = 0;
+        for (int k = 1; k <= steps; k++)
+        {
+            last = k;
+            // the slide stops once the oldest trail image has left the screen on both sides
+            if (EntranceHead(0, k - 3).x > Playfield.Right && EntranceHead(1, k - 3).x < -SphereW) break;
+        }
+        bool slide = _entranceStage == 1;
+        int tick = Math.Max(InvincibilityFrame, 1);
+        for (int i = 0; i < EntranceSphereCount; i++)
+        {
+            var head = EntranceHead(i, last);
+            yield return (SphereLarge, head.x, head.y);
+            if (slide || tick > 1) { var t0 = EntranceHead(i, last - 1); yield return (SphereMedium, t0.x, t0.y); }
+            if (slide || tick > 2) { var t1 = EntranceHead(i, last - 2); yield return (SphereSmall, t1.x, t1.y); }
+        }
+    }
+
+    /// <summary>Which sprite the girl is drawn with now: the wave cels while teleporting, the hand and the attack cels in the patterns, else standing. cel -1 = not drawn.</summary>
+    public (string sheet, int cel) GirlPose()
+    {
+        if (TeleportInProgress) return (GirlSheet, WaveCel);
+        (string, int) still = (GirlSheet, CStill), hand = (GirlSheet, CHand);
+        (string, int) Attack(bool star) => star
+            ? PhaseFrame >= 10 ? (AttackSheet, CPrepare) : still
+            : PhaseFrame < 4 ? (AttackSheet, CPrepare) : (AttackSheet, PhaseFrame % 8 < 4 ? CAttack1 : CAttack2);
+        switch (Phase)
+        {
+            case 1:
+                if (_cur == 1 && PhaseFrame is >= 50 and < 150) return hand;
+                if (_cur is 2 or 3 && PhaseFrame >= 50) return hand;
+                break;
+            case 3:
+                if (_cur != Choose) return Attack(_phase3Cur == 0);
+                break;
+            case 4:
+                if (PhaseFrame is >= TransformStart and <= TransformEnd) return (AttackSheet, CPrepare);
+                break;
+            case 5:
+                if (Form != FGirl) break;
+                if (_p5Subphase == 1) { if (PhaseFrame >= TransformStart) return (AttackSheet, CPrepare); }
+                else if (_p5GirlPattern != Choose) return Attack(_p5GirlSubphase == 0);
+                break;
+        }
+        return still;
+    }
+
+    /// <summary>The wave teleport's five small stars (frames 4..67 of the teleport).</summary>
+    public bool StarsShown => TeleportInProgress && PhaseFrame is >= 4 and < 68;
+
+    /// <summary>The rifts (spawn points) shown now, as the top-left of their 32x32 cels; the cel alternates every 4 frames.</summary>
+    public IEnumerable<(int left, int top)> Rifts()
+    {
+        int[]? l = null, t = null;
+        bool on = false;
+        switch (Phase)
+        {
+            case 1:
+                if (_cur == 2) { l = _riftsMissileL; t = _riftsMissileT; on = PhaseFrame is >= 60 and < 160; }
+                break;
+            case 3:
+                if (_cur == 3 && _phase3Cur == 3) { l = _riftsFromL; t = _riftsFromT; on = PhaseFrame is >= 60 and < 200; }
+                break;
+            case 4:
+                if (_teleportDone && Form == FGirl) { l = _riftsGirlToBatL; t = _riftsGirlToBatT; on = PhaseFrame is >= TransformStart and < TransformEnd; }
+                break;
+            case 5:
+                if (_p5Subphase == 1)
+                {
+                    bool bat = Form == FBat;
+                    l = bat ? _riftsBatToGirlL : _riftsGirlToBatL;
+                    t = bat ? _riftsBatToGirlT : _riftsGirlToBatT;
+                    on = PhaseFrame is >= TransformStart and < TransformEnd;
+                }
+                break;
+        }
+        if (!on || l == null || t == null) yield break;
+        for (int i = 0; i < 5; i++) yield return (l[i], t[i]);
+    }
+
+    /// <summary>The ten spheres of the "clusters" pattern: (left, top, cel), with the rift cel on the one that has just fired.</summary>
+    public IEnumerable<(int left, int top, int cel)> PatternSpheres()
+    {
+        if (Phase != 3 || _cur != 2 || _phase3Cur != 2) yield break;
+        int f = PhaseFrame;
+        int firstShown = f > 130 ? (f - 130) / 10 : 0;
+        int count = f <= 100 ? f / 10 : 10;
+        for (int i = firstShown; i < count; i++) yield return (_sphereL[i], _sphereT[i], SphereLarge);
+        if (f > 100 && f <= 200)
+        {
+            int fired = (f - 100) / 10 - 1;
+            if (fired is >= 0 and < 10) yield return (_sphereL[fired], _sphereT[fired], RiftCel);
+        }
+    }
+
+    /// <summary>A big circle around the girl (or the safety circle around the player) being summoned or flashing.</summary>
+    public readonly record struct BigCircle(int CenterX, int CenterY, int Angle, int Frame);
+
+    /// <summary>The circle currently on screen, if any. <paramref name="star"/>: the Star of David is drawn inside it.</summary>
+    public BigCircle? ActiveCircle(out bool star)
+    {
+        star = false;
+        if (Phase == 1 && _cur == 3 && PhaseFrame >= 60)
+            return new BigCircle(GirlCenterX, GirlCenterY, _ringsAngle, _ringsFrame);
+        bool starStage = (Phase == 3 && _cur != Choose && _phase3Cur == 0)
+            || (Phase == 5 && Form == FGirl && _p5Subphase == 0 && _p5GirlPattern != Choose && _p5GirlSubphase == 0);
+        if (starStage && PhaseFrame >= 10)
+        {
+            star = _starAngle >= 0x40 && _starFrame >= 10;
+            return new BigCircle(GirlCenterX, GirlCenterY, _starAngle, _starFrame);
+        }
+        if (Phase == 5 && Form == FGirl && _p5Subphase == 0 && _p5GirlSubphase == 1)
+        {
+            if (_p5GirlPattern == 3 && PhaseFrame >= 60) return new BigCircle(GirlCenterX, GirlCenterY, _fiveAngle, _fiveFrame);
+            if (_p5GirlPattern == 2 && PhaseFrame >= 60 && _safetyFrame is > 0 and <= 200)
+                return new BigCircle(_safetyTargetLeft + Playfield.PlayerW / 2, PlayerCenterY, _safetyAngle, _safetyFrame);
+        }
+        return null;
+    }
+
+    /// <summary>The growing ring that follows the hand in the "lasers across" pattern (frames 60..119): centre and radius.</summary>
+    public (int cx, int cy, int radius)? HandRing =>
+        Phase == 1 && _cur == 1 && PhaseFrame is >= 60 and < 120
+            ? (GirlCenterX, Top + GirlH / 3, GirlW / 4 + 8 * Math.Max(0, (PhaseFrame - 60) / 2))
+            : null;
 
     int ByRank(int easy, int normal, int hard, int lunatic) => World.Rank switch
     {

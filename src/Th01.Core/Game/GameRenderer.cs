@@ -54,6 +54,8 @@ internal sealed class GameRenderer
         fb.ClearTextLayer();
         if (_art != null) DrawBackground(fb);
         if (!_paletteFromArt) FallbackPalette(fb);
+        if (w.Boss is Konngara { Phase: 0 } konngaraEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKonngaraEntranceBackdrop(fb, konngaraEntrance);
+        if (w.Boss is Kikuri { Phase: 0 } kikuriEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKikuriEntranceBackdrop(fb, kikuriEntrance);
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
         DrawMono(fb, HudMask, 0, 0, 0, ColRed);
         fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
@@ -559,25 +561,127 @@ internal sealed class GameRenderer
         DrawHpBar(fb, y);
     }
 
+    const string ElisGrc = "BOSS5_GR.GRC";
+    const byte ColElisFx = 4, ColEntranceSphere = 8, ColStar = 2;
+
     void DrawElis(Framebuffer fb, Elis e)
     {
         if (e.Phase >= 1 && e.Phase < 8) DrawHpBar(fb, e);
+
+        // Effects behind the girl: entrance spheres, rings, the Star of David, rifts and spheres of the patterns.
+        foreach (var (cel, l, t) in e.EntranceSpheres()) DrawGrc(fb, cel, l, t, ColEntranceSphere);
+        if (e.HandRing is { } ring) DrawArc(fb, ring.cx, ring.cy, ring.radius, 0, 0xFF, ColElisFx);
+        if (e.ActiveCircle(out bool star) is { } circle) DrawBigCircle(fb, circle, star);
+        foreach (var (l, t, cel) in e.PatternSpheres()) DrawGrc(fb, cel, l, t, ColElisFx);
+        int riftCel = Elis.RiftCel + e.PhaseFrame / 4 % 2;
+        foreach (var (l, t) in e.Rifts()) DrawGrc(fb, riftCel, l, t, ColElisFx);
+        if (e.StarsShown)
+            for (int i = 0; i < e.StarLeft.Length; i++)
+                if (!DrawMono(fb, Shape8Sheet, Shape8Star, e.StarLeft[i], e.StarTop[i], ColStar))
+                    fb.FillRect(e.StarLeft[i], e.StarTop[i], 8, 8, ColStar);
+
         bool girlGone = e.IsBat && e.Phase == 5;
-        if (e.Phase >= 1 && !girlGone || e.EntranceGirlVisible)
+        if (e.Phase >= 1 && !girlGone)
         {
-            // Wave teleport: the wave cels of BOSS5.BOS (hidden while she is "between" places); otherwise standing.
-            int cel = e.TeleportInProgress ? e.WaveCel : Elis.CStill;
-            if (cel >= 0 && !Draw(fb, "BOSS5.BOS", cel, e.Left, e.Top))
+            var (sheet, cel) = e.GirlPose();
+            if (cel >= 0 && !Draw(fb, sheet, cel, e.Left, e.Top))
                 fb.FillRect(e.Left, e.Top, Elis.GirlW, Elis.GirlH, (byte)(e.Invincible ? 15 : 12));
+        }
+        else if (e.EntranceGirlVisible)
+        {
+            // The wave-in: the standing girl with every line shifted sideways by a sine that fades out.
+            if (e.EntranceWave is { } w) DrawWavy(fb, Elis.GirlSheet, Elis.CStill, e.Left, e.Top, w.len, w.amp, w.phase);
+            else if (!Draw(fb, Elis.GirlSheet, Elis.CStill, e.Left, e.Top))
+                fb.FillRect(e.Left, e.Top, Elis.GirlW, Elis.GirlH, 12);
         }
         if (e.IsBat && e.Phase == 5 && !Draw(fb, "BOSS5_3.BOS", e.BatImage, e.BatLeft, e.BatTop))
             fb.FillRect(e.BatLeft, e.BatTop, Elis.BatW, Elis.BatH, (byte)(e.Invincible ? 15 : 12));
-        // TODO: attack cels (BOSS5_2.BOS), the wave-in of the entrance, rifts, spheres, stars and the circles are not drawn yet.
     }
+
+    const int Shape8Star = 1;
+
+    /// <summary>A cel of the Elis effects sheet (spheres 1-3, rifts 4-5) in one colour; a centred square when the sheet is missing.</summary>
+    void DrawGrc(Framebuffer fb, int cel, int x, int y, byte color)
+    {
+        if (DrawMono(fb, ElisGrc, cel, x, y, color)) return;
+        int s = cel <= Elis.SphereLarge ? cel * 8 : 20;
+        fb.FillRect(x + (Elis.SphereW - s) / 2, y + (Elis.SphereH - s) / 2, s, s, color);
+    }
+
+    /// <summary>An arc of a circle from angle a0 to a1 (256 steps per turn), as short line segments.</summary>
+    static void DrawArc(Framebuffer fb, int cx, int cy, int r, int a0, int a1, byte color)
+    {
+        int px = AngleMath.PolarX(cx, r, a0), py = AngleMath.PolarY(cy, r, a0);
+        for (int a = a0 + 1; a <= a1; a++)
+        {
+            int x = AngleMath.PolarX(cx, r, a), y = AngleMath.PolarY(cy, r, a);
+            DrawLine(fb, px, py, x, y, color);
+            px = x; py = y;
+        }
+    }
+
+    // The Star of David's six lines, as pairs of angles on the circle.
+    static readonly (int a, int b)[] StarLines = { (-0x40, 0x16), (-0x40, 0x6A), (0x16, 0x6A), (0x40, -0x6A), (0x40, -0x16), (-0x6A, -0x16) };
+
+    /// <summary>
+    /// The summon of a big circle (four quarter arcs growing to a full circle), then its flash between the effect colour and
+    /// white; with the star, the six lines of the Star of David flash with it. ref: th01/main/boss/b15m.cpp bigcircle_*
+    /// </summary>
+    void DrawBigCircle(Framebuffer fb, Elis.BigCircle c, bool star)
+    {
+        const int r = Elis.GirlW;                           // BIGCIRCLE_RADIUS
+        if (c.Frame == 0)
+        {
+            // summon: a short arc at the start of each quarter, growing by 2 steps per even frame
+            for (int q = 0; q < 4; q++) DrawArc(fb, c.CenterX, c.CenterY, r, q * 0x40, q * 0x40 + Math.Min(c.Angle + 2, 0x40), ColWhite);
+            return;
+        }
+        byte color = c.Frame > 20 && c.Frame % 4 < 2 ? ColElisFx : ColWhite;
+        if (!star) color = c.Frame >= 8 && c.Frame % 8 < 4 ? ColElisFx : ColWhite;
+        DrawArc(fb, c.CenterX, c.CenterY, r, 0, 0xFF, color);
+        if (!star) return;
+        foreach (var (a, b) in StarLines)
+            DrawLine(fb, AngleMath.PolarX(c.CenterX, r, a & 0xFF), AngleMath.PolarY(c.CenterY, r, a & 0xFF),
+                AngleMath.PolarX(c.CenterX, r, b & 0xFF), AngleMath.PolarY(c.CenterY, r, b & 0xFF), color);
+    }
+
+    /// <summary>Draws a cel with each line shifted sideways by amp * sin(line * 256 / len + phase) (the wave-in of the entrance).</summary>
+    void DrawWavy(Framebuffer fb, string sheet, int cel, int x, int y, int len, int amp, int phase)
+    {
+        int Shift(int row) => amp * AngleMath.Sin8(row * 256 / Math.Max(len, 1) + phase) / 256;
+        if (_art == null || !_art.TryGetFrame(sheet, cel, out var f))
+        {
+            for (int row = 0; row < Elis.GirlH; row++) fb.FillRect(x + Shift(row), y + row, Elis.GirlW, 1, 12);
+            return;
+        }
+        var px = f.Pixels.Span;
+        var al = f.Alpha.Span;
+        for (int r = 0; r < f.Height; r++)
+        {
+            int dx = Shift(r);
+            for (int c = 0; c < f.Width; c++)
+            {
+                int k = r * f.Width + c;
+                bool on = al.Length != 0 ? al[k] != 0 : px[k] != 0;
+                if (on) fb.SetPixel(x + c + dx, y + r, px[k]);
+            }
+        }
+    }
+
+    const string ScrollPicture = "BOSS7_D1.GRP", BossPicture = "BOSS8_A1.GRP", SlashSheet = "BOSS8.GRZ";
+    static readonly string[] SealPictures = { "BOSS8_D1.GRP", "BOSS8_D2.GRP", "BOSS8_D3.GRP", "BOSS8_D4.GRP" };
+    const int SealColor = 9, Shape8Diamond = 0;
 
     void DrawKonngara(Framebuffer fb, Konngara k)
     {
+        bool entering = k.Phase == 0 && _s.Phase == SessionPhase.BossEntrance;
+        var view = entering ? k.ViewAt(k.EntranceTick) : default;
+        if (entering && !view.Revealed) return;          // the scroll and the pan show only pictures
         if (k.Phase >= 1) DrawHpBar(fb, k);
+        // The seal syllables (colourkeyed pictures in the colour of palette entry 9) appear at the end of the entrance and stay.
+        if (!entering || view.SealStep >= 0) DrawSealSyllables(fb, k, entering ? view.SealStep : -1);   // -1: not in the entrance
+        // Slash images accumulate on the screen while the pattern runs (BOSS8.GRZ images 0..n).
+        for (int n = 0; n <= k.SlashImage; n++) DrawColorKey(fb, SlashSheet, n);
         // Head and face: BOSS8_1.BOS frame = direction, BOSS8_E1.BOS frame = (expression - 1) * 3 + direction (closed, glare),
         // BOSS8_E2.BOS frame = direction (aim). Neutral is the head alone.
         bool head = Draw(fb, "BOSS8_1.BOS", k.FaceDirection, 280, 80);
@@ -585,24 +689,97 @@ internal sealed class GameRenderer
         else if (k.FaceExpression != Konngara.FeNeutral)
             Draw(fb, "BOSS8_E1.BOS", (k.FaceExpression - Konngara.FeClosed) * 3 + k.FaceDirection, 280, 128);
         if (!head) fb.FillRect(Konngara.HitboxLeft, Konngara.HitboxTop, Konngara.HitboxOrbW, Konngara.HitboxOrbH, (byte)(k.Invincible ? 15 : 12));
-        // Diamonds (shape8x8 cels are not identified yet: boxes), snakes with a white head and a trail in colour 9.
+        // Diamonds (the diamond cel of the 8x8 shapes, colour 9; white head and colour-9 trail for the snakes, colour 6 for the row).
         if (k.DiamondsActive)
-            for (int i = 0; i < 4; i++) fb.FillRect(k.DiamondLeft[i], k.DiamondTop[i], Konngara.DiamondW, Konngara.DiamondH, 9);
-        if (k.RowActive) fb.FillRect(k.RowLeft, k.RowTop, Konngara.DiamondW, Konngara.DiamondH, 6);
+            for (int i = 0; i < 4; i++) DrawDiamond(fb, k.DiamondLeft[i], k.DiamondTop[i], SealColor);
+        if (k.RowActive) DrawDiamond(fb, k.RowLeft, k.RowTop, 6);
         foreach (var sn in new[] { k.TwoSnakes, k.FourSnakes })
             for (int i = 0; i < sn.Count; i++)
             {
                 if (!sn.Alive(i)) continue;
-                for (int j = 4; j >= 1; j--) fb.FillRect(sn.Left[i][j], sn.Top[i][j], Konngara.DiamondW, Konngara.DiamondH, 9);
-                fb.FillRect(sn.Left[i][0], sn.Top[i][0], Konngara.DiamondW, Konngara.DiamondH, ColWhite);
+                for (int j = 4; j >= 1; j--) DrawDiamond(fb, sn.Left[i][j], sn.Top[i][j], SealColor);
+                DrawDiamond(fb, sn.Left[i][0], sn.Top[i][0], ColWhite);
             }
         if (k.RayActive) DrawLine(fb, Konngara.SwordCenterX, Konngara.SwordCenterY, k.RayEndX, k.RayEndY, 6);
-        // TODO: the slash images (BOSS8.GRZ), the seal syllables (BOSS8_D1..D4.GRP) and the entrance scroll are not drawn yet.
+    }
+
+    void DrawDiamond(Framebuffer fb, int x, int y, byte color)
+    {
+        if (!DrawMono(fb, Shape8Sheet, Shape8Diamond, x, y, color)) fb.FillRect(x, y, Konngara.DiamondW, Konngara.DiamondH, color);
+    }
+
+    /// <summary>
+    /// Puts a full-screen picture on the screen, only where its alpha is set (grp_put_colorkey / grx_put; the real files key on
+    /// index 15 and the platform delivers that as alpha). Without alpha, colour 0 is the key. False if missing.
+    /// </summary>
+    bool DrawColorKey(Framebuffer fb, string sheet, int frame)
+    {
+        if (_art == null || !_art.TryGetFrame(sheet, frame, out var f)) return false;
+        var px = f.Pixels.Span;
+        var al = f.Alpha.Span;
+        for (int y = 0; y < Math.Min(f.Height, Framebuffer.Height); y++)
+            for (int x = 0; x < Math.Min(f.Width, Framebuffer.Width); x++)
+            {
+                int i = y * f.Width + x;
+                if (al.Length != 0 ? al[i] != 0 : px[i] != 0) fb.SetPixel(x, y, px[i]);
+            }
+        return true;
+    }
+
+    /// <summary>
+    /// The four seal syllables, and the colour they and the diamonds share (palette entry 9): white and then fading to blue
+    /// (0, 9, 10) one step at a time: 16 steps of 10 ticks at the end of the entrance, and again from frame 50 on in the seal
+    /// phases 2, 4 and 6 (a step every 4 frames). Soft flashes keep only a light tint of the white.
+    /// </summary>
+    void DrawSealSyllables(Framebuffer fb, Konngara k, int entranceStep)
+    {
+        foreach (string name in SealPictures) DrawColorKey(fb, name, 0);
+        int step = entranceStep >= 0 ? entranceStep : k.SiddhamFlash ? k.SiddhamSteps : Konngara.SealSteps;
+        step = Math.Min(step, Konngara.SealSteps);
+        // original: red 15 -> 0, green 15 -> 9 and blue 15 -> 10, one level per step
+        int r = Math.Max(0, 15 - step), g = Math.Max(9, 15 - step), b = Math.Max(10, 15 - step);
+        if (_s.Visuals.SoftFlashes)
+        {
+            r = Math.Min(r, 3); g = 9 + Math.Min(g - 9, 3); b = 10 + Math.Min(b - 10, 3);
+        }
+        fb.SetPalette4(SealColor, r, g, b);
+    }
+
+    /// <summary>
+    /// Konngara's entrance: the first picture scrolls (the palette fades in), then the boss picture is copied over it. The
+    /// whole screen shifts with the scroll line, like the hardware scroll of the original.
+    /// </summary>
+    void DrawKonngaraEntranceBackdrop(Framebuffer fb, Konngara k)
+    {
+        var view = k.ViewAt(k.EntranceTick);
+        byte[]? first = null, boss = null;
+        int firstW = 0, bossW = 0;
+        if (_art != null && _art.TryGetFrame(ScrollPicture, 0, out var d1)) { first = d1.Pixels.ToArray(); firstW = d1.Width; }
+        if (_art != null && _art.TryGetFrame(BossPicture, 0, out var a1))
+        {
+            boss = a1.Pixels.ToArray(); bossW = a1.Width;
+            if (a1.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(a1);
+        }
+        for (int v = 0; v < Framebuffer.Height; v++)
+        {
+            bool fromBoss = v >= view.PanLine;
+            for (int x = 0; x < Framebuffer.Width; x++)
+            {
+                byte c = 0;
+                if (fromBoss) { if (boss != null) c = boss[v * bossW + x]; else c = fb.GetPixel(x, v); }
+                else if (first != null) c = first[v * firstW + x];
+                fb.SetPixel(x, v, c);
+            }
+        }
+        int steps = view.PaletteSteps;
+        if (steps < 15) MapPalette(fb, c => Math.Min(c, steps));
+        fb.ScrollY = view.ScrollLine % Framebuffer.Height;
     }
 
     void DrawKikuri(Framebuffer fb, Kikuri k)
     {
         if (k.Phase >= 2 && k.Phase < 8) DrawHpBar(fb, k);
+        if (k.Phase == 0 && k.EntranceStage == 1) DrawEntranceRings(fb, k.PhaseFrame);
         if (!k.SoulsActive) return;
         foreach (var s in k.Souls)
             if (!Draw(fb, "TAMASII.BOS", s.Image, s.Left, s.Top)) fb.FillRect(s.Left, s.Top, Kikuri.SoulW, Kikuri.SoulH, 11);
@@ -610,9 +787,89 @@ internal sealed class GameRenderer
         {
             if (k.TearAnimFrame[i] == 0) continue;
             var t = k.Tears[i];
-            // Falling tear; the ripple on the floor (TAMAYEN.PTN) is not drawn yet.
-            if (t.Top <= Playfield.Bottom - Kikuri.TearH && !Draw(fb, "TAMASII2.BOS", 0, t.Left, t.Top))
-                fb.FillRect(t.Left, t.Top, Kikuri.TearW, Kikuri.TearH, 10);
+            // Falling tear, then the ripple on the floor (TAMAYEN.PTN)
+            if (t.Top <= Playfield.Bottom - Kikuri.TearH)
+            {
+                if (!Draw(fb, "TAMASII2.BOS", 0, t.Left, t.Top)) fb.FillRect(t.Left, t.Top, Kikuri.TearW, Kikuri.TearH, 10);
+            }
+            else DrawRipple(fb, t.Left, k.TearAnimFrame[i]);
+        }
+    }
+
+    /// <summary>
+    /// The ripple of a tear on the floor: columns (centre, then two inner, then two outer) that rise and fall one after the
+    /// other, each one 5 frames behind the one inside it. ref: th01/main/boss/b15j.cpp ripple_update_and_render
+    /// (the original leaves earlier cels on screen; only the current cel of each column is drawn here)
+    /// </summary>
+    void DrawRipple(Framebuffer fb, int tearLeft, int frame)
+    {
+        int step = frame / 5;
+        for (int column = 0; column < 3; column++)
+        {
+            int level = step - column * 2;                        // centre, inner (2 behind), outer (4 behind)
+            if (level is < 0 or > 9) continue;
+            int up = level == 0 ? 0 : level <= 5 ? 8 * (level - 1) : 8 * (9 - level);
+            int quarter = level == 0 ? 0 : level <= 4 ? 1 : 0;     // C_RIPPLE_LOW / C_RIPPLE_HIGH
+            int top = Playfield.Bottom - Kikuri.TearH - up;
+            for (int side = column == 0 ? 0 : -1; side <= (column == 0 ? 0 : 1); side += 2)
+            {
+                int left = (tearLeft + side * column * Kikuri.RippleW) & ~7;
+                if (!DrawQuarter(fb, "TAMAYEN.PTN", 0, quarter, left, top))
+                    fb.FillRect(left, top + (quarter == 1 ? 0 : 8), Kikuri.RippleW, quarter == 1 ? 16 : 8, 10);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Kikuri's entrance. Barn door (stage 0): the screen is black and the boss picture is copied in, a row at a time from the
+    /// top and the bottom edges towards the middle, each row in four passes of increasingly dense dot masks. The four flash
+    /// colours are white from the start until the rings begin, then fade back one level per frame. Rings (stage 1) are drawn
+    /// by <see cref="DrawKikuri"/>. ref: th01/main/boss/b15j.cpp kikuri_main
+    /// </summary>
+    void DrawKikuriEntranceBackdrop(Framebuffer fb, Kikuri k)
+    {
+        if (k.EntranceStage == 0)
+        {
+            int y = k.InvincibilityFrame;
+            ReadOnlySpan<int> masks = [0x2222, 0xAAAA, 0xEEEE, 0xFFFF];
+            for (int row = 0; row < Framebuffer.Height; row++)
+            {
+                int edge = Math.Min(row, Framebuffer.Height - 1 - row);
+                int passes = 0;
+                for (int pass = 0; pass < 4; pass++) if (edge + 8 * pass <= y) passes = pass + 1;
+                int mask = passes == 0 ? 0 : masks[passes - 1];
+                for (int x = 0; x < Framebuffer.Width; x++)
+                    if ((mask >> (15 - x % 16) & 1) == 0) fb.SetPixel(x, row, 0);
+            }
+        }
+        if (_s.Visuals.SoftFlashes) return;                        // the sustained white flash of four colours is the original's
+        int level = k.EntranceStage == 0 ? PaletteMax : Math.Max(0, PaletteMax - Math.Max(0, k.PhaseFrame - 71));
+        foreach (int c in k.FlashColors)
+        {
+            fb.GetPalette4(c, out int r, out int g, out int b);
+            fb.SetPalette4(c, Math.Max(r, level), Math.Max(g, level), Math.Max(b, level));
+        }
+    }
+
+    /// <summary>
+    /// The entrance rings: from frame 72 on, every 4th frame the ring radius grows by 16; four rings (1x to 4x that radius) of
+    /// 32 squares of 32x32 invert the red plane around the screen centre. A square not fully on the screen is skipped.
+    /// ref: th01/hardware/grpinv32.hpp entrance_rings_update_and_render
+    /// </summary>
+    static void DrawEntranceRings(Framebuffer fb, int frame)
+    {
+        int updates = frame / 4 - 17;
+        if (updates <= 0) return;
+        int radiusBase = 16 * updates;
+        for (int i = 32; i < 5 * 32; i++)
+        {
+            int radius = radiusBase * (i / 32), angle = i % 32 * (0x100 / 32);
+            int left = AngleMath.PolarY(Framebuffer.Width / 2 - 16, radius, angle) & ~7;
+            int top = AngleMath.PolarX(Framebuffer.Height / 2 - 4 - 16, radius, angle);
+            if (left < 0 || top < 0 || left + 32 > Framebuffer.Width || top + 32 > Framebuffer.Height) continue;
+            for (int y = top; y < top + 32; y++)
+                for (int x = left; x < left + 32; x++)
+                    fb.SetPixel(x, y, (byte)(fb.GetPixel(x, y) ^ 2));
         }
     }
 
