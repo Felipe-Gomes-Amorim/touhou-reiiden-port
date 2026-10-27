@@ -25,6 +25,9 @@ public sealed class VramPages
     /// <summary>Copies the whole of page 0 to page 1 (snapshot a finished background).</summary>
     public void Snapshot() => Page1.CopyFrom(Page0);
 
+    /// <summary>Copies the pixels of page 1 onto page 0 without touching the palette (graph_copy_accessed_page_to_other).</summary>
+    public void RestoreAllPixels() => Page0.CopyPixelsFrom(Page1);
+
     /// <summary>Copies the whole of page 1 onto page 0.</summary>
     public void RestoreAll() => Page0.CopyFrom(Page1);
 }

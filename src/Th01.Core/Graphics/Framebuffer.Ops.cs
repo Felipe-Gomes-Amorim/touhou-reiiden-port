@@ -29,6 +29,9 @@ public sealed partial class Framebuffer
         Array.Copy(src._palette, _palette, _palette.Length);
     }
 
+    /// <summary>Copies the pixels only, keeping this page's palette (the palette is hardware state, not part of VRAM).</summary>
+    public void CopyPixelsFrom(Framebuffer src) => Array.Copy(src._pixels, _pixels, _pixels.Length);
+
     /// <summary>Reads a palette entry back as 4-bit components.</summary>
     public void GetPalette4(int index, out int r4, out int g4, out int b4)
     {

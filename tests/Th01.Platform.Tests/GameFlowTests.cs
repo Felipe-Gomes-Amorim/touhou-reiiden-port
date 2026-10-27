@@ -38,6 +38,9 @@ public class GameFlowTests
         var f = NewFlow(stages, settings, save);
         Run(f, GameFlow.LogoTicks);
         Assert.Equal(Screen.Title, f.Screen);
+        // the title's intro (fade, white lines), then any key opens the menu
+        Run(f, TitleScene.FadeInTicks + TitleScene.PauseTicks + TitleScene.WhiteLineSteps);
+        Press(f, GameButtons.Shot);
         return f;
     }
 
@@ -99,13 +102,12 @@ public class GameFlowTests
         var stages = new FakeStages();
         var s = new GameSettings { Rank = Rank.Hard, LivesExtra = 3, Bombs = 2 };
         var f = AtTitle(stages, s);
-        long before = f.Ticks;
         Press(f, GameButtons.Ok);
         Assert.Equal(Screen.InGame, f.Screen);
         var (stage, route, o) = Assert.Single(stages.Requests);
         Assert.Equal((0, 0), (stage, route));
         Assert.Equal((Rank.Hard, 5, 2), (o.Rank, o.Lives, o.Bombs));
-        Assert.Equal((uint)(before + 1), o.FrameRand);
+        Assert.Equal(2u, o.FrameRand);   // the title frame counter: one idle menu pass, then the pass that chose START
         Assert.True(o.Entrance);
     }
 
@@ -312,7 +314,7 @@ public class GameFlowRealDataTests
 
         var f = new GameFlow(new AssetStageProvider(assets), images, BdfFont.LoadSpleen8x16(), new GameSettings());
         var fb = new Framebuffer();
-        for (int i = 0; i < GameFlow.LogoTicks + 30; i++) { f.Tick(GameButtons.None); f.Render(fb); }
+        for (int i = 0; i < GameFlow.LogoTicks + 400; i++) { f.Tick(i == GameFlow.LogoTicks + 300 ? GameButtons.Shot : GameButtons.None); f.Render(fb); }
         Assert.Equal(Screen.Title, f.Screen);
         f.Tick(GameButtons.Ok); f.Tick(GameButtons.None);
         Assert.Equal(Screen.InGame, f.Screen);
