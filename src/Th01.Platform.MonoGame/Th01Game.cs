@@ -56,6 +56,12 @@ public sealed class Th01Game : Game
 
     /// <summary>The launcher shown before the game; null starts the game at once (--stage, --cutscene, tests).</summary>
     public LauncherModel? Launcher { get; init; }
+    /// <summary>Show the launcher first (false for --stage / --cutscene: the model still carries the player's settings).</summary>
+    public bool ShowLauncher { get; init; } = true;
+    /// <summary>Sound mixer whose two volumes the launcher sets.</summary>
+    public Th01.Audio.Playback.AudioMixer? Mixer { get; init; }
+    /// <summary>Gamepad status and report files for the options screens.</summary>
+    public LauncherServices? LauncherSvc { get; init; }
     /// <summary>Picks the game when the launcher asks (DIRECTORY / Change / Select game).</summary>
     public IGameChooser? GameChooser { get; init; }
     /// <summary>Ask for the game as soon as the launcher opens (--select).</summary>
@@ -65,7 +71,8 @@ public sealed class Th01Game : Game
     readonly LauncherCanvas _lcanvas = new();
     readonly uint[] _lrgba = new uint[LauncherCanvas.Width * LauncherCanvas.Height];
     readonly LauncherInputState _linput = new();
-    Texture2D? _ltex;
+    Texture2D? _ltex, _scanTex;
+    int _appliedRevision = -1, _appliedWindowScale = -1, _filter;
     bool _inLauncher;
 
     /// <summary>Set when an unhandled error stopped the game; Program turns it into the exit code.</summary>
@@ -92,7 +99,13 @@ public sealed class Th01Game : Game
         _batch = new SpriteBatch(GraphicsDevice);
         _tex = new Texture2D(GraphicsDevice, Framebuffer.Width, Framebuffer.Height, false, SurfaceFormat.Color);
         _ltex = new Texture2D(GraphicsDevice, LauncherCanvas.Width, LauncherCanvas.Height, false, SurfaceFormat.Color);
-        _inLauncher = Launcher is not null && LauncherFont is not null;
+        _scanTex = new Texture2D(GraphicsDevice, 1, Framebuffer.Height * 2, false, SurfaceFormat.Color);
+        var scan = new Color[Framebuffer.Height * 2];
+        for (int i = 0; i < scan.Length; i++) scan[i] = i % 2 == 1 ? new Color(0, 0, 0, 120) : Color.Transparent;
+        _scanTex.SetData(scan);
+        Launcher?.Attach(LauncherSvc, _bindings, () => GameSettings.Load());
+        ApplyLauncherSettings();
+        _inLauncher = ShowLauncher && Launcher is not null && LauncherFont is not null;
         if (_inLauncher)
         {
             _status = "launcher";
@@ -159,12 +172,56 @@ public sealed class Th01Game : Game
         base.Update(gameTime);
     }
 
+    /// <summary>Applies the launcher's video, audio and input settings whenever they changed (draw-only options never touch the simulation).</summary>
+    void ApplyLauncherSettings()
+    {
+        if (Launcher is null || Launcher.Revision == _appliedRevision) return;
+        _appliedRevision = Launcher.Revision;
+        var s = Launcher.Settings;
+        if (_graphics.IsFullScreen != s.Fullscreen) _graphics.ToggleFullScreen();
+        if (!_graphics.IsFullScreen && _appliedWindowScale != s.WindowScale)
+        {
+            _appliedWindowScale = s.WindowScale;
+            _graphics.PreferredBackBufferWidth = Framebuffer.Width * (s.WindowScale + 1);
+            _graphics.PreferredBackBufferHeight = Framebuffer.Height * (s.WindowScale + 1);
+            _graphics.ApplyChanges();
+        }
+        _scaleMode = s.IntegerScale ? ScaleMode.Integer : ScaleMode.Fit;
+        _filter = s.Filter;
+        _bindings.Numpad = s.Numpad;
+        if (Mixer is not null) { Mixer.MusicLevel = s.MusicLevel; Mixer.EffectLevel = s.EffectsLevel; }
+    }
+
+    KeyboardState _lprevKb;
+    GamePadState _lprevPad;
+    bool _lwasListening, _lwaitRelease;
+
     /// <summary>Launcher: the keys and pad become presses, once per timestep tick, and the model runs the screens.</summary>
     void UpdateLauncher(KeyboardState kb, GamePadState pad, long elapsedUs)
     {
         bool K(params Keys[] keys) => keys.Any(kb.IsKeyDown);
         bool P(Buttons b) => pad.IsButtonDown(b);
+        if (LauncherSvc is not null) LauncherSvc.GamepadConnected = pad.IsConnected;
+        ApplyLauncherSettings();
         var held = LauncherKey.None;
+        if (Launcher!.Listening)
+        {
+            // Remapping: every key (or pad button) but Esc is the new binding; Esc cancels.
+            _lwasListening = true;
+            if (K(Keys.Escape)) held |= LauncherKey.Back;
+            else if (Launcher.ListeningForButton)
+            {
+                foreach (Buttons b in Enum.GetValues<Buttons>())
+                    if (b != Buttons.None && pad.IsButtonDown(b) && !_lprevPad.IsButtonDown(b)) { Launcher.OfferButton(b); break; }
+            }
+            else
+            {
+                foreach (var k in kb.GetPressedKeys())
+                    if (!_lprevKb.IsKeyDown(k)) { Launcher.OfferKey(k); break; }
+            }
+            _lprevKb = kb; _lprevPad = pad;
+            if (held == LauncherKey.None) { _linput.Step(LauncherKey.None); _timestep.Advance(elapsedUs); return; }
+        }
         if (K(Keys.Up) || P(Buttons.DPadUp) || pad.ThumbSticks.Left.Y > 0.5f) held |= LauncherKey.Up;
         if (K(Keys.Down) || P(Buttons.DPadDown) || pad.ThumbSticks.Left.Y < -0.5f) held |= LauncherKey.Down;
         if (K(Keys.Left) || P(Buttons.DPadLeft) || pad.ThumbSticks.Left.X < -0.5f) held |= LauncherKey.Left;
@@ -173,6 +230,10 @@ public sealed class Th01Game : Game
         if (K(Keys.X, Keys.Escape) || P(Buttons.B)) held |= LauncherKey.Back;
         if (K(Keys.Q) || P(Buttons.LeftShoulder)) held |= LauncherKey.TabPrev;
         if (K(Keys.E) || P(Buttons.RightShoulder)) held |= LauncherKey.TabNext;
+
+        _lprevKb = kb; _lprevPad = pad;
+        if (_lwasListening && !Launcher.Listening) { _lwasListening = false; _lwaitRelease = true; }
+        if (_lwaitRelease) { if (held != LauncherKey.None) held = LauncherKey.None; else _lwaitRelease = false; }
 
         int ticks = _timestep.Advance(elapsedUs);
         for (int i = 0; i < ticks; i++)
@@ -215,9 +276,9 @@ public sealed class Th01Game : Game
         if (Pressed(Keys.F11))
         {
             _graphics.ToggleFullScreen();
-            // Fullscreen fills the screen height (16:10 picture, black bars at the sides if the screen is wider);
-            // windowed keeps whole-number scales. F10 still cycles the modes.
-            _scaleMode = _graphics.IsFullScreen ? ScaleMode.Fit : ScaleMode.Integer;
+            // The scale mode follows the launcher's "whole-number scaling" setting; F10 still cycles the modes.
+            Launcher?.SetFullscreen(_graphics.IsFullScreen);
+            if (Launcher is not null) _appliedRevision = Launcher.Revision;
         }
         if (Pressed(Keys.F10))
         {
@@ -309,9 +370,16 @@ public sealed class Th01Game : Game
 
             var vp = GraphicsDevice.Viewport;
             var r = ViewportLayout.Compute(vp.Width, vp.Height, _scaleMode);
-            _batch!.Begin(samplerState: SamplerState.PointClamp); // filter off
-            _batch.Draw(_tex, new Rectangle(r.X, r.Y, r.Width, r.Height), Color.White);
+            var dest = new Rectangle(r.X, r.Y, r.Width, r.Height);
+            _batch!.Begin(samplerState: _filter == 1 ? SamplerState.LinearClamp : SamplerState.PointClamp);
+            _batch.Draw(_tex, dest, Color.White);
             _batch.End();
+            if (_filter == 2)
+            {
+                _batch.Begin(samplerState: SamplerState.PointClamp, blendState: BlendState.NonPremultiplied);
+                _batch.Draw(_scanTex, dest, Color.White);
+                _batch.End();
+            }
         }
         catch (Exception e) { Fail(e); }
         base.Draw(gameTime);
@@ -328,7 +396,7 @@ public sealed class Th01Game : Game
 
     protected override void OnExiting(object sender, ExitingEventArgs args)
     {
-        if (MissingArt is { Count: > 0 } && MissingArtPath is not null && MissingArt.Save(MissingArtPath))
+        if (Launcher?.Settings.RecordMissingArt != false && MissingArt is { Count: > 0 } && MissingArtPath is not null && MissingArt.Save(MissingArtPath))
             Console.WriteLine($"{MissingArt.Count} missing art item(s) written to {MissingArtPath}");
         base.OnExiting(sender, args);
     }

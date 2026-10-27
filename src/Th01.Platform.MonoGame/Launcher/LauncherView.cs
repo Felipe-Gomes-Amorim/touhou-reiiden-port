@@ -192,6 +192,8 @@ public static partial class LauncherView
         int cw = c.DrawText(font, cat, 72, 224, Cyan, 2, 2);
         c.FillRect(cw + 12, 239, 1208 - cw - 12, 2, Purple2);
 
+        DrawOptionsBody(m, c, font);
+
         DrawFooterFrame(c, 72);
         int fy = 648 + 28;
         int x2 = 72;

@@ -67,14 +67,16 @@ public sealed class TitleScene
     public uint FrameRand { get; private set; }
     /// <summary>The flow could not act on the choice (e.g. CONTINUE with nothing to continue): stay in the menu.</summary>
     public void ClearAction() => Action = TitleAction.None;
+    readonly bool _whiteLines;
     public int MenuSelection => _menuSel;
     public int MusicSelection => _musicSel;
     /// <summary>Whether the prompt was drawn (not erased) on the last tick; false until the first frame has been put.</summary>
     public bool HitKeyVisibleNow => CurrentPhase == Phase.HitKey && _hitKeyFrame > 0 && (_hitKeyFrame - 1) % HitKeyPeriod < HitKeyVisible;
 
     public TitleScene(IScreenImages images, IFontSource font, GameSettings settings, TitleTexts texts,
-        ISoundSink? sound = null, Action<GameSettings>? saveSettings = null)
+        ISoundSink? sound = null, Action<GameSettings>? saveSettings = null, bool whiteLines = true)
     {
+        _whiteLines = whiteLines;
         _images = images;
         _font = font;
         _settings = settings;
@@ -119,7 +121,7 @@ public sealed class TitleScene
                 if (_phaseTick >= FadeInTicks) { _fader.Finish(); Next(Phase.Pause); }
                 break;
             case Phase.Pause:
-                if (_phaseTick >= PauseTicks) Next(Phase.WhiteLines);
+                if (_phaseTick >= PauseTicks) Next(_whiteLines ? Phase.WhiteLines : Phase.Restore);   // the launcher can switch the lines off
                 break;
             case Phase.WhiteLines:
                 WhiteLineStep();

@@ -31,7 +31,7 @@ public enum OptionsTab { Accessibility, Video, Audio, Font, Controls, Game, Data
 /// change the options tab. One <see cref="Press"/> per key press (the host does the edge detection and key repeat).
 /// <see cref="Step"/> advances the background animation by one tick.
 /// </summary>
-public sealed class LauncherModel
+public sealed partial class LauncherModel
 {
     public static readonly HomeItem[] HomeOrder = [HomeItem.Play, HomeItem.Options, HomeItem.Directory, HomeItem.Quit, HomeItem.Change, HomeItem.Language, HomeItem.About];
 
@@ -79,9 +79,7 @@ public sealed class LauncherModel
         {
             case LauncherScreen.Home: return PressHome(key);
             case LauncherScreen.Options:
-                if (key == LauncherKey.Back) Screen = LauncherScreen.Home;
-                else if (key == LauncherKey.TabPrev) Tab = (OptionsTab)(((int)Tab + 7) % 8);
-                else if (key == LauncherKey.TabNext) Tab = (OptionsTab)(((int)Tab + 1) % 8);
+                PressOptions(key);
                 return LauncherResult.None;
             case LauncherScreen.About:
                 if (key is LauncherKey.Back or LauncherKey.Select) Screen = LauncherScreen.Home;

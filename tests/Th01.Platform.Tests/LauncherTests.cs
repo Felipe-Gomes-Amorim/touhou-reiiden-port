@@ -133,7 +133,7 @@ public class LauncherTests
     {
         foreach (var key in LauncherStrings.All)
         {
-            if (key is Str.Subtitle or Str.LanguageSwitch) continue;
+            if (key is Str.Subtitle or Str.LanguageSwitch or Str.RowLanguage) continue;   // these carry both scripts on purpose
             Assert.DoesNotContain(LauncherStrings.Get(key, LauncherLanguage.English), c => c >= 0x3000);
         }
         Assert.Equal("Unofficial fan work. Requires your own copy of the original game.", LauncherStrings.Get(Str.Disclaimer, LauncherLanguage.English));

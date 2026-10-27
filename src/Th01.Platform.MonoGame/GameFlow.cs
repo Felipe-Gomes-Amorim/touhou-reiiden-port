@@ -92,6 +92,7 @@ public sealed class GameFlow
     HiScoreTable? _rankingTable;
 
     public GameSettings Settings { get; }
+    readonly bool _screenShake, _titleLines;
     public Screen Screen { get; private set; } = Screen.Logo;
     public GameSession? Game => _game;
     public bool QuitRequested { get; private set; }
@@ -103,8 +104,10 @@ public sealed class GameFlow
     /// <param name="startStage">If set (0-based), skips logo and title and starts that stage directly.</param>
     public GameFlow(IStageProvider stages, IScreenImages images, IFontSource font, GameSettings settings,
         Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0,
-        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null, bool showWarning = false, TitleTexts? titleTexts = null)
+        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null, bool showWarning = false, TitleTexts? titleTexts = null, bool screenShake = true, bool titleLines = true)
     {
+        _screenShake = screenShake;
+        _titleLines = titleLines;
         _titleTexts = titleTexts ?? TitleTexts.Default;
         _sound = sound;
         _scores = scores ?? new MemoryScoreStore();
@@ -202,7 +205,7 @@ public sealed class GameFlow
         if (s == Screen.Title) { /* the title scene starts its own music */ }
         else if (s == Screen.Cutscene) { if (Settings.Music) _sound?.PlayBgm(BgmTracks.Ending); }
         else if (s != Screen.InGame && s != Screen.GameOver) _sound?.StopBgm();
-        if (s == Screen.Title) _title = new TitleScene(_images, _font, Settings, _titleTexts, _sound, _saveSettings);
+        if (s == Screen.Title) _title = new TitleScene(_images, _font, Settings, _titleTexts, _sound, _saveSettings, _titleLines);
     }
 
     // ---- title / menu: the screen itself is TitleScene (ref: th01/op_01.cpp); here we only act on what it chose
@@ -387,7 +390,7 @@ public sealed class GameFlow
     /// </summary>
     int ShakeLine()
     {
-        if (_game is null || _game.Phase != SessionPhase.MissAnimation || _missTicks >= GameSession.MissShakeTicks) return 0;
+        if (!_screenShake || _game is null || _game.Phase != SessionPhase.MissAnimation || _missTicks >= GameSession.MissShakeTicks) return 0;
         return (_missTicks / 2) % 2 == 1 ? Framebuffer.Height - 8 : 0;
     }
 

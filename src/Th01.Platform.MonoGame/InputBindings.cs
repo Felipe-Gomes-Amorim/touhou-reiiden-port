@@ -18,6 +18,9 @@ public sealed class InputBindings
     /// <summary>Left-stick deadzone, 0..0.95. Stick directions act as the D-pad once the axis passes it.</summary>
     public float Deadzone { get; set; } = DefaultDeadzone;
 
+    /// <summary>Also read the numeric keypad (8 4 6 2, as the original) as the movement keys. Set from the launcher, not saved here.</summary>
+    public bool Numpad { get; set; } = true;
+
     string? _loadedFrom;
 
     public Dictionary<GameButtons, Keys[]> Keyboard { get; } = new()
@@ -104,6 +107,13 @@ public sealed class InputBindings
         var result = GameButtons.None;
         foreach (var (btn, keys) in Keyboard)
             foreach (var k in keys) if (kb.IsKeyDown(k)) result |= btn;
+        if (Numpad)
+        {
+            if (kb.IsKeyDown(Keys.NumPad8)) result |= GameButtons.Up;
+            if (kb.IsKeyDown(Keys.NumPad2)) result |= GameButtons.Down;
+            if (kb.IsKeyDown(Keys.NumPad4)) result |= GameButtons.Left;
+            if (kb.IsKeyDown(Keys.NumPad6)) result |= GameButtons.Right;
+        }
         if (pad.IsConnected)
         {
             foreach (var (btn, buttons) in Gamepad)

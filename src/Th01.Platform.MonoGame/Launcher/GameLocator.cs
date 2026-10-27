@@ -14,6 +14,9 @@ public interface IUserPrompt
     string? PickGameFile();
 
     void ShowError(string message);
+
+    /// <summary>Lets the user pick a FONT.ROM file. Null = cancelled (or not supported).</summary>
+    string? PickFontRom() => null;
 }
 
 /// <summary>
