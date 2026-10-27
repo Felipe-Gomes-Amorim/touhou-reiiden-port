@@ -21,6 +21,7 @@ public sealed class SessionFactory
     readonly int _stageId;
     readonly int _route;
     readonly IFontSource? _font;
+    UiTexts? _texts;
     readonly MissingArtLog? _log;
     readonly ISoundSink? _sound;
 
@@ -83,10 +84,12 @@ public sealed class SessionFactory
         RegisterSheets(art);
         RegisterEmbedded(art);
         RegisterHudMask(art);
+        RegisterResultsPicture(art);
         string grp = BackgroundFile(_stageId, _route, scene);
         if (_assets.Exists(grp)) art.SetBackground(Load(grp, GrpImage.Load));
         // frame_rand is the title screen's frame counter in the original; callers pass a deterministic value.
-        var session = new GameSession(makeOptions(setup), sound: _sound, art: art, font: _font);
+        _texts ??= Th01.Assets.Text.UiTextLoader.Load(_assets);   // labels of the route menu and the bonus box, from the user's own exe
+        var session = new GameSession(makeOptions(setup), sound: _sound, art: art, font: _font, texts: _texts);
         return new GameStart(session, art);
     }
 
@@ -119,6 +122,18 @@ public sealed class SessionFactory
         if (!_assets.Exists("MASK.GRF")) return;
         var games = new GameAssets(_assets);
         art.AddLazySheet("mask", () => new SpriteSheet([games.GetHudMask()]));
+    }
+
+    /// <summary>The picture of the results screen after a boss (CLEAR3.GRP, with its own palette) as a one-frame sheet.</summary>
+    void RegisterResultsPicture(GameAssetArt art)
+    {
+        const string name = "CLEAR3.GRP";
+        if (!_assets.Exists(name)) return;
+        art.AddLazySheet(name, () =>
+        {
+            var img = Load(name, GrpImage.Load);
+            return new SpriteSheet([new IndexedImageA(img.Width, img.Height, img.Pixels, Enumerable.Repeat((byte)1, img.Pixels.Length).ToArray(), img.Palette)]);
+        });
     }
 
     void RegisterEmbedded(GameAssetArt art)

@@ -44,7 +44,7 @@ public class BonusSoundTests
         Assert.Equal(SessionPhase.StageBonus, g.Phase);
         int steps = g.Bonus!.Value.TotleSoundSteps();
         rec.Se.Clear();
-        for (int i = 0; i < steps + 10; i++) g.Step(GameButtons.None);
+        for (int i = 0; i < TotleTimeline.TimeAt + steps + 10; i++) g.Step(GameButtons.None);   // the digits start once the picture is in
         Assert.Equal(steps, rec.Se.Count(id => id == 2));
 
         var card = new Recorder();

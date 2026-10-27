@@ -141,6 +141,15 @@ public sealed partial class Framebuffer
                 _pixels[yy * Width + xx] ^= 0xF;
     }
 
+    /// <summary>XORs <paramref name="planes"/> (bit0=B, bit1=R, bit2=G, bit3=E) into every dot whose flag in <paramref name="mask"/> (Width*Height entries) is set.</summary>
+    public void InvertPlanesWhere(ReadOnlySpan<byte> mask, byte planes)
+    {
+        if (mask.Length != _pixels.Length) throw new ArgumentException("mask must cover the whole screen", nameof(mask));
+        byte m = (byte)(planes & 0xF);
+        for (int i = 0; i < _pixels.Length; i++)
+            if (mask[i] != 0) _pixels[i] ^= m;
+    }
+
     static bool Clip(ref int x, ref int y, ref int w, ref int h)
     {
         int x2 = Math.Min(Width, x + w), y2 = Math.Min(Height, y + h);

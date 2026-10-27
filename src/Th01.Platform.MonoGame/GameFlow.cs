@@ -409,7 +409,7 @@ public sealed class GameFlow
             case Screen.Cutscene: _show!.Render(fb); break;
         }
         if (Screen != Screen.Cutscene) ApplyFadeIn(fb); // cutscenes carry their own tone
-        if (Screen == Screen.InGame) fb.ScrollY = ShakeLine();
+        if (Screen == Screen.InGame && ShakeLine() is var shake and not 0) fb.ScrollY = shake;   // the bomb sets its own shake while drawing
     }
 
     /// <summary>Palette fade from black at the start of each screen: replays the fader for the ticks elapsed, so it needs no state.</summary>

@@ -21,6 +21,9 @@ internal sealed class GameRenderer
         new[] { 8, 9, 10, 9, 8 },
     };
 
+    /// <summary>The cel of <see cref="CardAnim"/> a card ends on (CARD_CEL_FLIPPED): "removed" for a card with no flips left.</summary>
+    const int CardRemovedCel = 4;
+
     // ref: th01/main/hud/hud.cpp
     const int LivesLeft = 128, LivesTop = 0, BombsLeft = 128, BombsTop = 16, LivesPerRow = 6;
     const int ScoreLeft = 256, ScoreTop = 16, MaxTop = 0, ComboLeft = 256 + 9 * 16, RankCenterX = 600, RankTop = 48;
@@ -33,6 +36,8 @@ internal sealed class GameRenderer
     readonly IGameArt? _art;
     readonly IFontSource? _font;
     bool _paletteFromArt;
+
+    readonly BombEffects _bomb = new();
 
     public GameRenderer(GameSession s, IGameArt? art, IFontSource? font)
     {
@@ -49,11 +54,6 @@ internal sealed class GameRenderer
         fb.ClearTextLayer();
         if (_art != null) DrawBackground(fb);
         if (!_paletteFromArt) FallbackPalette(fb);
-        if (_s.Phase == SessionPhase.RouteSelect)
-        {
-            DrawRouteMenu(fb);
-            return;
-        }
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
         DrawMono(fb, HudMask, 0, 0, 0, ColRed);
         fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
@@ -63,7 +63,8 @@ internal sealed class GameRenderer
             DrawCards(fb, w.Stage);
             DrawObstacles(fb, w.Stage);
         }
-        bool bossGone = _s.Phase == SessionPhase.BossDefeat && _s.DefeatElapsed >= DefeatLineTicks(w.Boss!);
+        bool bossGone = _s.Phase == SessionPhase.RouteSelect
+            || _s.Phase == SessionPhase.BossDefeat && _s.DefeatElapsed >= DefeatLineTicks(w.Boss!);
         if (w.Boss != null && !bossGone) DrawBoss(fb, w.Boss);
         DrawItems(fb, w.Items);
         DrawPellets(fb, w.Pellets);
@@ -72,15 +73,21 @@ internal sealed class GameRenderer
         DrawParticles(fb, w.Particles);
         DrawSparkles(fb, w.Sparkles);
         DrawShots(fb, w.Shots);
-        DrawOrb(fb, w);
+        if (_s.Phase != SessionPhase.RouteSelect) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
         DrawPlayer(fb, w);
         DrawHud(fb, w);
+        if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame);
+        else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb
         if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
         else if (w.Boss is { FlashOn: true } flashing) FlashColors(fb, flashing.FlashColors);
-        if (_s.Phase == SessionPhase.StageBonus) DrawBonus(fb);
+        // The route menu is drawn over the stage picture (the boss is gone, the HUD and Reimu stay), under a darker palette.
+        if (_s.Phase == SessionPhase.RouteSelect) DrawRouteMenu(fb);
+        if (_s.Phase == SessionPhase.StageBonus && !(w.Boss != null && DrawTotle(fb))) DrawBonus(fb);
         // The scene title and the red "STAGE nn" letters live on the PC-98 text layer, over everything else.
         if (_s.Phase == SessionPhase.Entrance)
             EntranceOverlay.Draw(fb, _font, _s.EntranceElapsed, _s.EntranceHasTitle, w.StageId + 1);
+        else if (_s.Phase == SessionPhase.HarryUp)
+            EntranceOverlay.DrawHarryUp(fb, _font, _s.HarryUpElapsed);
     }
 
     // ---- palette effects (drawing only; the simulation never sees them) ----
@@ -144,24 +151,62 @@ internal sealed class GameRenderer
     void DrawRouteMenu(Framebuffer fb)
     {
         // The original repurposes colours 1 and 3 for the two route captions: the selected one white, the other 9/15.
-        // The rest of the palette is the stage's, each component lowered by 4.
+        // The rest of the palette is the stage's, each component lowered by 4. The picture stays: the stage background
+        // without the boss, the HUD and Reimu.
         MapPalette(fb, c => Math.Max(0, c - 4));
         fb.SetPalette4(ColWhiteIdx, PaletteMax, PaletteMax, PaletteMax);
         bool makai = _s.World.RouteChosen == 0;
         fb.SetPalette4(ColMakai, makai ? PaletteMax : 9, makai ? PaletteMax : 9, makai ? PaletteMax : 9);
         fb.SetPalette4(ColJigoku, makai ? 9 : PaletteMax, makai ? 9 : PaletteMax, makai ? 9 : PaletteMax);
-        fb.Clear(0);
         if (_font != null)
         {
-            // TODO(fonte japonesa): the original captions are Shift-JIS (ROUTE_SEL_1..5); provisional Latin text.
-            TextRenderer.DrawString(fb, _font, "ROUND " + (_s.World.StageId + 1) + " CLEAR", 64, 64, ColWhiteIdx);
-            TextRenderer.DrawString(fb, _font, "CHOOSE YOUR ROUTE", 32, 96, ColWhiteIdx);
-            TextRenderer.DrawString(fb, _font, "UP / DOWN + SHOT", 32, 180, ColWhiteIdx);
-            TextRenderer.DrawString(fb, _font, "MAKAI", 256, MakaiTop, ColMakai);
-            TextRenderer.DrawString(fb, _font, "JIGOKU", 256, JigokuTop, ColJigoku);
+            // Every caption is drawn at twice its size (graph_glyphrow_2xscale_1_to_0). ref: th01/main/boss/defeat.cpp
+            var t = _s.Texts;
+            PutText(fb, t.RouteRound, 64, 64, ColWhiteIdx, scale: 2);
+            PutText(fb, t.RouteCongrats, 32, 96, ColWhiteIdx, scale: 2);
+            PutText(fb, t.RouteSelect, 32, 180, ColWhiteIdx, scale: 2);
+            PutText(fb, t.RouteMakai, 256, MakaiTop, ColMakai, scale: 2);
+            PutText(fb, t.RouteJigoku, 256, JigokuTop, ColJigoku, scale: 2);
         }
         int cy = makai ? MakaiTop : JigokuTop;
         if (!Draw(fb, Stg, 3, CursorLeft, cy)) fb.FillRect(CursorLeft, cy, Playfield.OrbW, Playfield.OrbH, ColWhiteIdx);
+    }
+
+    /// <summary>
+    /// Draws text with the font, each glyph dot as a scale x scale block; <paramref name="bold"/> smears it one dot to the
+    /// right (the graph_putsa_fx bold weight). A fullwidth space has no dots but still advances 16. Returns the end x.
+    /// </summary>
+    int PutText(Framebuffer fb, string text, int x, int y, byte color, int scale = 1, bool bold = false)
+    {
+        if (_font == null) return x;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (!_font.TryGetGlyph(rune.Value, out var g))
+            {
+                x += (rune.Value > 0xFF ? 16 : 8) * scale;
+                continue;
+            }
+            var rows = g.Rows.Span;
+            int bytesPerRow = (g.Width + 7) / 8;
+            for (int r = 0; r < Glyph.Height; r++)
+                for (int d = 0; d < g.Width; d++)
+                    if ((rows[r * bytesPerRow + d / 8] >> (7 - d % 8) & 1) != 0)
+                    {
+                        fb.FillRect(x + d * scale, y + r * scale, scale, scale, color);
+                        if (bold) fb.FillRect(x + (d + 1) * scale, y + r * scale, scale, scale, color);
+                    }
+            x += g.Width * scale;
+        }
+        return x;
+    }
+
+    int TextWidth(string text)
+    {
+        int w = 0;
+        if (_font == null) return w;
+        foreach (var rune in text.EnumerateRunes())
+            w += _font.TryGetGlyph(rune.Value, out var g) ? g.Width : (rune.Value > 0xFF ? 16 : 8);
+        return w;
     }
 
     // ---- helpers ----
@@ -229,7 +274,13 @@ internal sealed class GameRenderer
     {
         for (int i = 0; i < st.CardCount; i++)
         {
-            if (st.CardFlagArr[i] == CardFlag.Removed) continue;
+            if (st.CardFlagArr[i] == CardFlag.Removed)
+            {
+                // The last cel of the final flip (PTN_CARD_REMOVED, an empty frame) is blitted to both VRAM pages, so it
+                // becomes part of the background and stays for the rest of the stage. Without art nothing is left behind.
+                Draw(fb, Stg, CardAnim[0][CardRemovedCel], st.CardLeft[i], st.CardTop[i]);
+                continue;
+            }
             int hp = Math.Min(st.CardHp[i], 4);
             int cel = st.CardFlagArr[i] == CardFlag.Flipping ? Math.Min(st.CardFlipFrame[i] / StageObjects.CardFramesPerCel, 4) : 0;
             if (!Draw(fb, Stg, CardAnim[hp][cel], st.CardLeft[i], st.CardTop[i]))
@@ -588,6 +639,13 @@ internal sealed class GameRenderer
     void DrawPlayer(Framebuffer fb, GameWorld w)
     {
         var p = w.Player;
+        if (p.Bombing && _s.Phase == SessionPhase.Playing)
+        {
+            // The bomb puts the casting pose on screen at its first frame and nothing redraws Reimu until it is over.
+            if (!Draw(fb, Miko, PtnId.MikoLCast - 64, p.Left, Player.Top))
+                fb.FillRect(p.Left, Player.Top, Playfield.PlayerW, Playfield.PlayerH, 9);
+            return;
+        }
         if (_s.Phase == SessionPhase.MissAnimation && _s.MissStage == 1)
         {
             int cel = _s.MissFrame % 2;
@@ -649,22 +707,144 @@ internal sealed class GameRenderer
             TextRenderer.DrawString(fb, _font!, ((char)('0' + value % 10)).ToString(), x + i * ColW + 4, y, ColWhite);
     }
 
+    // ---- full-screen results after a boss (ref: th01/main/bonus.cpp totle_animate) ----
+
+    const string TotleSheet = "CLEAR3.GRP", NumbSheet = "NUMB.PTN";
+
+    /// <summary>
+    /// The picture of the results screen slides in over the stage (even rows to the left, odd rows to the right, the palette
+    /// following), then the stage number and the five numbers appear one after the other. Returns false when the picture is
+    /// not available, so the caller falls back to the plain box.
+    /// </summary>
+    bool DrawTotle(Framebuffer fb)
+    {
+        if (_s.Bonus is not { } b) return false;
+        if (_art == null || !_art.TryGetFrame(TotleSheet, 0, out var pic) || pic.Width != Framebuffer.Width || pic.Height != Framebuffer.Height)
+            return false;
+        int t = _s.BonusElapsed;
+        if (t < TotleTimeline.SceneTicks) return true;            // the stage is still on screen
+
+        const int W = Framebuffer.Width;
+        byte[] old = fb.Pixels.ToArray();
+        var fresh = pic.Pixels.Span;
+        for (int y = 0; y < Framebuffer.Height; y++)
+        {
+            int shift = Math.Min(W, TotleTimeline.RowSteps(t, y) * TotleTimeline.SlideDots);
+            if (shift == 0) continue;
+            for (int x = 0; x < W; x++)
+            {
+                int sx = (y & 1) == 0 ? x + shift : x - shift;
+                byte c = (uint)sx < W ? old[y * W + sx] : fresh[y * W + (sx < 0 ? sx + W : sx - W)];
+                fb.SetPixel(x, y, c);
+            }
+        }
+
+        // The palette steps from the stage's to the picture's while the rows slide.
+        if (pic.Palette.Length == 3 * Framebuffer.ColorCount)
+        {
+            int progress = TotleTimeline.SlideProgress(t);
+            var target = pic.Palette.Span;
+            for (int i = 0; i < Framebuffer.ColorCount; i++)
+            {
+                uint p = fb.Palette[i];
+                int Mix(int from, int to) => from + (to - from) * progress / TotleTimeline.Steps;
+                fb.SetPalette4(i, Mix(Comp(p, 16), target[i * 3]), Mix(Comp(p, 8), target[i * 3 + 1]), Mix(Comp(p, 0), target[i * 3 + 2]));
+            }
+        }
+
+        if (t >= TotleTimeline.PictureAt)
+        {
+            int stage = _s.World.StageId + 1;
+            Draw(fb, NumbSheet, stage / 10, TotleTimeline.StageNumberLeft, TotleTimeline.StageNumberTop);
+            Draw(fb, NumbSheet, stage % 10, TotleTimeline.StageNumberLeft + 32, TotleTimeline.StageNumberTop);
+        }
+        // Each number is a run of 16x16 numerals starting at place `first` (it can be -1: one column to the left).
+        void Number(int at, int top, int first, params int[] digits)
+        {
+            if (t < at) return;
+            for (int i = 0; i < digits.Length; i++)
+                DrawQuarter(fb, NumbSheet, 10 + digits[i] / 4, digits[i] % 4, TotleTimeline.MetricLeft + (first + i) * TotleTimeline.DigitW, top);
+        }
+        int[] Four(int v) => [v / 1000 % 10, v / 100 % 10, v / 10 % 10, v % 10];
+        Number(TotleTimeline.TimeAt, TotleTimeline.TimeTop, 0, [.. Four(b.Time), 0]);
+        Number(TotleTimeline.ComboAt, TotleTimeline.ComboTop, 0, [.. Four(b.CardCombo), 0]);
+        Number(TotleTimeline.ResourcesAt, TotleTimeline.ResourcesTop, 0, [.. Four(b.Resources), 0]);
+        int s = b.StageNumber;
+        Number(TotleTimeline.StageMetricAt, TotleTimeline.StageMetricTop, -1, s / 10000 % 10, s / 1000 % 10, s / 100 % 10, s / 10 % 10, 0, 0);
+        uint total = b.Total;
+        Number(TotleTimeline.TotalAt, TotleTimeline.TotalTop, -1,
+            (int)(total / 100000 % 10), (int)(total / 10000 % 10), (int)(total / 1000 % 10), (int)(total / 100 % 10), (int)(total / 10 % 10), (int)(total % 10));
+        return true;
+    }
+
+    // ---- stage bonus box (ref: th01/main/bonus.cpp stagebonus_animate) ----
+
+    const int BonusPadLeft = 32, BonusPadTop = 40, BonusRows = 14, BonusPadH = 40 + BonusRows * 16 + 16, BonusHalfRows = BonusPadH / 2;
+    const string BonusBoxSheet = "bonusbox";
+
     void DrawBonus(Framebuffer fb)
     {
-        if (_font == null || _s.Bonus is not { } b) return;
-        fb.FillRect(48, 80, 544, 224, 0);
-        int y = 96;
-        void Line(string label, long v)
+        if (_s.Bonus is not { } b) return;
+        var t = _s.Texts;
+        bool wide = t.FullwidthNumerals;
+        int digitW = 6 * (wide ? 16 : 8);                                   // four digits, a fixed 0 and a space
+        int w = Math.Max(TextWidth(t.BonusTitle), TextWidth(t.BonusTotal) + 16 + digitW);   // widest line of the box
+        DrawBonusBox(fb, 2 * 16 + w);
+        if (_font == null || _s.BonusElapsed < GameSession.BonusBoxTicks) return;   // the text comes once the box is open
+
+        int left = BonusPadLeft + 16;
+        int RowY(int row) => BonusPadTop + 40 + row * 16;
+        string Num(int digit) => ((char)((wide ? '０' : '0') + digit)).ToString();
+        string Digits(long value, int count)
         {
-            TextRenderer.DrawString(fb, _font, label, 80, y, 15);
-            TextRenderer.DrawString(fb, _font, (v * 10).ToString().PadLeft(7), 400, y, 15);
-            y += 32;
+            var sb = new System.Text.StringBuilder();
+            for (int i = count - 1; i >= 0; i--) sb.Append(Num((int)(value / (long)Math.Pow(10, i) % 10)));
+            return sb.ToString();
         }
-        Line("TIME", b.Time);
-        Line("CARD COMBO", b.CardCombo);
-        Line("MIKO + BOMB", b.Resources);
-        Line("STAGE", b.StageNumber);
-        TextRenderer.DrawString(fb, _font, "TOTAL", 80, y, 14);
-        TextRenderer.DrawString(fb, _font, b.Total.ToString().PadLeft(7), 400, y, 14);
+
+        // The title carries the stage number in two of its characters.
+        string title = t.BonusTitle;
+        int at = UiTexts.BonusTitleDigitsAt;
+        if (title.Length >= at + 2) title = title[..at] + Digits(_s.World.StageId + 1, 2) + title[(at + 2)..];
+        PutText(fb, title, left + (w - TextWidth(title)), RowY(0), ColRed, bold: true);
+
+        void Label(string text, int row) => PutText(fb, text, left, RowY(row), ColWhite, bold: true);
+        Label(t.BonusSubtitle, 2); Label(t.BonusTime, 3); Label(t.BonusCardCombo, 5);
+        Label(t.BonusResources, 7); Label(t.BonusStage, 9); Label(t.BonusTotal, 11);
+        PutText(fb, t.BonusHitKey, left + w - 32 - TextWidth(t.BonusHitKey), RowY(13), ColRed, bold: true);
+
+        // Each metric is a four digit value followed by a fixed 0 (the points are ten times the value) and a space.
+        void Metric(int value, int row) =>
+            PutText(fb, Digits(value, 4) + Num(0) + (wide ? "　" : " "), left + w + 16 - digitW, RowY(row), ColWhite, bold: true);
+        Metric(b.Time, 3); Metric(b.CardCombo, 5); Metric(b.Resources, 7); Metric(b.StageNumber, 9);
+        PutText(fb, Digits(b.Total / 10, 5) + Num(0), left + w - digitW, RowY(11), ColWhite, bold: true);
+    }
+
+    /// <summary>
+    /// The dithered black box grows from its middle row up and down, 6 rows per tick, painting the 8x4 "bonusbox" pattern
+    /// (set bits black) so the stage shows through. Without the pattern the box is solid black.
+    /// </summary>
+    void DrawBonusBox(Framebuffer fb, int paddedW)
+    {
+        int rows = Math.Min(BonusHalfRows, 6 * _s.BonusElapsed + 1);
+        ArtFrame pattern = default;
+        bool dithered = _art != null && _art.TryGetFrame(BonusBoxSheet, 0, out pattern) && pattern.Width == 8 && pattern.Height == 4;
+        int center = BonusPadTop + BonusHalfRows;
+        for (int r = 0; r < rows; r++)
+        {
+            for (int x = 0; x < paddedW; x++)
+            {
+                int bx = BonusPadLeft + x;
+                bool paint = true;
+                if (dithered)
+                {
+                    var bits = pattern.Alpha.Length != 0 ? pattern.Alpha.Span : pattern.Pixels.Span;
+                    paint = bits[(r % 4) * 8 + bx % 8] != 0;
+                }
+                if (!paint) continue;
+                fb.SetPixel(bx, center - r, 0);
+                fb.SetPixel(bx, center + r, 0);
+            }
+        }
     }
 }

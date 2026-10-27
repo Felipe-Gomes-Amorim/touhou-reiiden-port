@@ -192,7 +192,8 @@ public class WaveFourTests : IDisposable
         for (int i = 0; i < pickDowns; i++) { f.Tick(GameButtons.Down); f.Tick(GameButtons.None); }
         f.Tick(GameButtons.Shot);                                   // confirm
         Assert.Equal(SessionPhase.StageBonus, f.Game.Phase);
-        f.Tick(GameButtons.None); f.Tick(GameButtons.Shot); f.Tick(GameButtons.None); // release edge closes the bonus
+        for (int i = 0; i < TotleTimeline.InputAt; i++) f.Tick(GameButtons.None);       // the results picture slides in first
+        f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);                             // release edge closes the bonus
         Assert.Equal(2, stages.Requests.Count);
         Assert.Equal((StageSetup.BossStage + 1, expectedRoute), stages.Requests[1]);
     }
@@ -206,6 +207,7 @@ public class WaveFourTests : IDisposable
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.Shot);
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < GameSession.BonusBoxTicks; i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         Assert.Contains(f.Screen, new[] { Screen.NameEntry, Screen.Ranking });
         Assert.Single(stages.Requests);                       // no stage 20 was requested

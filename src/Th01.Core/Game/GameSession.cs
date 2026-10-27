@@ -69,8 +69,8 @@ public sealed class GameSession : IGameSession, ITraceSource
     public SessionPhase Phase { get; private set; } = SessionPhase.WaitForShot;
     public long Tick { get; private set; }
 
-    /// <summary>ASSUMPTION (not measured): HARRY UP banner = 2 x frame_delay(27). TODO(T5): calibrate.</summary>
-    public const int HarryUpBannerTicks = 54;
+    /// <summary>HARRY UP banner = 2 x frame_delay(27) (from the source; not yet measured against the running original, TODO(T5)).</summary>
+    public const int HarryUpBannerTicks = 2 * EntranceOverlay.HarryUpWordTicks;
 
     /// <summary>The "STAGE nn" banner: stage_num_animate waits frame_delay(35) twice (from the source; not yet measured
     /// against the running original, TODO(T5)). On the first stage of a scene and on boss stages it is preceded by the
@@ -107,7 +107,19 @@ public sealed class GameSession : IGameSession, ITraceSource
     /// <summary>Data for the name entry / ranking / continue screens; null until <see cref="Outcome"/> is GameOver.</summary>
     public GameOverResult? GameOverResult { get; private set; }
 
+    /// <summary>Ticks the stage bonus box takes to open: one frame_delay(1) per 6 of its 140 half-rows (rows 0, 6 ... 138).
+    /// From the source; not yet measured against the running original (TODO(T5)).</summary>
+    public const int BonusBoxTicks = 24;
+    int _bonusTick;
+    /// <summary>Drawing only: ticks since the bonus began (the box is fully open from <see cref="BonusBoxTicks"/>).</summary>
+    internal int BonusElapsed => _bonusTick;
+    /// <summary>The same, for tests that drive the timeline without access to internals.</summary>
+    public int BonusElapsedForTests => _bonusTick;
+    internal UiTexts Texts { get; }
+
     int _harryUpWait;
+    /// <summary>Drawing only: ticks since the HARRY UP banner began.</summary>
+    internal int HarryUpElapsed => HarryUpBannerTicks - Math.Max(_harryUpWait, 0);
     int _bonusSteps;
     int _missStage;
     int _missTick;
@@ -125,8 +137,10 @@ public sealed class GameSession : IGameSession, ITraceSource
 
     /// <param name="art">Sprites and background; null or missing frames fall back to flat boxes.</param>
     /// <param name="font">Text for the numeric HUD and the bonus box; without it only the icons are drawn.</param>
-    public GameSession(GameOptions options, ISoundSink? sound = null, IGameArt? art = null, IFontSource? font = null)
+    /// <param name="texts">Labels of the route menu and the bonus box; null = <see cref="UiTexts.Default"/>.</param>
+    public GameSession(GameOptions options, ISoundSink? sound = null, IGameArt? art = null, IFontSource? font = null, UiTexts? texts = null)
     {
+        Texts = texts ?? UiTexts.Default;
         _renderer = new GameRenderer(this, art, font);
         _w = new GameWorld(options, sound ?? NullSoundSink.Instance);
         // stage_resets_game_state(): first stage of a scene and boss stages put the player back at the start.
@@ -394,6 +408,9 @@ public sealed class GameSession : IGameSession, ITraceSource
         // The boss bonus (TOTLE) scrambles its digits with a sound per step. ASSUMPTION: one step per tick (the original
         // waits delay(4) per step) and the input is not blocked meanwhile. TODO(T5)
         _bonusSteps = boss ? b.TotleSoundSteps() : 0;
+        // The stage bonus box opens from its middle row outwards first (stagebonus_box_open_animate), and the original
+        // only starts sensing the keys once everything is drawn. The boss bonus slides its picture in instead (TotleTimeline).
+        _bonusTick = 0;
         Phase = SessionPhase.StageBonus;
     }
 
@@ -401,11 +418,17 @@ public sealed class GameSession : IGameSession, ITraceSource
     // release edge of Shot or OK (a key already held on entry counts as pressed).
     void StepBonus(GameButtons input)
     {
-        if (_bonusSteps > 0)
+        bool totle = _w.Boss != null;
+        int sensingFrom = totle ? TotleTimeline.InputAt : BonusBoxTicks;
+        int tick = _bonusTick;
+        if (_bonusTick < sensingFrom) _bonusTick++;
+        // The digits of the boss bonus count up one after the other once the picture is in, each step with a sound.
+        if (totle && tick >= TotleTimeline.TimeAt && _bonusSteps > 0)
         {
             _bonusSteps--;
             _w.Sound.PlaySe(2);
         }
+        if (tick < sensingFrom) return;                   // still drawing: the original is not sensing keys yet
         bool shot = (input & GameButtons.Shot) != 0, ok = (input & GameButtons.Ok) != 0;
         bool done = (_bonusPrevShot && !shot) || (_bonusPrevOk && !ok);
         _bonusPrevShot = shot;
@@ -576,6 +599,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         h.Add(w.CardComboCur); h.Add(w.CardComboMax);
         h.Add(w.BombFrame); h.Add(w.BombDoubletapFrame);
         h.Add(w.PelletSpeed);
+        if (Phase == SessionPhase.StageBonus) h.Add(_bonusTick);
         h.Add(_harryUpWait); h.Add(_defeatWait); h.Add(_routeDelay); h.Add(_routePrevUp); h.Add(_routePrevDown); h.Add(_routePrevOk); h.Add(w.RouteChosen);
         w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk); h.Add(_bonusSteps);
         if (Bonus is { } bn) { h.Add(bn.Time); h.Add(bn.CardCombo); h.Add(bn.Resources); h.Add(bn.StageNumber); h.Add(bn.Total); }
