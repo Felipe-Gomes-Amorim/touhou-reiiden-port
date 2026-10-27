@@ -138,8 +138,10 @@ public sealed class GameSession : IGameSession, ITraceSource
     /// <param name="art">Sprites and background; null or missing frames fall back to flat boxes.</param>
     /// <param name="font">Text for the numeric HUD and the bonus box; without it only the icons are drawn.</param>
     /// <param name="texts">Labels of the route menu and the bonus box; null = <see cref="UiTexts.Default"/>.</param>
-    public GameSession(GameOptions options, ISoundSink? sound = null, IGameArt? art = null, IFontSource? font = null, UiTexts? texts = null)
+    public GameSession(GameOptions options, ISoundSink? sound = null, IGameArt? art = null, IFontSource? font = null, UiTexts? texts = null,
+        VisualOptions? visuals = null)
     {
+        Visuals = visuals ?? new VisualOptions();
         Texts = texts ?? UiTexts.Default;
         _renderer = new GameRenderer(this, art, font);
         _w = new GameWorld(options, sound ?? NullSoundSink.Instance);
@@ -165,6 +167,9 @@ public sealed class GameSession : IGameSession, ITraceSource
             Phase = SessionPhase.BossEntrance;
         }
     }
+
+    /// <summary>Drawing options (bomb flash, screen shake); they never reach the simulation or its hash.</summary>
+    public VisualOptions Visuals { get; }
 
     public GameWorld World => _w;
 

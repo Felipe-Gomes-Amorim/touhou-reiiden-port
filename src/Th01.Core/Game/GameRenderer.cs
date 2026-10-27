@@ -76,7 +76,7 @@ internal sealed class GameRenderer
         if (_s.Phase != SessionPhase.RouteSelect) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
         DrawPlayer(fb, w);
         DrawHud(fb, w);
-        if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame);
+        if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame, _s.Visuals);
         else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb
         if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
         else if (w.Boss is { FlashOn: true } flashing) FlashColors(fb, flashing.FlashColors);

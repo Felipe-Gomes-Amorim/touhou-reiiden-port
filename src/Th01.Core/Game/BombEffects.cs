@@ -6,8 +6,8 @@ namespace Th01.Core.Game;
 /// What the bomb looks like (drawing only; the simulation never sees it): the two rings of kuji-in sprites that close in on the
 /// screen centre while white fades towards blue (frames 2..49), then the expanding rings of inverted squares and the vertical
 /// screen shake (frames 51..139).
-/// The original also flashes the whole palette between white and light blue during that second part. That flash is deliberately
-/// NOT reproduced: it is what makes the bomb hard on the eyes, and the other effects read fine without it.
+/// The original also flashes the whole palette between white and light blue during that second part. By default that flash is
+/// NOT reproduced (it is what makes the bomb hard on the eyes); <see cref="BombFlash.Original"/> turns it on.
 /// ref: th01/main/player/bomb.cpp bomb_update_and_render()
 /// </summary>
 public sealed class BombEffects
@@ -58,7 +58,7 @@ public sealed class BombEffects
     }
 
     /// <summary>Draws the effect of the given bomb frame over the finished picture.</summary>
-    public void Draw(Framebuffer fb, IGameArt? art, uint frame)
+    public void Draw(Framebuffer fb, IGameArt? art, uint frame, VisualOptions? visuals = null)
     {
         if (frame >= Bomb.KeyframeDone) { Reset(); return; }
 
@@ -75,8 +75,32 @@ public sealed class BombEffects
         {
             AdvanceSquares((int)frame);
             fb.InvertPlanesWhere(_inverted, 1);   // plane B only
-            fb.ScrollY = ShakeLine(frame);
+            if (visuals?.BombFlash == BombFlash.Original) ApplyFlash(fb, frame);
+            fb.ScrollY = visuals?.ScreenShake == false ? 0 : ShakeLine(frame);
         }
+    }
+
+    /// <summary>
+    /// The palette the original last set at the given frame: on frames % 4 == 0 the peak palette, on % 4 == 2 the "bright" one
+    /// (the stage palette lifted to 0xD, blue 0xF, or by the component index when dark), which gains one level on every
+    /// frame % 20 == 0. Odd frames keep what the even one before set; before frame 52 nothing changes. The picture's palette
+    /// at this point is still the stage's, which is what the original snapshots at frame 0.
+    /// </summary>
+    static void ApplyFlash(Framebuffer fb, uint frame)
+    {
+        int last = (int)frame & ~1;
+        if (last <= Bomb.KeyframeActive + 1) return;
+        bool peak = last % 4 == 0;
+        int raises = 0;
+        for (int f = Bomb.KeyframeActive + 1; f < last; f++) if (f % 20 == 0) raises++;
+        for (int c = 0; c < Framebuffer.ColorCount; c++)
+        {
+            if (peak) { fb.SetPalette4(c, c == 7 ? 15 : c == 15 ? 6 : 13, c == 7 ? 15 : c == 15 ? 6 : 13, 15); continue; }
+            fb.GetPalette4(c, out int r, out int g, out int b);
+            fb.SetPalette4(c, Bright(r, 0, raises), Bright(g, 1, raises), Bright(b, 2, raises));
+        }
+        static int Bright(int v, int comp, int raises) =>
+            Math.Min(15, (v > 0x0A ? (comp == 2 ? 0x0F : 0x0D) : v + comp) + raises);
     }
 
     void Reset()
