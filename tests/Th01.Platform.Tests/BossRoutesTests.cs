@@ -57,9 +57,9 @@ public class BossRoutesTests
     }
 
     [Fact]
-    public void TheRunStillEndsBeforeStage20_WhichIsNotPortedYet()
+    public void TheMakaiRunStillEndsBeforeStage20_WhichIsNotPortedYet()
     {
-        foreach (int route in new[] { 0, 1 })
+        foreach (int route in new[] { 0 })     // Sariel; Konngara (route 1) is ported
         {
             var stages = new FlowFakeStages { Lives = 3 };
             var f = new GameFlow(stages, new NoScreenImages(), BdfFont.LoadSpleen8x16(), new GameSettings(), startStage: 18, route: route);

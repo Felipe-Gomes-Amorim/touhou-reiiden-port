@@ -32,7 +32,7 @@ public class WaveSixTests(ITestOutputHelper output)
     [InlineData(14, 1, true)]      // Kikuri
     [InlineData(10, 1, true)]
     [InlineData(19, 0, false)]     // Sariel is not ported
-    [InlineData(19, 1, false)]     // Konngara is not ported
+    [InlineData(19, 1, true)]      // Konngara
     public void IsPlayable_KnowsWhichBossesExist(int stage, int route, bool playable) =>
         Assert.Equal(playable, GameFlow.IsPlayable(stage, route));
 
