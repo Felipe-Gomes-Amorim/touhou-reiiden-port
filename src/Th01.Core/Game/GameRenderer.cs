@@ -708,7 +708,10 @@ internal sealed class GameRenderer
         if (!DrawMono(fb, Shape8Sheet, Shape8Diamond, x, y, color)) fb.FillRect(x, y, Konngara.DiamondW, Konngara.DiamondH, color);
     }
 
-    /// <summary>Puts a full-screen picture on the screen, skipping dots of colour 0 (grp_put_colorkey / grx_put). False if missing.</summary>
+    /// <summary>
+    /// Puts a full-screen picture on the screen, only where its alpha is set (grp_put_colorkey / grx_put; the real files key on
+    /// index 15 and the platform delivers that as alpha). Without alpha, colour 0 is the key. False if missing.
+    /// </summary>
     bool DrawColorKey(Framebuffer fb, string sheet, int frame)
     {
         if (_art == null || !_art.TryGetFrame(sheet, frame, out var f)) return false;
@@ -718,7 +721,7 @@ internal sealed class GameRenderer
             for (int x = 0; x < Math.Min(f.Width, Framebuffer.Width); x++)
             {
                 int i = y * f.Width + x;
-                if (px[i] != 0 && (al.Length == 0 || al[i] != 0)) fb.SetPixel(x, y, px[i]);
+                if (al.Length != 0 ? al[i] != 0 : px[i] != 0) fb.SetPixel(x, y, px[i]);
             }
         return true;
     }

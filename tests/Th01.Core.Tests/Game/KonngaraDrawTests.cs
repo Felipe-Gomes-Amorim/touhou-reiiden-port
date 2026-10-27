@@ -27,7 +27,14 @@ public class KonngaraDrawTests
             if (sheet is "BOSS8_D1.GRP" or "BOSS8.GRZ")
                 for (int y = 0; y < 8; y++) for (int x = 0; x < 640; x++) px[((sheet == "BOSS8.GRZ" ? 200 : 100) + frame * 10 + y) * 640 + x] = fill.Value;   // a band, the rest transparent
             else Array.Fill(px, fill.Value);
-            art = new ArtFrame(Framebuffer.Width, Framebuffer.Height, px, Array.Empty<byte>(), Array.Empty<byte>());
+            // like the real files: the key is index 15 and the platform hands it over as alpha 0
+            byte[] alpha = Array.Empty<byte>();
+            if (sheet is "BOSS8_D1.GRP" or "BOSS8.GRZ")
+            {
+                alpha = px.Select(v => (byte)(v == 0 ? 0 : 1)).ToArray();
+                for (int i = 0; i < px.Length; i++) if (px[i] == 0) px[i] = 15;
+            }
+            art = new ArtFrame(Framebuffer.Width, Framebuffer.Height, px, alpha, Array.Empty<byte>());
             return true;
         }
     }
