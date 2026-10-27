@@ -75,7 +75,15 @@ if (dataPath is not null)
 
 try
 {
-    using var game = new Th01Game(factory) { AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
+    // The launcher comes first unless a stage or cutscene was asked for on the command line.
+    LauncherModel? launcher = null;
+    if (stage is null && cutscene is null && factory is not null)
+    {
+        var lset = LauncherSettings.Load();
+        launcher = new LauncherModel(lset, new LauncherGameInfo(dataPath, true), LauncherModel.AssemblyVersion(),
+            ls => { try { ls.Save(); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.Error.WriteLine($"Could not save {LauncherSettings.FileName}: {e.Message}"); } });
+    }
+    using var game = new Th01Game(factory) { Launcher = launcher, LauncherFont = launcher is null ? null : Th01.Assets.Text.JapaneseFont.CreateDefault(), AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
     game.Run();
     audioOut?.Dispose();
     sound?.Dispose();

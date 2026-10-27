@@ -1,4 +1,4 @@
-using Microsoft.Xna.Framework;
+﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Th01.Core.Game;
@@ -6,6 +6,7 @@ using Th01.Core.Graphics;
 using Th01.Core.Input;
 using Th01.Core.Sim;
 using Th01.Core.Timing;
+using Th01.Platform.MonoGame.Launcher;
 
 namespace Th01.Platform.MonoGame;
 
@@ -53,6 +54,16 @@ public sealed class Th01Game : Game
 
     bool _screenshotRequested;
 
+    /// <summary>The launcher shown before the game; null starts the game at once (--stage, --cutscene, tests).</summary>
+    public LauncherModel? Launcher { get; init; }
+    /// <summary>Font for the launcher text (kana and kanji included).</summary>
+    public IFontSource? LauncherFont { get; init; }
+    readonly LauncherCanvas _lcanvas = new();
+    readonly uint[] _lrgba = new uint[LauncherCanvas.Width * LauncherCanvas.Height];
+    readonly LauncherInputState _linput = new();
+    Texture2D? _ltex;
+    bool _inLauncher;
+
     /// <summary>Set when an unhandled error stopped the game; Program turns it into the exit code.</summary>
     public Exception? Fatal { get; private set; }
 
@@ -76,7 +87,10 @@ public sealed class Th01Game : Game
     {
         _batch = new SpriteBatch(GraphicsDevice);
         _tex = new Texture2D(GraphicsDevice, Framebuffer.Width, Framebuffer.Height, false, SurfaceFormat.Color);
-        StartFlow();
+        _ltex = new Texture2D(GraphicsDevice, LauncherCanvas.Width, LauncherCanvas.Height, false, SurfaceFormat.Color);
+        _inLauncher = Launcher is not null && LauncherFont is not null;
+        if (_inLauncher) { _status = "launcher"; UpdateTitle(); }
+        else StartFlow();
     }
 
     /// <summary>(Re)creates the flow from the factory. Without a factory, or if it fails, the test pattern is shown.</summary>
@@ -112,6 +126,13 @@ public sealed class Th01Game : Game
             _prevKb = kb;
 
             var pad = GamePad.GetState(PlayerIndex.One, GamePadDeadZone.None); // deadzone is ours (InputBindings)
+            if (_inLauncher)
+            {
+                UpdateLauncher(kb, pad, elapsedUs);
+                AudioOutput?.Update();
+                base.Update(gameTime);
+                return;
+            }
             var live = _bindings.Poll(kb, pad);
             // Esc quits from the logo and the main title menu; on other screens it is just "cancel" (the bindings handle it).
             if (kb.IsKeyDown(Keys.Escape) && (_flow is null || _flow.EscapeQuits)) { Exit(); return; }
@@ -127,6 +148,39 @@ public sealed class Th01Game : Game
         catch (Exception e) { Fail(e); }
         AudioOutput?.Update();
         base.Update(gameTime);
+    }
+
+    /// <summary>Launcher: the keys and pad become presses, once per timestep tick, and the model runs the screens.</summary>
+    void UpdateLauncher(KeyboardState kb, GamePadState pad, long elapsedUs)
+    {
+        bool K(params Keys[] keys) => keys.Any(kb.IsKeyDown);
+        bool P(Buttons b) => pad.IsButtonDown(b);
+        var held = LauncherKey.None;
+        if (K(Keys.Up) || P(Buttons.DPadUp) || pad.ThumbSticks.Left.Y > 0.5f) held |= LauncherKey.Up;
+        if (K(Keys.Down) || P(Buttons.DPadDown) || pad.ThumbSticks.Left.Y < -0.5f) held |= LauncherKey.Down;
+        if (K(Keys.Left) || P(Buttons.DPadLeft) || pad.ThumbSticks.Left.X < -0.5f) held |= LauncherKey.Left;
+        if (K(Keys.Right) || P(Buttons.DPadRight) || pad.ThumbSticks.Left.X > 0.5f) held |= LauncherKey.Right;
+        if (K(Keys.Z, Keys.Enter) || P(Buttons.A)) held |= LauncherKey.Select;
+        if (K(Keys.X, Keys.Escape) || P(Buttons.B)) held |= LauncherKey.Back;
+        if (K(Keys.Q) || P(Buttons.LeftShoulder)) held |= LauncherKey.TabPrev;
+        if (K(Keys.E) || P(Buttons.RightShoulder)) held |= LauncherKey.TabNext;
+
+        int ticks = _timestep.Advance(elapsedUs);
+        for (int i = 0; i < ticks; i++)
+        {
+            Launcher!.Step();
+            var pressed = _linput.Step(held);
+            held = LauncherKey.None; // a long frame must not press twice
+            foreach (LauncherKey one in Enum.GetValues<LauncherKey>())
+            {
+                if (one == LauncherKey.None || !pressed.HasFlag(one)) continue;
+                switch (Launcher.Press(one))
+                {
+                    case LauncherResult.Play: _inLauncher = false; StartFlow(); return;
+                    case LauncherResult.Quit: Exit(); return;
+                }
+            }
+        }
     }
 
     /// <summary>Input for this tick: the script while replaying, else the live input (recorded if recording).</summary>
@@ -216,6 +270,20 @@ public sealed class Th01Game : Game
         try
         {
             GraphicsDevice.Clear(Color.Black);
+            if (_inLauncher)
+            {
+                LauncherView.Render(Launcher!, _lcanvas, LauncherFont!);
+                _lcanvas.ToRgba(_lrgba);
+                _ltex!.SetData(_lrgba);
+                var lv = GraphicsDevice.Viewport;
+                double ls = Math.Min(lv.Width / (double)LauncherCanvas.Width, lv.Height / (double)LauncherCanvas.Height);
+                int lw = (int)(LauncherCanvas.Width * ls), lh = (int)(LauncherCanvas.Height * ls);
+                _batch!.Begin(samplerState: ls == Math.Floor(ls) ? SamplerState.PointClamp : SamplerState.LinearClamp);
+                _batch.Draw(_ltex, new Rectangle((lv.Width - lw) / 2, (lv.Height - lh) / 2, lw, lh), Color.White);
+                _batch.End();
+                base.Draw(gameTime);
+                return;
+            }
             _flow?.Render(_fb);
             _fb.ToRgba(_rgba);
             // Framebuffer holds 0xAARRGGBB; MonoGame's Color layout is R,G,B,A in memory (0xAABBGGRR as uint).
