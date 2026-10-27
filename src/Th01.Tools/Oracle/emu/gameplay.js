@@ -23,10 +23,10 @@ const { parseScript, groupsFor } = require('./capture.js');
   await new Promise(r => setTimeout(r, 2500));
   fs.copyFileSync(path.join(work, 'th01.hdi'), path.join(work, 'run.hdi'));
   fs.writeFileSync(path.join(run, 'TRACE.COM'), assemble());
-  const pin = opt('--pin', null) ? opt('--pin').split(':').map(s => parseInt(s, 16)) : null, fEpoch = Number(opt('--freeze-epoch', 3)), scriptFile = opt('--script', null), freeze = Number(opt('--freeze', 0));
+  const pin2 = opt('--pin2', null) ? opt('--pin2').split(':').map(s => parseInt(s, 16)) : null, pin = opt('--pin', null) ? opt('--pin').split(':').map(s => parseInt(s, 16)) : null, fEpoch = Number(opt('--freeze-epoch', 3)), scriptFile = opt('--script', null), freeze = Number(opt('--freeze', 0));
   let inputs = null, cap = 1;
   if (scriptFile) { const sc = parseScript(fs.readFileSync(scriptFile, 'utf8')); cap = sc.ticks; inputs = Buffer.alloc(sc.ticks * 10); for (let t = 0; t < sc.ticks; t++) groupsFor(sc.at(t)).forEach((v, g) => { inputs[t * 10 + g] = v; }); }
-  const { cfg, logDelta } = buildCfg({ cap, ranges: [[0x90, 0x10]], gameSigOff: 0x1e4, gameSig: Buffer.from('826f8260', 'hex'), inputs, freeze: freeze ? freeze + 1 : 0, freezeEpoch: fEpoch, pinOff: pin ? pin[0] : 0, pinVal: pin ? pin[1] : 0,
+  const { cfg, logDelta } = buildCfg({ cap, ranges: [[0x90, 0x10]], gameSigOff: 0x1e4, gameSig: Buffer.from('826f8260', 'hex'), inputs, freeze: freeze ? freeze + 1 : 0, freezeEpoch: fEpoch, pin2: pin2 || undefined, pinOff: pin ? pin[0] : 0, pinVal: pin ? pin[1] : 0,
     boot: { n01: push, n04a: 300, n04b: 312 }, logCap: nv, sched });
   fs.writeFileSync(path.join(run, 'CFG.BIN'), cfg);
   fs.writeFileSync(path.join(work, 'run.conf'),

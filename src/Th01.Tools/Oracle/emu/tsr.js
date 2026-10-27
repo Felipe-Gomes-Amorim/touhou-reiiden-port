@@ -12,7 +12,7 @@ const CFG = {
   sig: 0x000, cap: 0x004, slotParas: 0x006, nin: 0x008, gsOff: 0x00a, gsVal: 0x00c, frOff: 0x010, frVal: 0x012,
   seedOff: 0x016, seedVal: 0x018, nRangeBytes: 0x01c, ranges: 0x020 /* 8 x (off,len,seg,0): seg 0 = the game's DS */, tick: 0x060, started: 0x062,
   seen7: 0x063, old18: 0x064, bufDelta: 0x06a, keepParas: 0x06c, startTick: 0x06e, pinOff: 0x070, pinVal: 0x072, n01: 0x074, n04a: 0x076, n04b: 0x078, pushed: 0x07a, cnt01: 0x07c, cnt04: 0x07e,
-  old21: 0x080, gameV: 0x084, vs: 0x088, vs0: 0x08a, vsPush: 0x08c, logDelta: 0x08e, logCap: 0x090, nSchedBytes: 0x092, hooked: 0x094, epoch: 0x0f9 /* number of VSync handlers captured so far (OP.EXE = 1, REIIDEN.EXE = 2) */, freezeEpoch: 0x0f8, freeze: 0x096 /* VSync (relative to vs0) + 1 at which the guest halts (cli; jmp $) so VRAM can be dumped exactly there; 0 = never */,
+  old21: 0x080, gameV: 0x084, vs: 0x088, vs0: 0x08a, vsPush: 0x08c, logDelta: 0x08e, logCap: 0x090, nSchedBytes: 0x092, hooked: 0x094, epoch: 0x0f9 /* number of VSync handlers captured so far (OP.EXE = 1, REIIDEN.EXE = 2) */, freezeEpoch: 0x0f8, pin2Off: 0x0fa, pin2Val: 0x0fc, pin2Tick: 0x0fe, pin3Off: 0x0f4, pin3Val: 0x0f6 /* second word written at the same tick as pin2 (overlaps sched entries 14-15) */, freeze: 0x096 /* VSync (relative to vs0) + 1 at which the guest halts (cli; jmp $) so VRAM can be dumped exactly there; 0 = never */,
   sched: 0x098 /* 16 x (start w, end w, group b, bits b), relative to vsPush */, table: 0x100,
 };
 const A = o => CFG.base + o; // absolute offset in the COM segment
@@ -121,6 +121,10 @@ function assemble() {
   L('pin'); b(0x2e, 0x8b, 0x1e); w(A(CFG.pinOff)); b(0x09, 0xdb); rel(0x74, 'snap');   // optional word pin (state the menu leaves behind)
   b(0x2e, 0xa1); w(A(CFG.pinVal)); b(0x89, 0x07); rel(0xeb, 'snap');
   L('inc'); csm([0xff, 0x06], CFG.tick);                                  // inc word cs:[tick]
+  b(0x2e, 0x8b, 0x1e); w(A(CFG.pin2Off)); b(0x09, 0xdb); rel(0x74, 'snap'); // delayed word pin: at game tick == pin2Tick write pin2Val at DS:pin2Off
+  b(0x2e, 0xa1); w(A(CFG.tick)); csm([0x3b, 0x06], CFG.pin2Tick); rel(0x75, 'snap');
+  b(0x2e, 0xa1); w(A(CFG.pin2Val)); b(0x89, 0x07);
+  b(0x2e, 0x8b, 0x1e); w(A(CFG.pin3Off)); b(0x09, 0xdb); rel(0x74, 'snap'); b(0x2e, 0xa1); w(A(CFG.pin3Val)); b(0x89, 0x07);
   L('snap');
   b(0x2e, 0xa1); w(A(CFG.tick)); csm([0x2b, 0x06], CFG.startTick); rel(0x72, 'fdone'); // sub ax,startTick ; jb
   csm([0x3b, 0x06], CFG.cap); rel(0x73, 'fdone');                      // cmp ax,cap ; jae
@@ -240,7 +244,7 @@ function buildCfg(cfg) {
   b.writeUInt16LE(cfg.ranges.length * 8, CFG.nRangeBytes);
   cfg.ranges.forEach(([o, l, sg], i) => { b.writeUInt16LE(o, CFG.ranges + i * 8); b.writeUInt16LE(l, CFG.ranges + i * 8 + 2); b.writeUInt16LE(sg || 0, CFG.ranges + i * 8 + 4); });
   const sched = cfg.sched || []; if (sched.length > 16) throw new Error('at most 16 scheduled keys');
-  b.writeUInt16LE((cfg.freeze||0), CFG.freeze); b[CFG.freezeEpoch] = cfg.freezeEpoch || 3; b.writeUInt16LE(logDelta, CFG.logDelta); b.writeUInt16LE(logCap, CFG.logCap); b.writeUInt16LE(sched.length * 6, CFG.nSchedBytes);
+  b.writeUInt16LE((cfg.freeze||0), CFG.freeze); b[CFG.freezeEpoch] = cfg.freezeEpoch || 3; if (cfg.pin2) { b.writeUInt16LE(cfg.pin2[0], CFG.pin2Off); b.writeUInt16LE(cfg.pin2[1], CFG.pin2Val); b.writeUInt16LE(cfg.pin2[2], CFG.pin2Tick); if (cfg.pin2.length > 3) { b.writeUInt16LE(cfg.pin2[3], CFG.pin3Off); b.writeUInt16LE(cfg.pin2[4], CFG.pin3Val); } } b.writeUInt16LE(logDelta, CFG.logDelta); b.writeUInt16LE(logCap, CFG.logCap); b.writeUInt16LE(sched.length * 6, CFG.nSchedBytes);
   sched.forEach(([st, en, g, bits], i) => { b.writeUInt16LE(st, CFG.sched + i * 6); b.writeUInt16LE(en, CFG.sched + i * 6 + 2); b[CFG.sched + i * 6 + 4] = g; b[CFG.sched + i * 6 + 5] = bits; });
   b.writeUInt16LE(cfg.startTick || 0, CFG.startTick); b.writeUInt16LE(cfg.pinOff || 0, CFG.pinOff); if (cfg.boot) { b.writeUInt16LE(cfg.boot.n01, CFG.n01); b.writeUInt16LE(cfg.boot.n04a, CFG.n04a); b.writeUInt16LE(cfg.boot.n04b, CFG.n04b); } b.writeUInt16LE(cfg.pinVal || 0, CFG.pinVal); b.writeUInt16LE(bufDelta, CFG.bufDelta); b.writeUInt16LE(keep, CFG.keepParas);
   if (cfg.inputs) Buffer.from(cfg.inputs).copy(b, CFG.table);
