@@ -71,6 +71,8 @@ public sealed class GameWorld
     public int RouteChosen;
     public int Route;
     public bool StageCleared;
+    /// <summary>game_cleared: set when the last boss of a route falls; the platform then shows the ending.</summary>
+    public bool GameCleared;
     public ushort PointValue;
     /// <summary>card_flip_cycle (uint8, wraps): decides which flipped cards drop items.</summary>
     public byte CardFlipCycle;
@@ -140,6 +142,7 @@ public sealed class GameWorld
                     Boss = o.Stage.Route == 1 ? new Mima(this) : new YuugenMagan(this);
                 else if (o.Stage.StageId == Kikuri.Id && o.Stage.Route == 1) Boss = new Kikuri(this);
                 else if (o.Stage.StageId == Elis.Id && o.Stage.Route == 0) Boss = new Elis(this);
+                else if (o.Stage.StageId == Konngara.Id && o.Stage.Route == 1) Boss = new Konngara(this);
             }
             else
             {

@@ -61,6 +61,10 @@ public abstract class Boss
     /// <summary>The original runs most bosses once more at each life start; YuugenMagan is not one of them.</summary>
     public virtual bool RunsAtLifeStart => true;
 
+    /// <summary>Points granted when the defeat animation ends (the last bosses: 5 x 10000), and whether it clears the game.</summary>
+    public virtual uint DefeatBonus => 0;
+    public virtual bool ClearsGame => false;
+
     /// <summary>The stage 5 boss ends with the Makai/Jigoku menu; the later ones go straight to the bonus.</summary>
     public virtual bool HasRouteSelect => false;
 
