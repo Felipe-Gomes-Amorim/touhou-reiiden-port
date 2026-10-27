@@ -213,6 +213,24 @@ public class WaveFourTests : IDisposable
         Assert.Single(stages.Requests);                       // no stage 20 was requested
     }
 
+    [Fact]
+    public void OnTheJigokuRoute_ClearingStage20LeadsToTheEnding()
+    {
+        var stages = new FlowFakeStages { Lives = 3 };
+        var f = new GameFlow(stages, new NoScreenImages(), BdfFont.LoadSpleen8x16(), new GameSettings(), startStage: GameFlow.LastStage, route: 1);
+        Assert.Equal(SessionPhase.BossEntrance, f.Game!.Phase);   // stage_entrance() is not run for the stage 20 bosses: no banner first
+        for (int i = 0; i < 20000 && f.Game!.Phase != SessionPhase.Playing; i++) f.Tick(GameButtons.None);   // banner, then the boss entrance
+        Assert.IsType<Konngara>(f.Game!.World.Boss);
+        f.Tick(GameButtons.Shot);
+        f.Game!.World.StageCleared = true;
+        f.Tick(GameButtons.None);
+        for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < TotleTimeline.InputAt; i++) f.Tick(GameButtons.None);
+        f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
+        Assert.Equal(Screen.Cutscene, f.Screen);              // the ending, not the "stages ported so far" note
+        Assert.Single(stages.Requests);
+    }
+
     // ---- real data: the problem found in review (sprites were never wired)
     [SkippableFact]
     public void RealData_SessionHasItsSpritesAndDrawsThemInsteadOfBoxes()

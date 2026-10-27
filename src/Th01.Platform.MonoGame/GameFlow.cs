@@ -32,16 +32,16 @@ public sealed class GameFlow
     /// <summary>Photosensitivity warning: cannot be skipped for the first part, then any button, and it ends by itself.</summary>
     public const int WarningMinTicks = 90, WarningTicks = 600;
     public const int LastStage = 19;
-    /// <summary>Last 0-based stage playable on either route: the stage 20 bosses (Konngara, Sariel) are not ported yet.</summary>
+    /// <summary>Last 0-based stage playable on both routes: the stage 20 boss of the Makai route (Sariel) is not ported yet.</summary>
     public const int LastPlayableStage = 18;
 
     /// <summary>
     /// Whether a stage can be played yet: every card stage and the bosses that exist on the given route: stage 5 (SinGyoku),
-    /// stage 10 (Mima on Jigoku, YuugenMagan on Makai) and stage 15 (Kikuri on Jigoku, Elis on Makai). The stage 20 bosses
-    /// (Konngara, Sariel) are not ported, so a run ends before reaching them.
+    /// stage 10 (Mima on Jigoku, YuugenMagan on Makai) and stage 15 (Kikuri on Jigoku, Elis on Makai) and stage 20 on Jigoku (Konngara).
+    /// Sariel (stage 20, Makai) is not ported, so a Makai run ends before reaching it.
     /// </summary>
     public static bool IsPlayable(int stageId, int route) =>
-        stageId % StageSetup.StagesPerScene != StageSetup.BossStage || stageId < LastStage;
+        stageId % StageSetup.StagesPerScene != StageSetup.BossStage || stageId < LastStage || route == 1;
     public const int FadeTicks = 15;
     const string NameChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.";
     static readonly string[] RankNames = ["EASY", "NORMAL", "HARD", "LUNATIC"];

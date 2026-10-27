@@ -151,7 +151,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         {
             StartPlaying();                      // the fight begins at once
         }
-        else if (options.Entrance)
+        else if (options.Entrance && _w.Boss is not (Konngara or Sariel))
         {
             // stage_entrance() runs for every stage but Konngara's and Sariel's: the title animation (first stage of a
             // scene and boss stages), then the "STAGE nn" banner, then a boss's own entrance.
