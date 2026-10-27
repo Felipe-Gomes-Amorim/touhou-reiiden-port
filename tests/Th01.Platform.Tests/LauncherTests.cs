@@ -30,7 +30,7 @@ public class LauncherTests
         var m = Model(LauncherGameInfo.None);
         Assert.True(m.FirstRun);
         Assert.False(m.IsEnabled(HomeItem.Play));
-        Assert.Equal(HomeItem.Options, m.FocusedItem); // first enabled item
+        Assert.Equal(HomeItem.Directory, m.FocusedItem); // as in the design
         m.Press(LauncherKey.Up); m.Press(LauncherKey.Up);
         Assert.NotEqual(HomeItem.Play, m.FocusedItem); // wrapping skips the disabled item
         m.SetGame(Valid);
@@ -253,7 +253,7 @@ public class LauncherTests
         return ~crc;
     }
 
-    static void WritePng(string path, LauncherCanvas c)
+    internal static void WritePng(string path, LauncherCanvas c)
     {
         var raw = new byte[(LauncherCanvas.Width * 3 + 1) * LauncherCanvas.Height];
         int o = 0;

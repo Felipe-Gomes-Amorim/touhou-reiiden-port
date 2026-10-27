@@ -13,11 +13,14 @@ public enum LauncherResult { None, Play, Quit, ChooseGame }
 
 public enum GameVersion { Unknown, Japanese, Translated }
 
-/// <summary>The game copy in use, as far as the launcher knows (filled by the validation in a later step).</summary>
-public sealed record LauncherGameInfo(string? Origin, bool Valid, GameVersion Version = GameVersion.Unknown, string? Error = null)
+/// <summary>The game copy in use: where it came from, whether it is usable, which edition it is.</summary>
+public sealed record LauncherGameInfo(string? Origin, bool Valid, GameVersion Version = GameVersion.Unknown)
 {
     public static readonly LauncherGameInfo None = new(null, false);
 }
+
+/// <summary>Why the last choice of game was refused (shown in the game panel until a choice works).</summary>
+public sealed record GameError(Th01.Assets.GameProblemCode Code, string? File);
 
 public enum HomeItem { Play, Options, Directory, Quit, Change, Language, About }
 
@@ -60,6 +63,9 @@ public sealed class LauncherModel
 
     /// <summary>True while no valid game is chosen: the first-run layout, with PLAY switched off.</summary>
     public bool FirstRun => !Game.Valid;
+
+    /// <summary>Set when the last choice of game was refused; cleared by a good choice.</summary>
+    public GameError? Error { get; private set; }
 
     public bool IsEnabled(HomeItem item) => item != HomeItem.Play || Game.Valid;
 
@@ -132,6 +138,7 @@ public sealed class LauncherModel
     int FirstEnabled()
     {
         // First run starts on DIRECTORY (PLAY is off); otherwise on PLAY.
+        if (!Game.Valid) return Array.IndexOf(HomeOrder, HomeItem.Directory);
         for (int i = 0; i < HomeOrder.Length; i++) if (IsEnabled(HomeOrder[i])) return i;
         return 0;
     }
@@ -139,8 +146,19 @@ public sealed class LauncherModel
     /// <summary>The game copy changed (chosen in the directory dialog): refresh, and move the focus off PLAY if it is now off.</summary>
     public void SetGame(LauncherGameInfo game)
     {
+        bool wasValid = Game.Valid;
         Game = game;
-        if (!IsEnabled(FocusedItem)) Focus = FirstEnabled();
+        Error = null;
+        if (game.Valid && !wasValid) Focus = FirstEnabled(); // the first good choice puts the cursor on PLAY
+        else if (!IsEnabled(FocusedItem)) Focus = FirstEnabled();
+    }
+
+    /// <summary>Applies the outcome of the game chooser: a usable game replaces the current one, a refusal keeps it and shows why.</summary>
+    public void ApplyChoice(GameChoice? choice)
+    {
+        if (choice is null) return;
+        if (choice.Game is not null) SetGame(choice.Game);
+        else Error = new GameError(choice.ErrorCode ?? Th01.Assets.GameProblemCode.NotFound, choice.ErrorFile);
     }
 
     /// <summary>Real version of this program (assembly informational version without the commit suffix).</summary>

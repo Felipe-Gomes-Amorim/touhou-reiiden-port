@@ -56,6 +56,10 @@ public sealed class Th01Game : Game
 
     /// <summary>The launcher shown before the game; null starts the game at once (--stage, --cutscene, tests).</summary>
     public LauncherModel? Launcher { get; init; }
+    /// <summary>Picks the game when the launcher asks (DIRECTORY / Change / Select game).</summary>
+    public IGameChooser? GameChooser { get; init; }
+    /// <summary>Ask for the game as soon as the launcher opens (--select).</summary>
+    public bool OpenChooserAtStart { get; init; }
     /// <summary>Font for the launcher text (kana and kanji included).</summary>
     public IFontSource? LauncherFont { get; init; }
     readonly LauncherCanvas _lcanvas = new();
@@ -89,7 +93,12 @@ public sealed class Th01Game : Game
         _tex = new Texture2D(GraphicsDevice, Framebuffer.Width, Framebuffer.Height, false, SurfaceFormat.Color);
         _ltex = new Texture2D(GraphicsDevice, LauncherCanvas.Width, LauncherCanvas.Height, false, SurfaceFormat.Color);
         _inLauncher = Launcher is not null && LauncherFont is not null;
-        if (_inLauncher) { _status = "launcher"; UpdateTitle(); }
+        if (_inLauncher)
+        {
+            _status = "launcher";
+            UpdateTitle();
+            if (OpenChooserAtStart) Launcher!.ApplyChoice(GameChooser?.Choose());
+        }
         else StartFlow();
     }
 
@@ -178,6 +187,9 @@ public sealed class Th01Game : Game
                 {
                     case LauncherResult.Play: _inLauncher = false; StartFlow(); return;
                     case LauncherResult.Quit: Exit(); return;
+                    case LauncherResult.ChooseGame:
+                        Launcher.ApplyChoice(GameChooser?.Choose()); // a native dialog: the window waits for it
+                        return;
                 }
             }
         }

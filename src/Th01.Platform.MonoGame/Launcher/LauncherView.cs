@@ -4,7 +4,7 @@ using static Th01.Platform.MonoGame.Launcher.LauncherColors;
 namespace Th01.Platform.MonoGame.Launcher;
 
 /// <summary>Draws the launcher screens onto a <see cref="LauncherCanvas"/> following the design in docs/launcher-ref (1280x720).</summary>
-public static class LauncherView
+public static partial class LauncherView
 {
     public static readonly string[] TabKanji = ["視", "映", "音", "字", "操", "遊", "録", "診"];
     static readonly Str[] TabNames = [Str.TabAccessibility, Str.TabVideo, Str.TabAudio, Str.TabFont, Str.TabControls, Str.TabGame, Str.TabData, Str.TabDiagnostics];
@@ -32,6 +32,8 @@ public static class LauncherView
         DrawDither(c, DitherKind.Half, 72, 56 + 48 + 14 + 16 + 22, 520, 8);
 
         DrawMenu(m, c, font);
+        DrawPlayOffNote(m, c, font);
+        DrawGamePanel(m, c, font);
         DrawHomeFooter(m, c, font);
     }
 

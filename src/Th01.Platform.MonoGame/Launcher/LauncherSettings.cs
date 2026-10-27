@@ -33,6 +33,6 @@ public sealed class LauncherSettings
     public void Save(string? path = null)
     {
         path ??= Path.Combine(Directory.GetCurrentDirectory(), FileName);
-        File.WriteAllText(path, JsonSerializer.Serialize(new Model(Language == LauncherLanguage.Japanese ? "ja" : "en")));
+        LauncherFile.Update(path, o => o["language"] = Language == LauncherLanguage.Japanese ? "ja" : "en");
     }
 }
