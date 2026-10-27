@@ -8,7 +8,7 @@
 An engine-free C# (.NET 8) re-implementation of the 1997 PC-98 game. The community decompilation
 [ReC98](https://github.com/nmlgc/ReC98) is used only as a behavioural reference; no ReC98 code is included.
 
-**Status: v0.2.0, playable up to stage 15.** Logo, title/menu, the card stages, stage bonus, game over, ranking (saved to disk),
+**Status: v0.3.0, playable up to stage 15.** Logo, title/menu (rebuilt after the original), the card stages, stage bonus, game over, ranking (saved to disk),
 Japanese text, music and sound effects (synthesized from your own game files), and the bosses SinGyoku (stage 5), YuugenMagan and Mima (stage 10)
 and Kikuri and Elis (stage 15) work. The ending pictures, captions and the final verdict screen exist (`--cutscene 4..7`), but
 **the stage 20 bosses (Konngara, Sariel) are not done yet, so the game cannot be finished.** Sound and some boss details are still being
