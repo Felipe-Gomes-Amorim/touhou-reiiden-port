@@ -140,6 +140,7 @@ public sealed class GameWorld
                     Boss = o.Stage.Route == 1 ? new Mima(this) : new YuugenMagan(this);
                 else if (o.Stage.StageId == Kikuri.Id && o.Stage.Route == 1) Boss = new Kikuri(this);
                 else if (o.Stage.StageId == Elis.Id && o.Stage.Route == 0) Boss = new Elis(this);
+                else if (o.Stage.StageId == Konngara.Id && o.Stage.Route == 1) Boss = new Konngara(this);
             }
             else
             {
