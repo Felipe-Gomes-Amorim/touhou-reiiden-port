@@ -12,7 +12,7 @@ public class LauncherOptionsTests : IDisposable
     sealed class FakeServices : ILauncherServices
     {
         public bool GamepadConnected { get; set; }
-        public bool FontRomFound { get; set; }
+        public FontRomState FontRomStatus { get; set; }
         public int Opened;
         public string[] Report = [];
         public string? Picked;
@@ -146,7 +146,7 @@ public class LauncherOptionsTests : IDisposable
         Down(m, 2);
         Assert.Equal(RowId.FontRom, m.FocusedRow.Id);
         Assert.Equal("Not found", m.FocusedRow.Value);
-        _svc.FontRomFound = true;
+        _svc.FontRomStatus = FontRomState.Found;
         Assert.Equal("Found", m.FocusedRow.Value);
         m.Press(LauncherKey.Down);
         Assert.Equal(RowId.LocateFontRom, m.FocusedRow.Id);

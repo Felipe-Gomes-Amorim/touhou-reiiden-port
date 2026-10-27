@@ -19,6 +19,13 @@ sealed class ConsolePrompt : IUserPrompt
         return string.IsNullOrEmpty(line) ? null : line;
     }
 
+    public string? PickFontRom()
+    {
+        Console.WriteLine("Enter the path of your PC-98 FONT.ROM, empty to cancel:");
+        string? line = Console.ReadLine()?.Trim().Trim('"');
+        return string.IsNullOrEmpty(line) ? null : line;
+    }
+
     public void ShowError(string message) => Console.Error.WriteLine(message);
 }
 
@@ -54,12 +61,18 @@ sealed partial class WindowsPrompt : IUserPrompt
 
     const int PathMustExist = 0x800, FileMustExist = 0x1000, Explorer = 0x80000;
 
-    public string? PickGameFile()
+    public string? PickGameFile() =>
+        Pick("Touhou Reiiden disk image (*.hdi)\0*.hdi\0All files (*.*)\0*.*\0", "Select your Touhou Reiiden .hdi file");
+
+    public string? PickFontRom() =>
+        Pick("PC-98 font ROM (*.rom;*.bin)\0*.rom;*.bin\0All files (*.*)\0*.*\0", "Select your PC-98 FONT.ROM file");
+
+    static string? Pick(string filterText, string titleText)
     {
         const int bufferChars = 2048;
         nint file = Marshal.AllocHGlobal(bufferChars * 2);
-        nint filter = Marshal.StringToHGlobalUni("Touhou Reiiden disk image (*.hdi)\0*.hdi\0All files (*.*)\0*.*\0");
-        nint title = Marshal.StringToHGlobalUni("Select your Touhou Reiiden .hdi file");
+        nint filter = Marshal.StringToHGlobalUni(filterText);
+        nint title = Marshal.StringToHGlobalUni(titleText);
         try
         {
             Marshal.WriteInt16(file, 0);

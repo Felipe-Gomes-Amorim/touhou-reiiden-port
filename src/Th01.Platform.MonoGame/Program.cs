@@ -59,7 +59,8 @@ Console.WriteLine(CurrentData() is { } d0 ? $"Game data folder: {d0}" : "No game
 Console.WriteLine("Keys: F11 fullscreen | F10 scale mode | F5 pause | F6 step one tick | F3 debug title | F7 record input | F8 replay | F12 screenshot | F9 missing-art list | Esc quit");
 
 var missingArt = new MissingArtLog { Realtime = logMissingArt };
-var font = Th01.Assets.Text.JapaneseFont.CreateDefault();
+var fonts = new LauncherFonts(Th01.Assets.Text.JapaneseFont.CreateDefault());
+Th01.Core.Graphics.IFontSource font = fonts;
 // Music and effects are rendered from the game's own .MDT/.MDE files at run time. If one is missing, that sound is just silent.
 // The folder is looked up on every request, so a game chosen in the launcher is used at once.
 var sound = new Th01.Audio.Playback.MdrvSoundSink(name =>
@@ -97,8 +98,8 @@ try
     live = LauncherSettings.Load(settingsPath);
     var launcher = new LauncherModel(live, host?.Current ?? new LauncherGameInfo(fixedData, fixedData is not null), LauncherModel.AssemblyVersion(),
         ls => { try { ls.Save(settingsPath); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.Error.WriteLine($"Could not save {LauncherSettings.FileName}: {e.Message}"); } });
-    var services = new LauncherServices(userDir, missingArt, prompt);
-    using var game = new Th01Game(factory) { Launcher = launcher, ShowLauncher = useLauncher, LauncherFont = font, GameChooser = host, OpenChooserAtStart = forceSelect && host is not null, Mixer = sound.Mixer, LauncherSvc = services, AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
+    var services = new LauncherServices(userDir, missingArt, prompt, () => fonts.State);
+    using var game = new Th01Game(factory) { Launcher = launcher, ShowLauncher = useLauncher, LauncherFont = fonts, Fonts = fonts, GameFolder = CurrentData, GameChooser = host, OpenChooserAtStart = forceSelect && host is not null, Mixer = sound.Mixer, LauncherSvc = services, AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
     game.Run();
     audioOut.Dispose();
     sound.Dispose();

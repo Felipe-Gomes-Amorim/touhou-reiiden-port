@@ -146,6 +146,7 @@ public sealed partial class LauncherModel
     {
         bool wasValid = Game.Valid;
         Game = game;
+        Revision++;
         Error = null;
         if (game.Valid && !wasValid) Focus = FirstEnabled(); // the first good choice puts the cursor on PLAY
         else if (!IsEnabled(FocusedItem)) Focus = FirstEnabled();

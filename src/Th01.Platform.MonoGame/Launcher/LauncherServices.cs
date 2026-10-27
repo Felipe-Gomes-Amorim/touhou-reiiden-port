@@ -3,12 +3,12 @@ using System.Diagnostics;
 namespace Th01.Platform.MonoGame.Launcher;
 
 /// <summary>The real <see cref="ILauncherServices"/>: file explorer, report files in the user's data folder, file dialogs.</summary>
-public sealed class LauncherServices(string userDir, MissingArtLog missingArt, IUserPrompt prompt, Func<bool>? fontRomFound = null) : ILauncherServices
+public sealed class LauncherServices(string userDir, MissingArtLog missingArt, IUserPrompt prompt, Func<FontRomState>? fontRomState = null) : ILauncherServices
 {
     /// <summary>Set by the window every frame.</summary>
     public bool GamepadConnected { get; set; }
 
-    public bool FontRomFound => fontRomFound?.Invoke() ?? false;
+    public FontRomState FontRomStatus => fontRomState?.Invoke() ?? FontRomState.NotFound;
 
     public void OpenDataFolder()
     {

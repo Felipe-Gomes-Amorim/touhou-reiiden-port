@@ -27,7 +27,7 @@ public sealed record OptionRow(RowId Id, RowKind Kind, Str Label, Str Hint, stri
 public interface ILauncherServices
 {
     bool GamepadConnected { get; }
-    bool FontRomFound { get; }
+    FontRomState FontRomStatus { get; }
     /// <summary>Opens the folder with the scores and settings in the file explorer.</summary>
     void OpenDataFolder();
     /// <summary>Lines of the error / missing-art report; empty when there is nothing to report.</summary>
@@ -326,8 +326,10 @@ public sealed partial class LauncherModel
             case OptionsTab.Font:
                 rows.Add(Choice(RowId.Language, Str.RowLanguage, Str.HintLanguage, Language == LauncherLanguage.English ? "English" : "日本語"));
                 rows.Add(Choice(RowId.Font, Str.RowFont, Str.HintFont, Text(s.PreferFontRom ? Str.ValFontRom : Str.ValFontFree)));
-                bool found = _services?.FontRomFound ?? false;
-                rows.Add(new OptionRow(RowId.FontRom, RowKind.Info, Str.RowFontRom, Str.HintFontRom, Text(found ? Str.ValFound : Str.ValNotFound), Tag: Text(Str.TagAutomatic), Good: found));
+                var rom = _services?.FontRomStatus ?? FontRomState.NotFound;
+                rows.Add(new OptionRow(RowId.FontRom, RowKind.Info, Str.RowFontRom, Str.HintFontRom,
+                    Text(rom switch { FontRomState.Found => Str.ValFound, FontRomState.Unsupported => Str.ValRomUnsupported, _ => Str.ValNotFound }),
+                    Tag: Text(Str.TagAutomatic), Good: rom == FontRomState.Found));
                 rows.Add(new OptionRow(RowId.LocateFontRom, RowKind.Button, Str.RowLocateFontRom, Str.HintLocateFontRom, Button: Text(Str.BtnBrowse)));
                 break;
             case OptionsTab.Controls:

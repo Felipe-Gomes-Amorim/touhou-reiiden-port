@@ -60,6 +60,10 @@ public sealed class Th01Game : Game
     public bool ShowLauncher { get; init; } = true;
     /// <summary>Sound mixer whose two volumes the launcher sets.</summary>
     public Th01.Audio.Playback.AudioMixer? Mixer { get; init; }
+    /// <summary>The font in use; it is told about the FONT.ROM settings whenever they change.</summary>
+    public LauncherFonts? Fonts { get; init; }
+    /// <summary>Folder of the chosen game (a FONT.ROM may be there).</summary>
+    public Func<string?>? GameFolder { get; init; }
     /// <summary>Gamepad status and report files for the options screens.</summary>
     public LauncherServices? LauncherSvc { get; init; }
     /// <summary>Picks the game when the launcher asks (DIRECTORY / Change / Select game).</summary>
@@ -189,6 +193,7 @@ public sealed class Th01Game : Game
         _scaleMode = s.IntegerScale ? ScaleMode.Integer : ScaleMode.Fit;
         _filter = s.Filter;
         _bindings.Numpad = s.Numpad;
+        Fonts?.Configure(s.FontRomPath, s.PreferFontRom, GameFolder?.Invoke());
         if (Mixer is not null) { Mixer.MusicLevel = s.MusicLevel; Mixer.EffectLevel = s.EffectsLevel; }
     }
 
