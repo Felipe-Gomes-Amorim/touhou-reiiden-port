@@ -54,6 +54,7 @@ internal sealed class GameRenderer
         fb.ClearTextLayer();
         if (_art != null) DrawBackground(fb);
         if (!_paletteFromArt) FallbackPalette(fb);
+        if (w.Boss is Kikuri { Phase: 0 } kikuriEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKikuriEntranceBackdrop(fb, kikuriEntrance);
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
         DrawMono(fb, HudMask, 0, 0, 0, ColRed);
         fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
@@ -694,6 +695,7 @@ internal sealed class GameRenderer
     void DrawKikuri(Framebuffer fb, Kikuri k)
     {
         if (k.Phase >= 2 && k.Phase < 8) DrawHpBar(fb, k);
+        if (k.Phase == 0 && k.EntranceStage == 1) DrawEntranceRings(fb, k.PhaseFrame);
         if (!k.SoulsActive) return;
         foreach (var s in k.Souls)
             if (!Draw(fb, "TAMASII.BOS", s.Image, s.Left, s.Top)) fb.FillRect(s.Left, s.Top, Kikuri.SoulW, Kikuri.SoulH, 11);
@@ -701,9 +703,89 @@ internal sealed class GameRenderer
         {
             if (k.TearAnimFrame[i] == 0) continue;
             var t = k.Tears[i];
-            // Falling tear; the ripple on the floor (TAMAYEN.PTN) is not drawn yet.
-            if (t.Top <= Playfield.Bottom - Kikuri.TearH && !Draw(fb, "TAMASII2.BOS", 0, t.Left, t.Top))
-                fb.FillRect(t.Left, t.Top, Kikuri.TearW, Kikuri.TearH, 10);
+            // Falling tear, then the ripple on the floor (TAMAYEN.PTN)
+            if (t.Top <= Playfield.Bottom - Kikuri.TearH)
+            {
+                if (!Draw(fb, "TAMASII2.BOS", 0, t.Left, t.Top)) fb.FillRect(t.Left, t.Top, Kikuri.TearW, Kikuri.TearH, 10);
+            }
+            else DrawRipple(fb, t.Left, k.TearAnimFrame[i]);
+        }
+    }
+
+    /// <summary>
+    /// The ripple of a tear on the floor: columns (centre, then two inner, then two outer) that rise and fall one after the
+    /// other, each one 5 frames behind the one inside it. ref: th01/main/boss/b15j.cpp ripple_update_and_render
+    /// (the original leaves earlier cels on screen; only the current cel of each column is drawn here)
+    /// </summary>
+    void DrawRipple(Framebuffer fb, int tearLeft, int frame)
+    {
+        int step = frame / 5;
+        for (int column = 0; column < 3; column++)
+        {
+            int level = step - column * 2;                        // centre, inner (2 behind), outer (4 behind)
+            if (level is < 0 or > 9) continue;
+            int up = level == 0 ? 0 : level <= 5 ? 8 * (level - 1) : 8 * (9 - level);
+            int quarter = level == 0 ? 0 : level <= 4 ? 1 : 0;     // C_RIPPLE_LOW / C_RIPPLE_HIGH
+            int top = Playfield.Bottom - Kikuri.TearH - up;
+            for (int side = column == 0 ? 0 : -1; side <= (column == 0 ? 0 : 1); side += 2)
+            {
+                int left = (tearLeft + side * column * Kikuri.RippleW) & ~7;
+                if (!DrawQuarter(fb, "TAMAYEN.PTN", 0, quarter, left, top))
+                    fb.FillRect(left, top + (quarter == 1 ? 0 : 8), Kikuri.RippleW, quarter == 1 ? 16 : 8, 10);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Kikuri's entrance. Barn door (stage 0): the screen is black and the boss picture is copied in, a row at a time from the
+    /// top and the bottom edges towards the middle, each row in four passes of increasingly dense dot masks. The four flash
+    /// colours are white from the start until the rings begin, then fade back one level per frame. Rings (stage 1) are drawn
+    /// by <see cref="DrawKikuri"/>. ref: th01/main/boss/b15j.cpp kikuri_main
+    /// </summary>
+    void DrawKikuriEntranceBackdrop(Framebuffer fb, Kikuri k)
+    {
+        if (k.EntranceStage == 0)
+        {
+            int y = k.InvincibilityFrame;
+            ReadOnlySpan<int> masks = [0x2222, 0xAAAA, 0xEEEE, 0xFFFF];
+            for (int row = 0; row < Framebuffer.Height; row++)
+            {
+                int edge = Math.Min(row, Framebuffer.Height - 1 - row);
+                int passes = 0;
+                for (int pass = 0; pass < 4; pass++) if (edge + 8 * pass <= y) passes = pass + 1;
+                int mask = passes == 0 ? 0 : masks[passes - 1];
+                for (int x = 0; x < Framebuffer.Width; x++)
+                    if ((mask >> (15 - x % 16) & 1) == 0) fb.SetPixel(x, row, 0);
+            }
+        }
+        if (_s.Visuals.SoftFlashes) return;                        // the sustained white flash of four colours is the original's
+        int level = k.EntranceStage == 0 ? PaletteMax : Math.Max(0, PaletteMax - Math.Max(0, k.PhaseFrame - 71));
+        foreach (int c in k.FlashColors)
+        {
+            fb.GetPalette4(c, out int r, out int g, out int b);
+            fb.SetPalette4(c, Math.Max(r, level), Math.Max(g, level), Math.Max(b, level));
+        }
+    }
+
+    /// <summary>
+    /// The entrance rings: from frame 72 on, every 4th frame the ring radius grows by 16; four rings (1x to 4x that radius) of
+    /// 32 squares of 32x32 invert the red plane around the screen centre. A square not fully on the screen is skipped.
+    /// ref: th01/hardware/grpinv32.hpp entrance_rings_update_and_render
+    /// </summary>
+    static void DrawEntranceRings(Framebuffer fb, int frame)
+    {
+        int updates = frame / 4 - 17;
+        if (updates <= 0) return;
+        int radiusBase = 16 * updates;
+        for (int i = 32; i < 5 * 32; i++)
+        {
+            int radius = radiusBase * (i / 32), angle = i % 32 * (0x100 / 32);
+            int left = AngleMath.PolarY(Framebuffer.Width / 2 - 16, radius, angle) & ~7;
+            int top = AngleMath.PolarX(Framebuffer.Height / 2 - 4 - 16, radius, angle);
+            if (left < 0 || top < 0 || left + 32 > Framebuffer.Width || top + 32 > Framebuffer.Height) continue;
+            for (int y = top; y < top + 32; y++)
+                for (int x = left; x < left + 32; x++)
+                    fb.SetPixel(x, y, (byte)(fb.GetPixel(x, y) ^ 2));
         }
     }
 
