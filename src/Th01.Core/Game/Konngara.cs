@@ -63,24 +63,62 @@ public sealed class Konngara : Boss
     }
 
     // ---- entrance length (estimated; see rules) ----
-    static readonly int ScrollTicks = CountScrollTicks();
-    public static readonly int EntranceTotal = ScrollTicks + 40 + 32 + 13 + 32 + 30 + 16 * 10;
+    /// <summary>The first-line-on-screen of each tick of the decelerating scroll loop of konngara_load_and_entrance().</summary>
+    static readonly int[] ScrollLines = BuildScrollLines();
+    static readonly int ScrollTicks = ScrollLines.Length;
+    // lengths of the later parts of the entrance, in ticks: wait, shake below, pan up (13 steps of 32 lines), shake, wait, seal syllables
+    public const int WaitTicks = 40, ShakeBelowTicks = 32, PanTicks = 13, ShakeTicks = 32, WaitSealTicks = 30, SealSteps = 16, SealStepTicks = 10;
+    public static readonly int EntranceTotal = ScrollTicks + WaitTicks + ShakeBelowTicks + PanTicks + ShakeTicks + WaitSealTicks + SealSteps * SealStepTicks;
 
-    // the decelerating scroll loop of konngara_load_and_entrance(): one tick per iteration but the last
-    static int CountScrollTicks()
+    // the decelerating scroll loop: one tick per iteration but the last
+    static int[] BuildScrollLines()
     {
-        int quarters = 32, inQuarter = 0, line = 0, ticks = 0;
+        var lines = new List<int>();
+        int quarters = 32, inQuarter = 0, line = 0;
         while (true)
         {
+            int shown = line;
             line += quarters;
             if (inQuarter == 0 && line > 100) { inQuarter++; quarters--; }
             if (inQuarter == 1 && line > 200) { inQuarter++; quarters--; }
             if (inQuarter == 2 && line > 300) { inQuarter++; quarters--; }
             if (inQuarter == 3 && line > 400) { inQuarter = 0; quarters--; line -= 400; }
             if (quarters <= 0) break;
-            ticks++;
+            lines.Add(shown);
         }
-        return ticks;
+        return lines.ToArray();
+    }
+
+    /// <summary>Ticks run so far of the blocking entrance (drawing only).</summary>
+    public int EntranceTick => _entranceFrame;
+
+    /// <summary>What the entrance shows at the given tick (1-based): the scroll start line, which pictures fill the page and the seal fade step.</summary>
+    public readonly record struct EntranceView(int ScrollLine, int PanLine, int PaletteSteps, int SealStep, bool Revealed);
+
+    /// <summary>
+    /// The entrance as the original plays it: a decelerating vertical scroll of the first picture while the palette fades in;
+    /// a wait; a shake with the view below the screen; a pan up that copies the boss picture 32 lines at a time; a shake; a wait;
+    /// then the four seal syllables appear in white and fade to blue over 16 steps. PanLine = first page row that already holds
+    /// the boss picture (400 = none yet). ref: th01/main/boss/b20j.cpp konngara_load_and_entrance
+    /// </summary>
+    public EntranceView ViewAt(int tick)
+    {
+        tick = Math.Max(tick, 1);
+        int t = tick;
+        int steps = (Math.Min(tick, ScrollTicks) + 7) / 8;
+        if (t <= ScrollTicks) return new(ScrollLines[t - 1], 400, steps, -1, false);
+        t -= ScrollTicks;
+        if (t <= WaitTicks) return new(0, 400, steps, -1, false);
+        t -= WaitTicks;
+        if (t <= ShakeBelowTicks) return new(416 - (t - 1) % 2 * 32, 400, steps, -1, false);
+        t -= ShakeBelowTicks;
+        if (t <= PanTicks) { int l = 400 - 32 * (t - 1); return new(l, l, 15, -1, false); }
+        t -= PanTicks;
+        if (t <= ShakeTicks) return new(416 - (t - 1) % 2 * 16, 16, 15, -1, true);
+        t -= ShakeTicks;
+        if (t <= WaitSealTicks) return new(0, 16, 15, -1, true);
+        t -= WaitSealTicks;
+        return new(0, 16, 15, Math.Min(SealSteps, t / SealStepTicks), true);
     }
 
     /// <summary>Defeat: nine "kuji" images, a 64-tick shake and the final scroll fade, plus the white-out (estimate).</summary>

@@ -54,6 +54,7 @@ internal sealed class GameRenderer
         fb.ClearTextLayer();
         if (_art != null) DrawBackground(fb);
         if (!_paletteFromArt) FallbackPalette(fb);
+        if (w.Boss is Konngara { Phase: 0 } konngaraEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKonngaraEntranceBackdrop(fb, konngaraEntrance);
         if (w.Boss is Kikuri { Phase: 0 } kikuriEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKikuriEntranceBackdrop(fb, kikuriEntrance);
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
         DrawMono(fb, HudMask, 0, 0, 0, ColRed);
@@ -667,9 +668,20 @@ internal sealed class GameRenderer
         }
     }
 
+    const string ScrollPicture = "BOSS7_D1.GRP", BossPicture = "BOSS8_A1.GRP", SlashSheet = "BOSS8.GRZ";
+    static readonly string[] SealPictures = { "BOSS8_D1.GRP", "BOSS8_D2.GRP", "BOSS8_D3.GRP", "BOSS8_D4.GRP" };
+    const int SealColor = 9, Shape8Diamond = 0;
+
     void DrawKonngara(Framebuffer fb, Konngara k)
     {
+        bool entering = k.Phase == 0 && _s.Phase == SessionPhase.BossEntrance;
+        var view = entering ? k.ViewAt(k.EntranceTick) : default;
+        if (entering && !view.Revealed) return;          // the scroll and the pan show only pictures
         if (k.Phase >= 1) DrawHpBar(fb, k);
+        // The seal syllables (colourkeyed pictures in the colour of palette entry 9) appear at the end of the entrance and stay.
+        if (!entering || view.SealStep >= 0) DrawSealSyllables(fb, k, view.SealStep);
+        // Slash images accumulate on the screen while the pattern runs (BOSS8.GRZ images 0..n).
+        for (int n = 0; n <= k.SlashImage; n++) DrawColorKey(fb, SlashSheet, n);
         // Head and face: BOSS8_1.BOS frame = direction, BOSS8_E1.BOS frame = (expression - 1) * 3 + direction (closed, glare),
         // BOSS8_E2.BOS frame = direction (aim). Neutral is the head alone.
         bool head = Draw(fb, "BOSS8_1.BOS", k.FaceDirection, 280, 80);
@@ -677,19 +689,88 @@ internal sealed class GameRenderer
         else if (k.FaceExpression != Konngara.FeNeutral)
             Draw(fb, "BOSS8_E1.BOS", (k.FaceExpression - Konngara.FeClosed) * 3 + k.FaceDirection, 280, 128);
         if (!head) fb.FillRect(Konngara.HitboxLeft, Konngara.HitboxTop, Konngara.HitboxOrbW, Konngara.HitboxOrbH, (byte)(k.Invincible ? 15 : 12));
-        // Diamonds (shape8x8 cels are not identified yet: boxes), snakes with a white head and a trail in colour 9.
+        // Diamonds (the diamond cel of the 8x8 shapes, colour 9; white head and colour-9 trail for the snakes, colour 6 for the row).
         if (k.DiamondsActive)
-            for (int i = 0; i < 4; i++) fb.FillRect(k.DiamondLeft[i], k.DiamondTop[i], Konngara.DiamondW, Konngara.DiamondH, 9);
-        if (k.RowActive) fb.FillRect(k.RowLeft, k.RowTop, Konngara.DiamondW, Konngara.DiamondH, 6);
+            for (int i = 0; i < 4; i++) DrawDiamond(fb, k.DiamondLeft[i], k.DiamondTop[i], SealColor);
+        if (k.RowActive) DrawDiamond(fb, k.RowLeft, k.RowTop, 6);
         foreach (var sn in new[] { k.TwoSnakes, k.FourSnakes })
             for (int i = 0; i < sn.Count; i++)
             {
                 if (!sn.Alive(i)) continue;
-                for (int j = 4; j >= 1; j--) fb.FillRect(sn.Left[i][j], sn.Top[i][j], Konngara.DiamondW, Konngara.DiamondH, 9);
-                fb.FillRect(sn.Left[i][0], sn.Top[i][0], Konngara.DiamondW, Konngara.DiamondH, ColWhite);
+                for (int j = 4; j >= 1; j--) DrawDiamond(fb, sn.Left[i][j], sn.Top[i][j], SealColor);
+                DrawDiamond(fb, sn.Left[i][0], sn.Top[i][0], ColWhite);
             }
         if (k.RayActive) DrawLine(fb, Konngara.SwordCenterX, Konngara.SwordCenterY, k.RayEndX, k.RayEndY, 6);
-        // TODO: the slash images (BOSS8.GRZ), the seal syllables (BOSS8_D1..D4.GRP) and the entrance scroll are not drawn yet.
+    }
+
+    void DrawDiamond(Framebuffer fb, int x, int y, byte color)
+    {
+        if (!DrawMono(fb, Shape8Sheet, Shape8Diamond, x, y, color)) fb.FillRect(x, y, Konngara.DiamondW, Konngara.DiamondH, color);
+    }
+
+    /// <summary>Puts a full-screen picture on the screen, skipping dots of colour 0 (grp_put_colorkey / grx_put). False if missing.</summary>
+    bool DrawColorKey(Framebuffer fb, string sheet, int frame)
+    {
+        if (_art == null || !_art.TryGetFrame(sheet, frame, out var f)) return false;
+        var px = f.Pixels.Span;
+        var al = f.Alpha.Span;
+        for (int y = 0; y < Math.Min(f.Height, Framebuffer.Height); y++)
+            for (int x = 0; x < Math.Min(f.Width, Framebuffer.Width); x++)
+            {
+                int i = y * f.Width + x;
+                if (px[i] != 0 && (al.Length == 0 || al[i] != 0)) fb.SetPixel(x, y, px[i]);
+            }
+        return true;
+    }
+
+    /// <summary>
+    /// The four seal syllables, and the colour they and the diamonds share (palette entry 9): white and then fading to blue
+    /// (0, 9, 10) one step at a time: 16 steps of 10 ticks at the end of the entrance, and again from frame 50 on in the seal
+    /// phases 2, 4 and 6 (a step every 4 frames). Soft flashes keep only a light tint of the white.
+    /// </summary>
+    void DrawSealSyllables(Framebuffer fb, Konngara k, int entranceStep)
+    {
+        foreach (string name in SealPictures) DrawColorKey(fb, name, 0);
+        int step = entranceStep >= 0 ? entranceStep : k.SiddhamFlash ? k.SiddhamSteps : Konngara.SealSteps;
+        step = Math.Min(step, Konngara.SealSteps);
+        // original: red 15 -> 0, green 15 -> 9 and blue 15 -> 10, one level per step
+        int r = Math.Max(0, 15 - step), g = Math.Max(9, 15 - step), b = Math.Max(10, 15 - step);
+        if (_s.Visuals.SoftFlashes)
+        {
+            r = Math.Min(r, 3); g = 9 + Math.Min(g - 9, 3); b = 10 + Math.Min(b - 10, 3);
+        }
+        fb.SetPalette4(SealColor, r, g, b);
+    }
+
+    /// <summary>
+    /// Konngara's entrance: the first picture scrolls (the palette fades in), then the boss picture is copied over it. The
+    /// whole screen shifts with the scroll line, like the hardware scroll of the original.
+    /// </summary>
+    void DrawKonngaraEntranceBackdrop(Framebuffer fb, Konngara k)
+    {
+        var view = k.ViewAt(k.EntranceTick);
+        byte[]? first = null, boss = null;
+        int firstW = 0, bossW = 0;
+        if (_art != null && _art.TryGetFrame(ScrollPicture, 0, out var d1)) { first = d1.Pixels.ToArray(); firstW = d1.Width; }
+        if (_art != null && _art.TryGetFrame(BossPicture, 0, out var a1))
+        {
+            boss = a1.Pixels.ToArray(); bossW = a1.Width;
+            if (a1.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(a1);
+        }
+        for (int v = 0; v < Framebuffer.Height; v++)
+        {
+            bool fromBoss = v >= view.PanLine;
+            for (int x = 0; x < Framebuffer.Width; x++)
+            {
+                byte c = 0;
+                if (fromBoss) { if (boss != null) c = boss[v * bossW + x]; else c = fb.GetPixel(x, v); }
+                else if (first != null) c = first[v * firstW + x];
+                fb.SetPixel(x, v, c);
+            }
+        }
+        int steps = view.PaletteSteps;
+        if (steps < 15) MapPalette(fb, c => Math.Min(c, steps));
+        fb.ScrollY = view.ScrollLine % Framebuffer.Height;
     }
 
     void DrawKikuri(Framebuffer fb, Kikuri k)
