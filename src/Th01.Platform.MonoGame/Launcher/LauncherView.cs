@@ -46,21 +46,21 @@ public static partial class LauncherView
     }
 
     const int MenuX = 96, MenuY = 270, MenuItemH = 56, MenuGap = 14;
-    static readonly HomeItem[] MenuItems = [HomeItem.Play, HomeItem.Options, HomeItem.Directory, HomeItem.Quit];
+    static readonly HomeItem[] MenuItems = [HomeItem.Play, HomeItem.Options, HomeItem.Quit];
 
     static void DrawMenu(LauncherModel m, LauncherCanvas c, IFontSource font)
     {
         // Dotted red diagonal with a square at each item's step.
-        double x0 = MenuX + 25, y0 = MenuY + 28, x1 = MenuX + 193, y1 = MenuY + 238;
+        double x0 = MenuX + 25, y0 = MenuY + 28, x1 = MenuX + 137, y1 = MenuY + 168;
         double len = Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
         for (double t = 0; t < len; t++)
             if ((int)t % 12 < 6) c.FillRect((int)Math.Round(x0 + (x1 - x0) * t / len), (int)Math.Round(y0 + (y1 - y0) * t / len), 2, 2, Red, 178);
-        int[] sq = [22, 78, 134, 190], sqy = [25, 95, 165, 235];
-        for (int i = 0; i < 4; i++)
+        int[] sq = [22, 78, 134], sqy = [25, 95, 165];
+        for (int i = 0; i < 3; i++)
             c.FillRect(MenuX + sq[i], MenuY + sqy[i], 6, 6, i == 0 && !m.IsEnabled(HomeItem.Play) ? Star : White);
 
-        Str[] names = [Str.MenuPlay, Str.MenuOptions, Str.MenuDirectory, Str.MenuQuit];
-        for (int i = 0; i < 4; i++)
+        Str[] names = [Str.MenuPlay, Str.MenuOptions, Str.MenuQuit];
+        for (int i = 0; i < 3; i++)
         {
             var item = MenuItems[i];
             bool sel = m.FocusedItem == item, enabled = m.IsEnabled(item);

@@ -18,23 +18,31 @@ public class LauncherTests
         Assert.Equal(HomeItem.Play, m.FocusedItem);
         var seen = new List<HomeItem> { m.FocusedItem };
         for (int i = 0; i < LauncherModel.HomeOrder.Length; i++) { m.Press(LauncherKey.Down); seen.Add(m.FocusedItem); }
-        Assert.Equal(LauncherModel.HomeOrder, seen.Take(7));
+        Assert.Equal(LauncherModel.HomeOrder, seen.Take(LauncherModel.HomeOrder.Length));
         Assert.Equal(HomeItem.Play, m.FocusedItem); // wrapped
         m.Press(LauncherKey.Up);
         Assert.Equal(HomeItem.About, m.FocusedItem);
     }
 
     [Fact]
-    public void FirstRun_PlayIsOff_FocusStartsOnDirectory_AndSelectDoesNothingOnPlay()
+    public void FirstRun_PlayIsOff_FocusStartsOnThePanelButton_AndSelectDoesNothingOnPlay()
     {
         var m = Model(LauncherGameInfo.None);
         Assert.True(m.FirstRun);
         Assert.False(m.IsEnabled(HomeItem.Play));
-        Assert.Equal(HomeItem.Directory, m.FocusedItem); // as in the design
+        Assert.Equal(HomeItem.Change, m.FocusedItem); // the panel button "Select game..."
         m.Press(LauncherKey.Up); m.Press(LauncherKey.Up);
         Assert.NotEqual(HomeItem.Play, m.FocusedItem); // wrapping skips the disabled item
         m.SetGame(Valid);
         Assert.True(m.IsEnabled(HomeItem.Play));
+    }
+
+    [Fact]
+    public void TheMenuHasNoDirectoryItem_TheGameIsChangedFromThePanelOnly()
+    {
+        Assert.DoesNotContain("Directory", Enum.GetNames<HomeItem>());
+        Assert.DoesNotContain("MenuDirectory", Enum.GetNames<Str>());
+        Assert.Contains(HomeItem.Change, LauncherModel.HomeOrder);
     }
 
     [Fact]
@@ -43,9 +51,10 @@ public class LauncherTests
         var m = Model();
         Assert.Equal(LauncherResult.Play, m.Press(LauncherKey.Select));
         m.Press(LauncherKey.Down); m.Press(LauncherKey.Down);
-        Assert.Equal(LauncherResult.ChooseGame, m.Press(LauncherKey.Select)); // DIRECTORY
-        m.Press(LauncherKey.Down);
         Assert.Equal(LauncherResult.Quit, m.Press(LauncherKey.Select));
+        m.Press(LauncherKey.Down);
+        Assert.Equal(HomeItem.Change, m.FocusedItem);                          // the panel button is in the arrow order, right after QUIT
+        Assert.Equal(LauncherResult.ChooseGame, m.Press(LauncherKey.Select));
     }
 
     [Fact]

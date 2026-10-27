@@ -22,7 +22,7 @@ public sealed record LauncherGameInfo(string? Origin, bool Valid, GameVersion Ve
 /// <summary>Why the last choice of game was refused (shown in the game panel until a choice works).</summary>
 public sealed record GameError(Th01.Assets.GameProblemCode Code, string? File);
 
-public enum HomeItem { Play, Options, Directory, Quit, Change, Language, About }
+public enum HomeItem { Play, Options, Quit, Change, Language, About }
 
 public enum OptionsTab { Accessibility, Video, Audio, Font, Controls, Game, Data, Diagnostics }
 
@@ -33,7 +33,7 @@ public enum OptionsTab { Accessibility, Video, Audio, Font, Controls, Game, Data
 /// </summary>
 public sealed partial class LauncherModel
 {
-    public static readonly HomeItem[] HomeOrder = [HomeItem.Play, HomeItem.Options, HomeItem.Directory, HomeItem.Quit, HomeItem.Change, HomeItem.Language, HomeItem.About];
+    public static readonly HomeItem[] HomeOrder = [HomeItem.Play, HomeItem.Options, HomeItem.Quit, HomeItem.Change, HomeItem.Language, HomeItem.About];
 
     readonly LauncherSettings _settings;
     readonly Action<LauncherSettings>? _save;
@@ -106,7 +106,7 @@ public sealed partial class LauncherModel
         {
             case HomeItem.Play: return IsEnabled(item) ? LauncherResult.Play : LauncherResult.None;
             case HomeItem.Options: Screen = LauncherScreen.Options; break;
-            case HomeItem.Directory or HomeItem.Change: return LauncherResult.ChooseGame;
+            case HomeItem.Change: return LauncherResult.ChooseGame;   // the panel button ("Change..." / "Select game...") is the only way to change the game
             case HomeItem.Quit: return LauncherResult.Quit;
             case HomeItem.Language: ToggleLanguage(); break;
             case HomeItem.About: Screen = LauncherScreen.About; break;
@@ -135,8 +135,8 @@ public sealed partial class LauncherModel
 
     int FirstEnabled()
     {
-        // First run starts on DIRECTORY (PLAY is off); otherwise on PLAY.
-        if (!Game.Valid) return Array.IndexOf(HomeOrder, HomeItem.Directory);
+        // First run starts on the panel button "Select game..." (PLAY is off); otherwise on PLAY.
+        if (!Game.Valid) return Array.IndexOf(HomeOrder, HomeItem.Change);
         for (int i = 0; i < HomeOrder.Length; i++) if (IsEnabled(HomeOrder[i])) return i;
         return 0;
     }

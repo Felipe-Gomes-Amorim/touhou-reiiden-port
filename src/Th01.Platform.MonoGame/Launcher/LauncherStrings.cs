@@ -6,7 +6,7 @@ public enum LauncherLanguage { English = 0, Japanese = 1 }
 public enum Str
 {
     Title, Subtitle,
-    MenuPlay, MenuOptions, MenuDirectory, MenuQuit,
+    MenuPlay, MenuOptions, MenuQuit,
     Notice, Disclaimer,
     HintNavigate, HintSelect, HintBack, HintCategory, HintChange,
     AboutLink, LanguageSwitch,
@@ -49,7 +49,6 @@ public static class LauncherStrings
         [Str.Subtitle] = ("(東方靈異伝 ~ The Highly Responsive to Prayers)", "(東方靈異伝 ~ The Highly Responsive to Prayers)"),
         [Str.MenuPlay] = ("PLAY", "はじめる"),
         [Str.MenuOptions] = ("OPTIONS", "オプション"),
-        [Str.MenuDirectory] = ("DIRECTORY", "ゲームの場所"),
         [Str.MenuQuit] = ("QUIT", "おわる"),
         [Str.Notice] = ("NOTICE", "注意"),
         [Str.Disclaimer] = ("Unofficial fan work. Requires your own copy of the original game.", "非公式の二次創作です。プレイには原作のゲームが必要です。"),

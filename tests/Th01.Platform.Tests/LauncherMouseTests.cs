@@ -96,7 +96,7 @@ public class LauncherMouseTests
     public void Home_EveryItemHasAHitRegion_AndFooterWidgetsToo()
     {
         var r = new Rig();
-        foreach (var item in new[] { HomeItem.Play, HomeItem.Options, HomeItem.Directory, HomeItem.Quit, HomeItem.Change, HomeItem.About })
+        foreach (var item in new[] { HomeItem.Play, HomeItem.Options, HomeItem.Quit, HomeItem.Change, HomeItem.About })
             Assert.Equal(new HitTarget(HitKind.HomeItem, (int)item), r.At(r.Find(HitKind.HomeItem, (int)item)));
         Assert.NotNull(r.At(r.Find(HitKind.Language, 0)));
         Assert.NotNull(r.At(r.Find(HitKind.Language, 1)));
@@ -127,8 +127,7 @@ public class LauncherMouseTests
     public void Home_LeftClickActsLikeSelect()
     {
         var r = new Rig();
-        Assert.Equal(LauncherResult.ChooseGame, r.Click(HitKind.HomeItem, (int)HomeItem.Directory));
-        Assert.Equal(LauncherResult.ChooseGame, r.Click(HitKind.HomeItem, (int)HomeItem.Change));
+                Assert.Equal(LauncherResult.ChooseGame, r.Click(HitKind.HomeItem, (int)HomeItem.Change));
         Assert.Equal(LauncherResult.Quit, r.Click(HitKind.HomeItem, (int)HomeItem.Quit));
         Assert.Equal(LauncherResult.Play, r.Click(HitKind.HomeItem, (int)HomeItem.Play));
         Assert.Equal(LauncherResult.None, r.Click(HitKind.HomeItem, (int)HomeItem.Options));
