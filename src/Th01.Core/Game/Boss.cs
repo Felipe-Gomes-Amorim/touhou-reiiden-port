@@ -55,6 +55,9 @@ public abstract class Boss
     public bool FlashOn => Invincible && InvincibilityFrame <= HitInvincibilityFrames &&
         (InvincibilityFrame % 4 >= 2 || InvincibilityFrame == HitInvincibilityFrames);
 
+    /// <summary>Soft-flash mode: the hit tint is held for the whole window instead of alternating.</summary>
+    public bool FlashSteady => Invincible && InvincibilityFrame <= HitInvincibilityFrames;
+
     /// <summary>False when the fight starts at once (no blocking entrance, no wait for the first shot).</summary>
     public virtual bool HasEntrance => true;
 

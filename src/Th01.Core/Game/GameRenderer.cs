@@ -76,10 +76,10 @@ internal sealed class GameRenderer
         if (_s.Phase != SessionPhase.RouteSelect) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
         DrawPlayer(fb, w);
         DrawHud(fb, w);
-        if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame);
+        if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame, _s.Visuals);
         else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb
         if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
-        else if (w.Boss is { FlashOn: true } flashing) FlashColors(fb, flashing.FlashColors);
+        else if (w.Boss is { } flashing && (_s.Visuals.SoftFlashes ? flashing.FlashSteady : flashing.FlashOn)) FlashColors(fb, flashing.FlashColors);
         // The route menu is drawn over the stage picture (the boss is gone, the HUD and Reimu stay), under a darker palette.
         if (_s.Phase == SessionPhase.RouteSelect) DrawRouteMenu(fb);
         if (_s.Phase == SessionPhase.StageBonus && !(w.Boss != null && DrawTotle(fb))) DrawBonus(fb);
@@ -106,10 +106,23 @@ internal sealed class GameRenderer
     }
 
     /// <summary>z_palette_flash_colors(): the listed hardware colours go to #FFF.</summary>
-    static void FlashColors(Framebuffer fb, IReadOnlyList<int> colors)
+    void FlashColors(Framebuffer fb, IReadOnlyList<int> colors)
     {
-        foreach (int c in colors) fb.SetPalette4(c, PaletteMax, PaletteMax, PaletteMax);
+        if (!_s.Visuals.SoftFlashes)
+        {
+            foreach (int c in colors) fb.SetPalette4(c, PaletteMax, PaletteMax, PaletteMax);
+            return;
+        }
+        // Soft: a light tint (up to +SoftFlashLift per component) held for the whole hit window instead of white blinking.
+        foreach (int c in colors)
+        {
+            fb.GetPalette4(c, out int r, out int g, out int b);
+            fb.SetPalette4(c, Math.Min(PaletteMax, r + SoftFlashLift), Math.Min(PaletteMax, g + SoftFlashLift), Math.Min(PaletteMax, b + SoftFlashLift));
+        }
     }
+
+    /// <summary>The most a soft flash lifts a component, and the ceiling of the soft defeat brightening (out of 15).</summary>
+    const int SoftFlashLift = 3, SoftDefeatCeiling = 9;
 
     /// <summary>Ticks the white lines take to cover the screen (defeat_animate's first loop).</summary>
     int DefeatLineTicks(Boss b)
@@ -127,10 +140,14 @@ internal sealed class GameRenderer
     void DrawDefeat(Framebuffer fb, Boss boss)
     {
         int e = _s.DefeatElapsed, lines = DefeatLineTicks(boss), d = boss.DefeatLineDistance;
+        bool soft = _s.Visuals.SoftFlashes;
         if (e < lines)
         {
             int steps = e / boss.DefeatWhiteoutInterval;
-            MapPalette(fb, c => Math.Min(PaletteMax, c + steps));
+            // Soft: the same ramp squeezed into a lift of at most SoftDefeatCeiling-ish levels, so it is slower and gentler.
+            if (soft) steps = steps * SoftDefeatCeiling / PaletteMax;
+            MapPalette(fb, c => Math.Min(soft ? Math.Max(c, SoftDefeatCeiling) : PaletteMax, c + steps));
+            if (soft) return;                                    // no white lines
             int start = _s.DefeatStartY;
             for (int j = 0; j < e; j++)
             {
@@ -141,6 +158,7 @@ internal sealed class GameRenderer
         }
         // Fade: back from #FFF to the stage palette, one level per whitein interval.
         int level = PaletteMax - (e - lines) / boss.DefeatWhiteinInterval;
+        if (soft) level = level * SoftDefeatCeiling / PaletteMax;
         MapPalette(fb, c => Math.Max(c, Math.Max(level, 0)));
     }
 

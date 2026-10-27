@@ -8,7 +8,7 @@ namespace Th01.Assets.Tests;
 public class TitleTextLoaderTests
 {
     // A synthetic executable: junk, then the pool in the order of the real one, with invented strings.
-    private static byte[] FakeExe(bool withGoodbye = true, bool breakFormat = false)
+    internal static byte[] FakeExe(bool withGoodbye = true, bool breakFormat = false)
     {
         var parts = new List<string> { "junk", "x.mdt", "reimu.mdt", "REIIDEN2.grp", "REIIDEN3.grp", "op_win.grp", "reiiden", "k1" };
         parts.AddRange(["m1 ", " m2", "m3", "m4"]);                                    // main (padding must survive)

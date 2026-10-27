@@ -12,6 +12,11 @@ public sealed class AudioMixer
     public const int SampleRate = NoteSynth.SampleRate, Channels = 2, MaxEffects = 8;
     const float MusicGain = 0.8f, EffectGain = 0.6f;
 
+    /// <summary>Player volume for music and for effects, 0..1 on top of the fixed gains above (the launcher's two sliders).</summary>
+    public float MusicLevel { get => _musicLevel; set => _musicLevel = Math.Clamp(value, 0f, 1f); }
+    public float EffectLevel { get => _effectLevel; set => _effectLevel = Math.Clamp(value, 0f, 1f); }
+    volatile float _musicLevel = 1f, _effectLevel = 1f;
+
     sealed class Voice(int id, short[] pcm) { public readonly int Id = id; public readonly short[] Pcm = pcm; public int Pos; }
 
     /// <summary>A music stream being played; <see cref="Step"/> is the volume change per frame (a fade), 0 when steady.</summary>
@@ -89,14 +94,15 @@ public sealed class AudioMixer
             for (int i = 0; i + 1 < output.Length; i += 2)
             {
                 float l = 0, r = 0;
-                if (_music is { } m && !Advance(m, ref l, ref r)) _music = null;
+                float musicGain = MusicGain * _musicLevel, effectGain = EffectGain * _effectLevel;
+                if (_music is { } m && !Advance(m, musicGain, ref l, ref r)) _music = null;
                 for (int f = _fading.Count - 1; f >= 0; f--)
-                    if (!Advance(_fading[f], ref l, ref r)) _fading.RemoveAt(f);
+                    if (!Advance(_fading[f], musicGain, ref l, ref r)) _fading.RemoveAt(f);
                 for (int v = _voices.Count - 1; v >= 0; v--)
                 {
                     var voice = _voices[v];
-                    l += voice.Pcm[voice.Pos] * EffectGain;
-                    r += voice.Pcm[voice.Pos + 1] * EffectGain;
+                    l += voice.Pcm[voice.Pos] * effectGain;
+                    r += voice.Pcm[voice.Pos + 1] * effectGain;
                     voice.Pos += 2;
                     if (voice.Pos + 1 >= voice.Pcm.Length) _voices.RemoveAt(v);
                 }
@@ -107,7 +113,7 @@ public sealed class AudioMixer
     }
 
     /// <summary>Adds the next frame of a stream to l/r; false when the stream is over (ended, or faded out).</summary>
-    static bool Advance(Stream st, ref float l, ref float r)
+    static bool Advance(Stream st, float gain, ref float l, ref float r)
     {
         var m = st.Pcm;
         if (st.Pos >= m.EndFrame)
@@ -116,8 +122,8 @@ public sealed class AudioMixer
             st.Pos = m.LoopStartFrame;
         }
         if (st.Pos >= m.ReadyFrames) return true;   // still being rendered: wait without advancing
-        l += m.Pcm[st.Pos * 2] * st.Volume * MusicGain;
-        r += m.Pcm[st.Pos * 2 + 1] * st.Volume * MusicGain;
+        l += m.Pcm[st.Pos * 2] * st.Volume * gain;
+        r += m.Pcm[st.Pos * 2 + 1] * st.Volume * gain;
         st.Pos++;
         if (st.Step != 0)
         {

@@ -24,9 +24,13 @@ public class DefeatRenderTests
         Obstacles = new byte[StageSetup.Rows, StageSetup.Cols],
     };
 
-    static GameSession Started()
+    // The original white flashes; the soft mode (the default) is tested at the end.
+    static readonly VisualOptions Original = new() { SoftFlashes = false };
+
+    static GameSession Started(bool soft = false)
     {
-        var g = new GameSession(new GameOptions { FrameRand = 12, Stage = BossStage(), Lives = 3, Bombs = 1, Rank = Rank.Hard }, null, null, new BoxFont());
+        var g = new GameSession(new GameOptions { FrameRand = 12, Stage = BossStage(), Lives = 3, Bombs = 1, Rank = Rank.Hard }, null, null, new BoxFont(),
+            visuals: soft ? new VisualOptions() : Original);
         for (int i = 0; i < SinGyoku.EntranceFrames; i++) g.Step(GameButtons.None);
         return g;
     }
@@ -131,5 +135,53 @@ public class DefeatRenderTests
         }
         b.Invincible = false; b.InvincibilityFrame = 2;
         Assert.False(b.FlashOn);
+    }
+
+    // ---- soft flashes ----
+
+    static int Peak(Framebuffer fb) => Enumerable.Range(0, 16).Max(c => Math.Max(C(fb.Palette[c], 16), Math.Max(C(fb.Palette[c], 8), C(fb.Palette[c], 0))));
+    static int Sum(Framebuffer fb) => Enumerable.Range(0, 16).Sum(c => C(fb.Palette[c], 16) + C(fb.Palette[c], 8) + C(fb.Palette[c], 0));
+
+    [Fact]
+    public void Soft_hit_flash_is_a_steady_light_tint_not_white()
+    {
+        var soft = Started(soft: true); var orig = Started();
+        foreach (var g in new[] { soft, orig }) g.World.Boss!.Invincible = true;
+        var plain = Render(Started(soft: true)).Palette[13];
+        int lit = 0;
+        for (int f = 1; f <= 40; f++)
+        {
+            soft.World.Boss!.InvincibilityFrame = f;
+            var p = Render(soft).Palette[13];
+            Assert.Equal(Math.Min(15, C(plain, 16) + 3), C(p, 16));        // +3 on every frame of the window, no blinking
+            lit++;
+        }
+        Assert.Equal(40, lit);
+        soft.World.Boss!.InvincibilityFrame = 41;
+        Assert.Equal(plain, Render(soft).Palette[13]);
+        orig.World.Boss!.InvincibilityFrame = 2;
+        Assert.True(Peak(Render(orig)) >= 15);
+        Assert.True(C(Render(orig).Palette[13], 16) > C(Render(soft).Palette[13], 16) || C(plain, 16) >= 12);
+    }
+
+    [Fact]
+    public void Soft_defeat_has_no_white_lines_and_a_lower_peak_with_the_same_duration_and_hash()
+    {
+        var soft = Started(soft: true); var orig = Started();
+        Defeat(soft); Defeat(orig);
+        int peakSoft = 0, peakOrig = 0, ticks = 0;
+        while (soft.Phase == SessionPhase.BossDefeat && orig.Phase == SessionPhase.BossDefeat)
+        {
+            var fs = Render(soft); var fo = Render(orig);
+            peakSoft = Math.Max(peakSoft, Sum(fs)); peakOrig = Math.Max(peakOrig, Sum(fo));
+            if (soft.DefeatElapsed is > 0 and < 20) Assert.NotEqual(7, fs.GetPixel(600, soft.DefeatStartY + soft.DefeatElapsed - 1));
+            Assert.Equal(soft.StateHash(), orig.StateHash());
+            soft.Step(GameButtons.None); orig.Step(GameButtons.None); ticks++;
+            Assert.True(ticks < 5000);
+        }
+        Assert.Equal(soft.Phase, orig.Phase);
+        Assert.True(peakSoft < peakOrig);
+        Assert.Equal(soft.StateHash(), orig.StateHash());
+        Assert.True(Peak(Render(soft)) <= 15);
     }
 }
