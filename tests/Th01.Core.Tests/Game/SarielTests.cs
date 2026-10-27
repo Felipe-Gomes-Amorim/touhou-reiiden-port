@@ -106,31 +106,29 @@ public class SarielTests
     public void A_finished_pattern_advances_the_ring_and_counts_it()
     {
         var (_, s) = Make();
-        s.Phase = 3; s.PatternsUntilNext = 99; s.PatternCur = 0;      // phase 3 patterns are still stubs that end at once
+        s.Phase = 7; s.PatternsUntilNext = 99; s.PatternCur = 0;      // phase 7 patterns are still stubs that end at once
         s.Update();
-        Assert.Equal((3, 1, 1), (s.Phase, s.PatternCur, s.PatternsDone));
+        Assert.Equal((7, 1, 1), (s.Phase, s.PatternCur, s.PatternsDone));
         s.Update();
-        Assert.Equal((0, 2), (s.PatternCur, s.PatternsDone));
+        Assert.Equal((2, 2), (s.PatternCur, s.PatternsDone));
         s.Phase = 5; s.PatternCur = 5;
         s.Update();
         Assert.Equal(10, s.PatternCur);
-        s.Phase = 3; s.PatternCur = 0;
+        s.Phase = 7; s.PatternCur = 2;
         s.Update();
-        Assert.Equal(1, s.PatternCur);
-        s.Update();
-        Assert.Equal(0, s.PatternCur);
+        Assert.Equal(0, s.PatternCur);                       // the ring of phase 7 wraps from 2 back to 0
     }
 
     [Fact]
     public void The_phase_ends_when_the_pattern_count_is_reached_unless_invincible()
     {
         var (_, s) = Make();
-        s.Phase = 3; s.PatternsUntilNext = 2; s.Invincible = true; s.PatternCur = 0;
+        s.Phase = 7; s.PatternsUntilNext = 2; s.Invincible = true; s.PatternCur = 0;
         s.Update(); s.Update();
-        Assert.Equal(3, s.Phase);
+        Assert.Equal(7, s.Phase);
         s.Invincible = false;
         s.Update();
-        Assert.Equal((4, 0, 0, 0), (s.Phase, s.PatternCur, s.PatternsDone, s.PhaseFrame));
+        Assert.Equal((8, 0, 0, 0), (s.Phase, s.PatternCur, s.PatternsDone, s.PhaseFrame));
     }
 
     [Fact]
@@ -291,5 +289,97 @@ public class SarielTests
             s.Update();
             Assert.Equal(!invincible, w.PlayerIsHit);
         }
+    }
+
+    // ---- part 5: phase 3 ----
+
+    [Fact]
+    public void Phase_3_particles_spawn_every_seventh_frame_with_two_random_numbers_and_move_on_even_frames()
+    {
+        var (w, s) = Make(seed: 31);
+        s.Phase = 3; s.PatternCur = 0; s.PatternsUntilNext = 99;
+        var mirror = new IRand(31);
+        for (int f = 1; f <= 6; f++) s.Update();
+        Assert.False(s.ParticleAlive[0]);
+        w.Rng = mirror;
+        var probe = new IRand(31);
+        s.Update();                                          // frame 7
+        Assert.True(s.ParticleAlive[0]);
+        Assert.Equal((probe.Next() % 640, 0, probe.Next() % 15 + 2), (s.ParticleLeft[0], s.ParticleTop[0], s.ParticleVy[0]));
+        s.Update();                                          // frame 8 (even): it moves
+        Assert.Equal(s.ParticleVy[0], s.ParticleTop[0]);
+    }
+
+    [Fact]
+    public void The_snowflake_comes_out_after_the_16_call_wand_raise_then_detonates_in_seven_steps()
+    {
+        var (w, s) = Make(Rank.Normal, seed: 3);
+        s.Phase = 3; s.PatternCur = 0; s.PatternsUntilNext = 99;
+        w.PlayerInvincible = true;
+        for (int f = 1; f <= 174; f++) { s.Update(); Assert.True(s.SnowflakeState is -1 or 0); }
+        s.Update();                                          // frame 175: the 16th wand call spawns and moves the flake
+        Assert.Equal(Sariel.SnowFlakeMoving, s.SnowflakeState);
+        Assert.True(s.SnowflakeTop > Sariel.WandEmitTop * 16);
+        int guard = 0;
+        while (s.SnowflakeState != Sariel.SnowDetonationStart && guard++ < 400) s.Update();
+        Assert.Equal(Sariel.SnowDetonationStart, s.SnowflakeState);   // reached the bottom; the detonation starts next tick
+        s.Update();
+        Assert.Equal((4, 48, 16, 24), (s.SnowflakeState, s.SnowRadiusOuter1, s.SnowRadiusOuter2, s.SnowRadiusInner));
+        var radii = new List<int>();
+        guard = 0;
+        while (s.SnowflakeState >= 0 && guard++ < 200) { s.Update(); if (s.SnowflakeState % 8 == 0 && s.SnowflakeState > 0) radii.Add(s.SnowRadiusOuter1); }
+        Assert.Equal(new[] { 42, 36, 30, 24, 18, 12 }, radii);
+        Assert.Equal(-1, s.SnowflakeState);
+    }
+
+    [Fact]
+    public void The_detonation_hurts_a_player_standing_under_it_unless_invincible()
+    {
+        foreach (bool invincible in new[] { false, true })
+        {
+            var (w, s) = Make();
+            s.Phase = 3; s.PatternCur = 0; s.PatternsUntilNext = 99;
+            w.PlayerInvincible = true;
+            for (int f = 0; f < 11; f++) s.Update();            // past the frames that set the start frame
+            w.PlayerInvincible = invincible;
+            s.SnowflakeState = Sariel.SnowDetonationStart + 1;
+            s.SnowflakeLeft = w.Player.Left << 4;
+            s.Update();
+            Assert.Equal(!invincible, w.PlayerIsHit);
+        }
+    }
+
+    [Fact]
+    public void The_a2_rings_fire_four_clouded_pellets_each_interval_and_the_sling_pattern_lasts_299_frames()
+    {
+        var (w, s) = Make(Rank.Normal, seed: 8);
+        s.Phase = 3; s.PatternCur = 1; s.PatternsUntilNext = 99;
+        for (int f = 1; f < 12; f++) s.Update();
+        Assert.Equal(0, Pellets(w));
+        s.Update();                                          // frame 12 (interval 12 on Normal)
+        Assert.Equal(4, Pellets(w));
+        Assert.True(w.Pellets.SpawnWithCloud);
+        for (int f = 13; f <= 24; f++) s.Update();
+        Assert.Equal(8, Pellets(w));
+        int ticks = s.PhaseFrame;
+        while (s.PatternsDone == 0) { s.Update(); ticks++; Assert.True(ticks < 1000); }
+        Assert.Equal(299, ticks);
+        Assert.Equal((0, 1), (s.PhaseFrame, s.PatternCur == 0 ? 1 : 0));   // the next pattern of the ring of two
+    }
+
+    [Fact]
+    public void Sling_clusters_start_at_frame_150_every_interval()
+    {
+        var (w, s) = Make(Rank.Hard, seed: 2);
+        s.Phase = 3; s.PatternCur = 1; s.PatternsUntilNext = 99;
+        w.PlayerInvincible = true;
+        int slings = 0;
+        for (int f = 1; f <= 160; f++)
+        {
+            s.Update();
+            slings = Enumerable.Range(0, Th01.Core.Game.Pellets.Count).Count(i => w.Pellets.Motion[i] == PelletMotion.SlingAimed && (w.Pellets.Moving[i] || w.Pellets.CloudFrame[i] != 0));
+            if (f < 150) Assert.Equal(0, slings);
+        }
+        Assert.Equal(6, slings);                             // frames 150, 152, ..., 160 with interval 2
     }
 }

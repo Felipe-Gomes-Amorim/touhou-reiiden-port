@@ -111,6 +111,7 @@ public sealed class Sariel : Boss
             Left = ShieldLeft;
             Top = ShieldTop;
             BirdsReset();
+            _wandFrame = 0;
             return;
         }
         switch (Phase)
@@ -144,6 +145,8 @@ public sealed class Sariel : Boss
     {
         PhaseFrame++;
         InvincibilityFrame++;
+        if (phase == 3) ParticlesVertical(false);
+        else if (phase == 7) ParticlesVertical(true);
         if (phase is 1 or 7) UpdateBirds();                  // birds_unput_update_render(), before the pattern
         RunPattern(phase, PatternCur);
         if (PhaseFrame == 0) PatternNext(ringMin, ringMax);
@@ -171,6 +174,14 @@ public sealed class Sariel : Boss
                 case 0: PurpleLasers(); return;
                 case 1: Vortices(); return;
                 case 2: BirdsOnEllipseArc(); return;
+            }
+        }
+        if (phase == 3)
+        {
+            switch (pattern)
+            {
+                case 0: DetonatingSnowflake(); TwoRingsFromA2Orbs(); return;
+                case 1: AimedSlingClusters(); TwoRingsFromA2Orbs(); return;
             }
         }
         PhaseFrame = 0;
@@ -311,8 +322,11 @@ public sealed class Sariel : Boss
 
     public bool VorticesShown => Phase == 1 && PatternCur == 1 && PhaseFrame >= 50;
 
+    bool _vortWandDone, _arcWandDone;
+
     void Vortices()
     {
+        if (!_vortWandDone) _vortWandDone = WandRaise();
         if (PhaseFrame < 50) return;
         if (PhaseFrame == 50) _state = ByRank(140, 145, 150, 155);
         if (PhaseFrame < 100)
@@ -354,7 +368,11 @@ public sealed class Sariel : Boss
         }
         else if (PhaseFrame < 320)
         {
-            if (PhaseFrame == 240) _dirSecond = Irand() % 2;
+            if (PhaseFrame == 240)
+            {
+                _dirSecond = Irand() % 2;
+                if (_dirSecond == 1 && _dirSecond == _dirFirst) _vortWandDone = false;   // X_LEFT twice: the wand is raised again
+            }
             for (int i = 0; i < VortexCount; i++)
             {
                 VortexLeft[i] -= _dirSecond != _dirFirst ? 2 - _dirSecond * 4 : 4 - _dirSecond * 8;
@@ -364,6 +382,7 @@ public sealed class Sariel : Boss
         else if (PhaseFrame > 300)
         {
             PhaseFrame = 0;
+            _vortWandDone = false;
         }
     }
 
@@ -378,6 +397,8 @@ public sealed class Sariel : Boss
 
     void BirdsOnEllipseArc()
     {
+        if (PhaseFrame < 40) return;
+        if (!_arcWandDone) _arcWandDone = WandRaise();
         if (PhaseFrame < 50) return;
         if (PhaseFrame == 50)
         {
@@ -411,7 +432,7 @@ public sealed class Sariel : Boss
                 for (int i = _eggsAlive - 1; i >= 0; i--)
                 {
                     int angle = (Irand() & 0x7F) + 0x80;
-                    BirdSpawn(EggLeft[i], EggTop[i], AngleMath.Cos8(angle) * 3 / 16, AngleMath.Sin8(angle) * 3 / 16);
+                    BirdSpawn(EggLeft[i], EggTop[i], AngleMath.PolarX(0, 3, angle) * 16, AngleMath.PolarY(0, 3, angle) * 16);
                 }
                 _birdGroup = Irand() % (BpgSixRing + 1);
             }
@@ -425,7 +446,159 @@ public sealed class Sariel : Boss
         else if (PhaseFrame == 400)
         {
             PhaseFrame = 0;
+            _arcWandDone = false;
         }
+    }
+
+    // ---- the wand-raise animation (render-only in the original, but its static frame is shared by the patterns) ----
+
+    int _wandFrame;
+
+    /// <summary>wand_render_raise_both(): 16 calls to finish (the first only starts it); true on the last.</summary>
+    bool WandRaise()
+    {
+        if (_wandFrame == 0) { _wandFrame = 1; return false; }
+        _wandFrame++;
+        if (_wandFrame == 16) { _wandFrame = 0; return true; }
+        return false;
+    }
+
+    // ---- 2x2 particles (decoration, but they draw random numbers and need free slots) ----
+
+    public const int ParticleCount = 30;
+    public readonly bool[] ParticleAlive = new bool[ParticleCount];
+    public readonly int[] ParticleLeft = new int[ParticleCount], ParticleTop = new int[ParticleCount], ParticleVy = new int[ParticleCount];
+    public readonly int[] ParticleAge = new int[ParticleCount];
+
+    /// <summary>particles2x2_vertical_unput_update_render(): one new particle every 7th frame, moved on even frames; gone off the top or bottom edge.</summary>
+    void ParticlesVertical(bool fromBottom)
+    {
+        if (PhaseFrame % 7 == 0)
+        {
+            for (int i = 0; i < ParticleCount; i++)
+            {
+                if (ParticleAlive[i]) continue;
+                ParticleLeft[i] = Irand() % ScreenW;
+                ParticleTop[i] = fromBottom ? ScreenH - 1 - 2 : 0;
+                ParticleVy[i] = fromBottom ? -(Irand() % 15) - 8 : Irand() % 15 + 2;
+                ParticleAlive[i] = true;
+                break;
+            }
+        }
+        if (PhaseFrame % 2 != 0) return;
+        for (int i = 0; i < ParticleCount; i++)
+        {
+            if (!ParticleAlive[i]) continue;
+            ParticleTop[i] += ParticleVy[i];
+            if (ParticleTop[i] >= ScreenH - 1 || ParticleTop[i] < 0) ParticleAlive[i] = false;   // vram offset past row 398 or negative
+        }
+    }
+
+    // ---- phase 3, pattern 0: the detonating snowflake ----
+
+    public int SnowflakeState = -1;                       // phase_t, and then the detonation frame (a union in the original)
+    public int SnowflakeLeft, SnowflakeTop;               // 1/16 pixel
+    int _snowVx, _snowVy;
+    public int SnowStarLeft, SnowStarTop, SnowRadiusOuter1, SnowRadiusOuter2, SnowRadiusInner;
+    const int SnowHitboxW = 96, SnowRadiusMax = SnowHitboxW / 2, FlakeW = 8, FlakeH = 8;
+    public const int SnowFlakeMoving = 2, SnowDetonationStart = 3, SnowDetonationActive = 5;
+
+    void DetonatingSnowflake()
+    {
+        if (PhaseFrame < 10)
+        {
+            SnowflakeState = -1;
+            _state = 160;
+        }
+        if (PhaseFrame % _state == 0) SnowflakeState = 0;
+        if (SnowflakeState == 0) SnowflakeState = WandRaise() ? 1 : 0;
+        if (SnowflakeState == 1)
+        {
+            World.Sound.PlaySe(6);
+            SnowflakeLeft = WandEmitLeft * 16;
+            SnowflakeTop = WandEmitTop * 16;
+            int tx = World.Player.Left + Playfield.PlayerW / 2 - FlakeW / 2, ty = Player.Top + Playfield.PlayerH / 2 - FlakeH / 2;
+            int a = AngleMath.Iatan2(ty - WandEmitTop, tx - WandEmitLeft);
+            _snowVx = AngleMath.PolarX(0, 7 * 16, a);
+            _snowVy = AngleMath.PolarY(0, 7 * 16, a);
+            SnowflakeState = SnowFlakeMoving;
+        }
+        if (SnowflakeState == SnowFlakeMoving)
+        {
+            SnowflakeTop += _snowVy;
+            if (SnowflakeTop >= (Playfield.Bottom - FlakeH / 2) * 16)
+            {
+                SnowflakeState = SnowDetonationStart;
+                return;
+            }
+            SnowflakeLeft += _snowVx;
+        }
+        if (SnowflakeState == SnowDetonationStart)
+        {
+            SnowRadiusOuter1 = SnowRadiusMax;
+            SnowRadiusOuter2 = 16;
+            SnowRadiusInner = 24;
+            SnowStarLeft = SnowflakeLeft;                   // ZUN bug: a subpixel assigned to a pixel; affects one frame
+            SnowStarTop = Playfield.Bottom - Irand() % SnowRadiusMax;
+            World.Sound.PlaySe(10);
+        }
+        if (SnowflakeState >= SnowDetonationStart) SnowflakeState++;
+        if (SnowflakeState >= SnowDetonationActive && SnowflakeState % 8 == 0)
+        {
+            SnowRadiusOuter1 -= 6;
+            SnowRadiusOuter2 += 6;
+            SnowRadiusInner += 4;
+            SnowStarLeft = Irand() % (SnowHitboxW * 2 / 3) + (SnowflakeLeft >> 4) - (SnowHitboxW * 2 / 6 - FlakeW / 2);
+            SnowStarTop = Playfield.Bottom - Irand() % SnowRadiusMax;
+            if (SnowRadiusOuter1 <= 8)
+            {
+                SnowflakeState = -1;
+                return;
+            }
+        }
+        if (!World.PlayerInvincible &&
+            (SnowflakeLeft >> 4) + (SnowHitboxW / 2 - Playfield.PlayerW / 2) > World.Player.Left &&
+            (SnowflakeLeft >> 4) - (SnowHitboxW / 2 + Playfield.PlayerW / 2) < World.Player.Left &&
+            SnowflakeState >= SnowDetonationStart)
+            World.PlayerIsHit = true;
+    }
+
+    // ---- phase 3, both patterns: two rings from the A2 orbs ----
+
+    int _ringsAngleA2, _ringsInterval;
+
+    void TwoRingsFromA2Orbs()
+    {
+        if (PhaseFrame < 5)
+        {
+            _ringsAngleA2 = 0;
+            _ringsInterval = ByRank(18, 12, 10, 8);
+        }
+        if (PhaseFrame % _ringsInterval == 0)
+        {
+            World.Pellets.SpawnWithCloud = true;           // never turned off again in the original (see 33.5)
+            World.Pellets.AddSingle(A2OrbsRightCenterX, A2OrbsCenterY, (0x00 - _ringsAngleA2) & 0xFF, 56);
+            World.Pellets.AddSingle(A2OrbsRightCenterX, A2OrbsCenterY, (0x80 - _ringsAngleA2) & 0xFF, 56);
+            World.Pellets.AddSingle(A2OrbsLeftCenterX, A2OrbsCenterY, (0x00 + _ringsAngleA2) & 0xFF, 56);
+            World.Pellets.AddSingle(A2OrbsLeftCenterX, A2OrbsCenterY, (0x80 + _ringsAngleA2) & 0xFF, 56);
+            _ringsAngleA2 = (_ringsAngleA2 + _ringsInterval) & 0xFF;
+        }
+        if (PhaseFrame > 479) PhaseFrame = 0;
+    }
+
+    // ---- phase 3, pattern 1: aimed sling clusters ----
+
+    void AimedSlingClusters()
+    {
+        if (PhaseFrame == 10) _state = ByRank(4, 3, 2, 2);
+        if (PhaseFrame % 200 >= 150 && PhaseFrame % _state == 0)
+        {
+            int angle = Irand() & 0xFF;
+            int left = AngleMath.PolarY(Playfield.CenterX, Playfield.Width / 16, angle);
+            int top = AngleMath.PolarX(SealCenterY - Pellets.H / 2 - 1, Playfield.Height * 5 / 42, angle);
+            World.Pellets.AddSingle(left, top, 0, 0, PelletMotion.SlingAimed, 72);
+        }
+        if (PhaseFrame >= 299) PhaseFrame = 0;
     }
 
     /// <summary>Radius of the warning circle of the laser being prepared (drawing only); -1 when none is shown.</summary>
@@ -470,7 +643,10 @@ public sealed class Sariel : Boss
     public override void Hash(ref StateHasher h)
     {
         h.Add(Phase); h.Add(PhaseFrame); h.Add(InvincibilityFrame); h.Add(Hp); h.Add(Invincible); h.Add(PatternCur);
-        h.Add(_entranceFrame); h.Add(BackgroundId); h.Add(_state); h.Add(_dirFirst); h.Add(_dirSecond); h.Add(_eggsAlive); h.Add(_birdGroup); h.Add(SpawnerLeft); h.Add(SpawnerTop); h.Add(_spawnerVx); h.Add(_spawnerVy);
+        h.Add(_entranceFrame); h.Add(BackgroundId); h.Add(_state); h.Add(_wandFrame); h.Add(_vortWandDone); h.Add(_arcWandDone); h.Add(SnowflakeState); h.Add(SnowflakeLeft); h.Add(SnowflakeTop); h.Add(_snowVx); h.Add(_snowVy);
+        h.Add(SnowStarLeft); h.Add(SnowStarTop); h.Add(SnowRadiusOuter1); h.Add(SnowRadiusOuter2); h.Add(SnowRadiusInner); h.Add(_ringsAngleA2); h.Add(_ringsInterval);
+        for (int i = 0; i < ParticleCount; i++) { h.Add(ParticleAlive[i]); h.Add(ParticleLeft[i]); h.Add(ParticleTop[i]); h.Add(ParticleVy[i]); h.Add(ParticleAge[i]); }
+        h.Add(_dirFirst); h.Add(_dirSecond); h.Add(_eggsAlive); h.Add(_birdGroup); h.Add(SpawnerLeft); h.Add(SpawnerTop); h.Add(_spawnerVx); h.Add(_spawnerVy);
         for (int i = 0; i < BirdCount; i++) { h.Add(BirdAlive[i]); h.Add(BirdLeft[i]); h.Add(BirdTop[i]); h.Add(_birdVx[i]); h.Add(_birdVy[i]); h.Add(BirdHatch[i]); h.Add(EggLeft[i]); h.Add(EggTop[i]); }
         for (int i = 0; i < VortexCount; i++) { h.Add(VortexLeft[i]); h.Add(VortexTop[i]); } for (int i = 0; i < 10; i++) { h.Add(SpawnerX[i]); h.Add(SpawnerY[i]); } h.Add(_gustId); h.Add(_gustCalls); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
         h.Add(Left); h.Add(Top); h.Add(HitboxOrbInactive);
