@@ -382,6 +382,21 @@ public class KonngaraTests
         Assert.Equal(before + 50000u + g.Bonus!.Value.Total, g.World.Score);
     }
 
+    [Fact]
+    public void Without_art_the_head_is_a_box_and_snake_heads_are_white()
+    {
+        var g = new GameSession(new GameOptions { FrameRand = 12, Stage = Stage(), Lives = 3, Bombs = 1 });
+        for (int i = 0; i < Konngara.EntranceTotal + 5; i++) g.Step(GameButtons.None);
+        var k = (Konngara)g.World.Boss!;
+        k.TwoSnakes.Left[0][0] = 100; k.TwoSnakes.Top[0][0] = 200;
+        for (int j = 1; j < 5; j++) { k.TwoSnakes.Left[0][j] = 300; k.TwoSnakes.Top[0][j] = 300; }
+        var fb = new Th01.Core.Graphics.Framebuffer();
+        g.Render(fb);
+        Assert.Equal(12, fb.GetPixel(300, 130));
+        Assert.Equal(7, fb.GetPixel(103, 203));
+        Assert.Equal(9, fb.GetPixel(303, 303));
+    }
+
     // ---- determinism ----
 
     static (ulong hash, int maxPhase, int maxAlive) Fight(uint seed, Rank rank)

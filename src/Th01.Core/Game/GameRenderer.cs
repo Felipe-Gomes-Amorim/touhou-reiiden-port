@@ -513,6 +513,7 @@ internal sealed class GameRenderer
         else if (boss is YuugenMagan y) DrawYuugenMagan(fb, y);
         else if (boss is Kikuri k) DrawKikuri(fb, k);
         else if (boss is Elis e) DrawElis(fb, e);
+        else if (boss is Konngara kg) DrawKonngara(fb, kg);
     }
 
     void DrawSinGyoku(Framebuffer fb, SinGyoku b)
@@ -554,6 +555,31 @@ internal sealed class GameRenderer
         if (e.IsBat && e.Phase == 5 && !Draw(fb, "BOSS5_3.BOS", e.BatImage, e.BatLeft, e.BatTop))
             fb.FillRect(e.BatLeft, e.BatTop, Elis.BatW, Elis.BatH, (byte)(e.Invincible ? 15 : 12));
         // TODO: attack cels (BOSS5_2.BOS), the wave-in of the entrance, rifts, spheres, stars and the circles are not drawn yet.
+    }
+
+    void DrawKonngara(Framebuffer fb, Konngara k)
+    {
+        if (k.Phase >= 1) DrawHpBar(fb, k);
+        // Head and face: BOSS8_1.BOS frame = direction, BOSS8_E1.BOS frame = (expression - 1) * 3 + direction (closed, glare),
+        // BOSS8_E2.BOS frame = direction (aim). Neutral is the head alone.
+        bool head = Draw(fb, "BOSS8_1.BOS", k.FaceDirection, 280, 80);
+        if (k.FaceExpression == Konngara.FeAim) Draw(fb, "BOSS8_E2.BOS", k.FaceDirection, 280, 128);
+        else if (k.FaceExpression != Konngara.FeNeutral)
+            Draw(fb, "BOSS8_E1.BOS", (k.FaceExpression - Konngara.FeClosed) * 3 + k.FaceDirection, 280, 128);
+        if (!head) fb.FillRect(Konngara.HitboxLeft, Konngara.HitboxTop, Konngara.HitboxOrbW, Konngara.HitboxOrbH, (byte)(k.Invincible ? 15 : 12));
+        // Diamonds (shape8x8 cels are not identified yet: boxes), snakes with a white head and a trail in colour 9.
+        if (k.DiamondsActive)
+            for (int i = 0; i < 4; i++) fb.FillRect(k.DiamondLeft[i], k.DiamondTop[i], Konngara.DiamondW, Konngara.DiamondH, 9);
+        if (k.RowActive) fb.FillRect(k.RowLeft, k.RowTop, Konngara.DiamondW, Konngara.DiamondH, 6);
+        foreach (var sn in new[] { k.TwoSnakes, k.FourSnakes })
+            for (int i = 0; i < sn.Count; i++)
+            {
+                if (!sn.Alive(i)) continue;
+                for (int j = 4; j >= 1; j--) fb.FillRect(sn.Left[i][j], sn.Top[i][j], Konngara.DiamondW, Konngara.DiamondH, 9);
+                fb.FillRect(sn.Left[i][0], sn.Top[i][0], Konngara.DiamondW, Konngara.DiamondH, ColWhite);
+            }
+        if (k.RayActive) DrawLine(fb, Konngara.SwordCenterX, Konngara.SwordCenterY, k.RayEndX, k.RayEndY, 6);
+        // TODO: the slash images (BOSS8.GRZ), the seal syllables (BOSS8_D1..D4.GRP) and the entrance scroll are not drawn yet.
     }
 
     void DrawKikuri(Framebuffer fb, Kikuri k)
