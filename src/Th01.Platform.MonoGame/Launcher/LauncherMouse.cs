@@ -103,10 +103,7 @@ public sealed partial class LauncherModel
                 {
                     Row = t.A;
                     var id = Rows[t.A].Id;
-                    if (id == RowId.Music) _settings.MusicVolume = Math.Clamp(t.B, 0, 10);
-                    else if (id == RowId.Effects) _settings.EffectsVolume = Math.Clamp(t.B, 0, 10);
-                    else break;
-                    Changed();
+                    if (id is RowId.Music or RowId.Effects) SetVolume(id, Math.Clamp(t.B, 0, 10));
                 }
                 break;
             case LauncherScreen.About:

@@ -76,7 +76,8 @@ public sealed class Th01Game : Game
     readonly uint[] _lrgba = new uint[LauncherCanvas.Width * LauncherCanvas.Height];
     readonly LauncherInputState _linput = new();
     Texture2D? _ltex, _scanTex;
-    int _appliedRevision = -1, _appliedWindowScale = -1, _filter;
+    int _filter;
+    LauncherApplier _applier = null!;
     bool _inLauncher;
 
     /// <summary>Set when an unhandled error stopped the game; Program turns it into the exit code.</summary>
@@ -85,6 +86,7 @@ public sealed class Th01Game : Game
     public Th01Game(Func<GameFlow?>? flowFactory = null)
     {
         _flowFactory = flowFactory;
+        _applier = new LauncherApplier(new Surface(this));
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = Framebuffer.Width * 2,
@@ -107,7 +109,7 @@ public sealed class Th01Game : Game
         var scan = new Color[Framebuffer.Height * 2];
         for (int i = 0; i < scan.Length; i++) scan[i] = i % 2 == 1 ? new Color(0, 0, 0, 120) : Color.Transparent;
         _scanTex.SetData(scan);
-        Launcher?.Attach(LauncherSvc, _bindings, () => GameSettings.Load());
+        Launcher?.Attach(LauncherSvc, _bindings, () => GameSettings.Load(null, GameFolder?.Invoke()));
         ApplyLauncherSettings();
         _inLauncher = ShowLauncher && Launcher is not null && LauncherFont is not null;
         if (_inLauncher)
@@ -180,22 +182,32 @@ public sealed class Th01Game : Game
     /// <summary>Applies the launcher's video, audio and input settings whenever they changed (draw-only options never touch the simulation).</summary>
     void ApplyLauncherSettings()
     {
-        if (Launcher is null || Launcher.Revision == _appliedRevision) return;
-        _appliedRevision = Launcher.Revision;
-        var s = Launcher.Settings;
-        if (_graphics.IsFullScreen != s.Fullscreen) _graphics.ToggleFullScreen();
-        if (!_graphics.IsFullScreen && _appliedWindowScale != s.WindowScale)
+        if (Launcher is null) return;
+        _applier.Apply(Launcher.Settings, Launcher.Revision, GameFolder?.Invoke());
+    }
+
+    /// <summary>The window, mixer, key map and font as the launcher's settings see them.</summary>
+    sealed class Surface(Th01Game g) : ILauncherSurface
+    {
+        public bool IsFullscreen => g._graphics.IsFullScreen;
+        public void SetFullscreen(bool on) { if (g._graphics.IsFullScreen != on) g._graphics.ToggleFullScreen(); }
+        public void SetWindowClientSize(int width, int height)
         {
-            _appliedWindowScale = s.WindowScale;
-            _graphics.PreferredBackBufferWidth = Framebuffer.Width * (s.WindowScale + 1);
-            _graphics.PreferredBackBufferHeight = Framebuffer.Height * (s.WindowScale + 1);
-            _graphics.ApplyChanges();
+            g._graphics.PreferredBackBufferWidth = width;
+            g._graphics.PreferredBackBufferHeight = height;
+            g._graphics.ApplyChanges();
         }
-        _scaleMode = s.IntegerScale ? ScaleMode.Integer : ScaleMode.Fit;
-        _filter = s.Filter;
-        _bindings.Numpad = s.Numpad;
-        Fonts?.Configure(s.FontRomPath, s.PreferFontRom, GameFolder?.Invoke());
-        if (Mixer is not null) { Mixer.MusicLevel = s.MusicLevel; Mixer.EffectLevel = s.EffectsLevel; }
+        public void SetIntegerScale(bool on) => g._scaleMode = on ? ScaleMode.Integer : ScaleMode.Fit;
+        public void SetFilter(int filter) => g._filter = filter;
+        public void SetVolumes(float music, float effects)
+        {
+            if (g.Mixer is null) return;
+            g.Mixer.MusicLevel = music;
+            g.Mixer.EffectLevel = effects;
+        }
+        public void SetNumpad(bool on) => g._bindings.Numpad = on;
+        public void ConfigureFonts(string? romPath, bool preferRom, string? gameFolder) => g.Fonts?.Configure(romPath, preferRom, gameFolder);
+        public void SetRecordMissingArt(bool on) { if (g.MissingArt is not null) g.MissingArt.Recording = on; }
     }
 
     readonly LauncherHitMap _hits = new();
@@ -246,7 +258,11 @@ public sealed class Th01Game : Game
     {
         bool K(params Keys[] keys) => keys.Any(kb.IsKeyDown);
         bool P(Buttons b) => pad.IsButtonDown(b);
-        if (LauncherSvc is not null) LauncherSvc.GamepadConnected = pad.IsConnected;
+        if (LauncherSvc is not null)
+        {
+            LauncherSvc.GamepadConnected = pad.IsConnected;
+            LauncherSvc.GamepadName = pad.IsConnected ? GamePad.GetCapabilities(PlayerIndex.One).DisplayName : null;
+        }
         ApplyLauncherSettings();
         if (HandleLauncherMouse(elapsedUs)) return;
         var held = LauncherKey.None;
@@ -324,7 +340,6 @@ public sealed class Th01Game : Game
             _graphics.ToggleFullScreen();
             // The scale mode follows the launcher's "whole-number scaling" setting; F10 still cycles the modes.
             Launcher?.SetFullscreen(_graphics.IsFullScreen);
-            if (Launcher is not null) _appliedRevision = Launcher.Revision;
         }
         if (Pressed(Keys.F10))
         {

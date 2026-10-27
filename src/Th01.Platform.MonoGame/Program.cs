@@ -71,6 +71,7 @@ LauncherSettings? live = null;
 Func<GameFlow?> factory = () =>
 {
     var chosen = live ?? new LauncherSettings();
+    var flowOptions = chosen.ToFlowOptions(stage is null && cutscene is null);
     if (CurrentData() is not { } dataPath) return null;
     if (!Directory.Exists(dataPath))
     {
@@ -78,7 +79,7 @@ Func<GameFlow?> factory = () =>
         return null;
     }
     var assets = new FolderAssetSource(dataPath);
-    var settings = GameSettings.Load();
+    var settings = GameSettings.Load(null, dataPath);
     // Settings are saved when leaving the options menu; a failed save must not stop the game.
     void Save(GameSettings s)
     {
@@ -88,8 +89,8 @@ Func<GameFlow?> factory = () =>
     // High scores live in the user data folder (a copy of REYHI*.DAT); the game folder is only read.
     var scores = new FileScoreStore(userDir, dataPath);
     Console.WriteLine(stage is int st ? $"Starting stage {st + 1}, route {(route == 0 ? "Makai" : "Jigoku")}." : "Starting at the logo and title screen.");
-    return new GameFlow(new AssetStageProvider(assets, font, missingArt, sound, chosen.ToVisualOptions()), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene, sound, showWarning: stage is null && cutscene is null && chosen.PhotosensitivityWarning, Th01.Assets.Text.TitleTextLoader.Load(assets),
-        screenShake: !chosen.ReduceShake, titleLines: !chosen.RemoveTitleLines);
+    return new GameFlow(new AssetStageProvider(assets, font, missingArt, sound, flowOptions.Visuals), new AssetScreenImages(assets), font, settings, Save, stage, route, scores, cutscene, sound, showWarning: flowOptions.ShowWarning, Th01.Assets.Text.TitleTextLoader.Load(assets),
+        screenShake: flowOptions.ScreenShake, titleLines: flowOptions.TitleLines);
 };
 
 try
@@ -99,7 +100,7 @@ try
     var launcher = new LauncherModel(live, host?.Current ?? new LauncherGameInfo(fixedData, fixedData is not null), LauncherModel.AssemblyVersion(),
         ls => { try { ls.Save(settingsPath); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.Error.WriteLine($"Could not save {LauncherSettings.FileName}: {e.Message}"); } });
     launcher.Logo = host?.Logo;   // the game's own title logo, read from the player's files
-    var services = new LauncherServices(userDir, missingArt, prompt, () => fonts.State);
+    var services = new LauncherServices(userDir, missingArt, prompt, () => fonts.State, sound);
     using var game = new Th01Game(factory) { Launcher = launcher, ShowLauncher = useLauncher, LauncherFont = fonts, Fonts = fonts, GameFolder = CurrentData, GameChooser = host, OpenChooserAtStart = forceSelect && host is not null, Mixer = sound.Mixer, LauncherSvc = services, AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
     game.Run();
     audioOut.Dispose();

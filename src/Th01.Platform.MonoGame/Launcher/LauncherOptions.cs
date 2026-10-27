@@ -27,11 +27,19 @@ public sealed record OptionRow(RowId Id, RowKind Kind, Str Label, Str Hint, stri
 public interface ILauncherServices
 {
     bool GamepadConnected { get; }
+    /// <summary>Name the system gives the connected pad; null when none (or it has no name).</summary>
+    string? GamepadName { get; }
     FontRomState FontRomStatus { get; }
     /// <summary>Opens the folder with the scores and settings in the file explorer.</summary>
     void OpenDataFolder();
     /// <summary>Lines of the error / missing-art report; empty when there is nothing to report.</summary>
     IReadOnlyList<string> ReportLines();
+    /// <summary>Counts for the "last report" row.</summary>
+    ReportSummary Summary();
+    /// <summary>Read the report files again (called when the options open, a tab changes or the report is shown).</summary>
+    void RefreshReport();
+    /// <summary>Plays a short effect so a volume change can be heard.</summary>
+    void PreviewEffect();
     /// <summary>Asks for a FONT.ROM file; null = cancelled.</summary>
     string? PickFontRom();
 }
@@ -46,6 +54,7 @@ public sealed partial class LauncherModel
     Func<GameSettings>? _gameSettings;
     readonly Queue<CaptureTarget> _capture = new();
     bool _confirmRestore;
+    GameSettings? _gameCache;   // the game tab reads the file once per visit, not once per drawn frame
 
     enum CaptureTarget { Up, Down, Left, Right, Shot, Bomb, Pause, PadShot, PadBomb, PadPause }
 
@@ -97,6 +106,16 @@ public sealed partial class LauncherModel
         Row = 0; RowScroll = 0;
         _capture.Clear();
         _confirmRestore = false;
+        _gameCache = null;
+        _services?.RefreshReport();
+    }
+
+    /// <summary>Sets one of the two volumes (0..10). Effects play a sample so the change can be heard; music has nothing playing here, but the mixer level is applied at once.</summary>
+    public void SetVolume(RowId id, int level)
+    {
+        if (id == RowId.Music) _settings.MusicVolume = level; else _settings.EffectsVolume = level;
+        Changed();
+        if (id == RowId.Effects && level > 0) _services?.PreviewEffect();
     }
 
     void PressOptions(LauncherKey key)
@@ -143,9 +162,7 @@ public sealed partial class LauncherModel
             case RowKind.Choice: SetChoice(row.Id, select ? 1 : dir); return;
             case RowKind.Bar:
                 if (select) return;
-                int v = Math.Clamp(row.Level + dir, 0, 10);
-                if (row.Id == RowId.Music) s.MusicVolume = v; else s.EffectsVolume = v;
-                Changed();
+                SetVolume(row.Id, Math.Clamp(row.Level + dir, 0, 10));
                 return;
             case RowKind.Keys:
                 if (select) BeginCapture(row.Id);
@@ -198,9 +215,11 @@ public sealed partial class LauncherModel
                 if (!_confirmRestore) { _confirmRestore = true; break; }
                 _confirmRestore = false;
                 _settings.ResetToDefaults();
+                if (_bindings is not null) { _bindings.ResetToDefaults(); SaveBindings(); }
                 Changed();
                 break;
             case RowId.Report:
+                _services?.RefreshReport();
                 ReportLines = _services?.ReportLines() ?? [];
                 ShowingReport = true;
                 break;
@@ -342,10 +361,11 @@ public sealed partial class LauncherModel
                 rows.Add(PadRowFor(RowId.PadBomb, GameButtons.Bomb));
                 rows.Add(PadRowFor(RowId.PadPause, GameButtons.Pause));
                 bool pad = _services?.GamepadConnected ?? false;
-                rows.Add(new OptionRow(RowId.Gamepad, RowKind.Info, Str.RowGamepad, Str.HintGamepad, Text(pad ? Str.ValPadConnected : Str.ValPadNone), Tag: Text(Str.TagOptional), Good: pad));
+                string padText = !pad ? Text(Str.ValPadNone) : string.IsNullOrWhiteSpace(_services?.GamepadName) ? Text(Str.ValPadConnected) : _services!.GamepadName!.Trim();
+                rows.Add(new OptionRow(RowId.Gamepad, RowKind.Info, Str.RowGamepad, Str.HintGamepad, padText, Tag: Text(Str.TagOptional), Good: pad));
                 break;
             case OptionsTab.Game:
-                var g = _gameSettings?.Invoke() ?? new GameSettings();
+                var g = _gameCache ??= _gameSettings?.Invoke() ?? new GameSettings();
                 var rank = g.Rank switch { Th01.Core.Game.Rank.Easy => Str.ValRankEasy, Th01.Core.Game.Rank.Normal => Str.ValRankNormal, Th01.Core.Game.Rank.Hard => Str.ValRankHard, _ => Str.ValRankLunatic };
                 rows.Add(new OptionRow(RowId.Rank, RowKind.Info, Str.RowRank, Str.HintGameReadOnly, Text(rank), Tag: Text(Str.TagReadOnly)));
                 rows.Add(new OptionRow(RowId.Lives, RowKind.Info, Str.RowLives, Str.HintGameReadOnly, (3 + g.LivesExtra).ToString(), Tag: Text(Str.TagReadOnly)));
@@ -358,13 +378,21 @@ public sealed partial class LauncherModel
             case OptionsTab.Diagnostics:
                 rows.Add(Toggle(RowId.RecordArt, Str.RowRecordArt, Str.HintRecordArt, s.RecordMissingArt));
                 rows.Add(new OptionRow(RowId.Report, RowKind.Button, Str.RowReport, Str.HintReport, Button: Text(Str.BtnViewReport)));
-                int n = _services?.ReportLines().Count ?? 0;
-                rows.Add(new OptionRow(RowId.LastReport, RowKind.Info, Str.RowLastReport, Str.HintLastReport,
-                    n == 0 ? Text(Str.ValNoErrors) : Language == LauncherLanguage.English ? $"{n} {Text(Str.ValMissingArt)}" : $"{n}{Text(Str.ValMissingArt)}",
-                    Tag: Text(Str.TagOk), Good: n == 0));
+                var sum = _services?.Summary() ?? ReportSummary.Empty;
+                rows.Add(new OptionRow(RowId.LastReport, RowKind.Info, Str.RowLastReport, Str.HintLastReport, LastReportText(sum),
+                    Tag: Text(sum.IsEmpty ? Str.TagOk : Str.TagAttention), Good: sum.IsEmpty));
                 break;
         }
         return rows;
+    }
+
+    string LastReportText(ReportSummary sum)
+    {
+        if (sum.IsEmpty) return Text(Str.ValNoErrors);
+        var parts = new List<string>();
+        if (sum.CrashLog) parts.Add(Text(Str.ValCrashLog));
+        if (sum.MissingArt > 0) parts.Add(Language == LauncherLanguage.English ? $"{sum.MissingArt} {Text(Str.ValMissingArt)}" : $"{sum.MissingArt}{Text(Str.ValMissingArt)}");
+        return string.Join(Language == LauncherLanguage.English ? " + " : "、", parts);
     }
 
     OptionRow KeysRowFor(RowId id, Str label, Str hint, GameButtons first, params GameButtons[] more)

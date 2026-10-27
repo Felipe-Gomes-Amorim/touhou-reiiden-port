@@ -28,13 +28,17 @@ public sealed class GameSettings
         [property: JsonPropertyName("bombs")] int Bombs,
         [property: JsonPropertyName("music")] bool Music);
 
-    public static GameSettings Load(string? path = null)
+    /// <summary>
+    /// The player's settings. Without a settings.local.json yet they come from the player's own REIIDEN.CFG in the game folder (read only,
+    /// never written), so the launcher and the title menu start from what the original game had; after that the title menu keeps them here.
+    /// </summary>
+    public static GameSettings Load(string? path = null, string? gameFolder = null)
     {
         path ??= Path.Combine(Directory.GetCurrentDirectory(), FileName);
         var s = new GameSettings();
         try
         {
-            if (!File.Exists(path)) return s;
+            if (!File.Exists(path)) { SeedFromCfg(s, gameFolder); return s; }
             var m = JsonSerializer.Deserialize<Model>(File.ReadAllText(path));
             if (m is null) return s;
             s.Rank = (Rank)Math.Clamp(m.Rank, 0, 3);
@@ -44,6 +48,22 @@ public sealed class GameSettings
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException) { /* keep defaults */ }
         return s;
+    }
+
+    static void SeedFromCfg(GameSettings s, string? gameFolder)
+    {
+        if (gameFolder is null) return;
+        try
+        {
+            string cfg = Path.Combine(gameFolder, "REIIDEN.CFG");
+            if (!File.Exists(cfg)) return;
+            var o = Th01.Assets.Formats.ReiidenCfg.Load(File.ReadAllBytes(cfg));
+            s.Rank = (Rank)Math.Clamp((int)o.Rank, 0, 3);
+            s.Music = o.BgmMode == 1;
+            s.Bombs = Math.Clamp((int)o.CreditBombs, 0, 9);
+            s.LivesExtra = Math.Clamp((int)o.CreditLivesExtra, 0, LivesExtraMax);
+        }
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException) { /* keep the defaults */ }
     }
 
     public void Save(string? path = null)

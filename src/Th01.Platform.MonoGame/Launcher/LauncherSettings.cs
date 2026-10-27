@@ -9,6 +9,8 @@ namespace Th01.Platform.MonoGame.Launcher;
 /// A missing or damaged file gives the defaults, and so does any single key that is missing or out of range.
 /// The file is shared with the remembered game (<see cref="LauncherFile"/> merges keys), so only our keys are written.
 /// </summary>
+public sealed record FlowOptions(bool ShowWarning, bool ScreenShake, bool TitleLines, VisualOptions Visuals);
+
 public sealed class LauncherSettings
 {
     public const string FileName = "launcher.json";
@@ -54,6 +56,9 @@ public sealed class LauncherSettings
         BombFlash = SoftenBombFlash ? BombFlash.Softened : BombFlash.Original,
         ScreenShake = !ReduceShake,
     };
+
+    /// <summary>What a new flow needs from the launcher. <paramref name="startsAtLogo"/> is false for --stage / --cutscene (no warning then).</summary>
+    public FlowOptions ToFlowOptions(bool startsAtLogo) => new(startsAtLogo && PhotosensitivityWarning, !ReduceShake, !RemoveTitleLines, ToVisualOptions());
 
     public float MusicLevel => MusicVolume / 10f;
     public float EffectsLevel => EffectsVolume / 10f;

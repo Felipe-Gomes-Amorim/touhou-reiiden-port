@@ -68,6 +68,17 @@ public sealed class InputBindings
         return b;
     }
 
+    /// <summary>Back to the built-in keys and buttons (the numeric keypad switch is a launcher setting and stays).</summary>
+    public void ResetToDefaults()
+    {
+        var d = new InputBindings();
+        Deadzone = d.Deadzone;
+        Keyboard.Clear();
+        foreach (var kv in d.Keyboard) Keyboard[kv.Key] = kv.Value;
+        Gamepad.Clear();
+        foreach (var kv in d.Gamepad) Gamepad[kv.Key] = kv.Value;
+    }
+
     /// <summary>Writes the current bindings to input.local.json (where it was loaded from, else the current directory).</summary>
     public void Save(string? path = null)
     {

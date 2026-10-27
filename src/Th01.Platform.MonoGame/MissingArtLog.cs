@@ -15,6 +15,9 @@ public sealed class MissingArtLog
     /// <summary>Print each new entry to the console as it happens (--log-missing-art).</summary>
     public bool Realtime { get; set; }
 
+    /// <summary>False stops noting anything (the launcher's "record missing art" switch).</summary>
+    public bool Recording { get; set; } = true;
+
     public int Count { get { lock (_gate) return _lines.Count; } }
 
     public IReadOnlyList<string> Lines { get { lock (_gate) return _lines.ToArray(); } }
@@ -22,6 +25,7 @@ public sealed class MissingArtLog
     /// <param name="index">Frame index asked for, or -1 when the whole sheet (or the background) was asked for.</param>
     public void Note(string sheet, int index, string reason)
     {
+        if (!Recording) return;
         string line = index < 0 ? $"{sheet}: {reason}" : $"{sheet}[{index}]: {reason}";
         lock (_gate)
         {

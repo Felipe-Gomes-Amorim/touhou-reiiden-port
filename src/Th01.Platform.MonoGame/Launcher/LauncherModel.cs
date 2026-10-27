@@ -108,7 +108,7 @@ public sealed partial class LauncherModel
         switch (item)
         {
             case HomeItem.Play: return IsEnabled(item) ? LauncherResult.Play : LauncherResult.None;
-            case HomeItem.Options: Screen = LauncherScreen.Options; break;
+            case HomeItem.Options: Screen = LauncherScreen.Options; _gameCache = null; _services?.RefreshReport(); break;
             case HomeItem.Change: return LauncherResult.ChooseGame;   // the panel button ("Change..." / "Select game...") is the only way to change the game
             case HomeItem.Quit: return LauncherResult.Quit;
             case HomeItem.Language: ToggleLanguage(); break;

@@ -294,6 +294,10 @@ public class LauncherMouseTests
     sealed class FakeReportServices : ILauncherServices
     {
         public bool GamepadConnected => false;
+        public string? GamepadName => null;
+        public ReportSummary Summary() => ReportSummary.Empty;
+        public void RefreshReport() { }
+        public void PreviewEffect() { }
         public FontRomState FontRomStatus => FontRomState.NotFound;
         public void OpenDataFolder() { }
         public IReadOnlyList<string> ReportLines() => ["missing art: x"];

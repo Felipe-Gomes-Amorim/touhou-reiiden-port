@@ -12,6 +12,12 @@ public class LauncherOptionsTests : IDisposable
     sealed class FakeServices : ILauncherServices
     {
         public bool GamepadConnected { get; set; }
+        public string? GamepadName { get; set; }
+        public int Previews, Refreshes;
+        public ReportSummary Sum = ReportSummary.Empty;
+        public ReportSummary Summary() => Report.Length == 0 ? Sum : ReportSummary.FromLines(Report);
+        public void RefreshReport() => Refreshes++;
+        public void PreviewEffect() => Previews++;
         public FontRomState FontRomStatus { get; set; }
         public int Opened;
         public string[] Report = [];
