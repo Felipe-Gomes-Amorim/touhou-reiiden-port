@@ -1,8 +1,8 @@
 namespace Th01.Audio.Mdrv;
 
 /// <summary>
-/// Interprets the command bytes of one MDRV2 track/effect stream (format as observed in the game's own files, and cross-checked
-/// with the public descriptions of the MDRV2 format: the Lua MDT-to-MML converter by HertzDevil and the MDT Parsing Tools).
+/// Interprets the command bytes of one MDRV2 track/effect stream (format as observed in the game's own files; commands whose
+/// meaning has not been established are marked as such below).
 /// Lengths are in ticks, 48 per quarter note (192 per whole note); the tempo byte is quarter notes per minute.
 ///   00..8F nn   note (high nibble = octave, low nibble = 0..B) + length       90 nn  rest       91  tie with the next note
 ///   E0 n .. E1 .. E2   repeat n times; E1 is skipped on the last pass      E3  last-pass exit of an E4 loop (no parameters; unused here)
