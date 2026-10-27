@@ -99,4 +99,81 @@ public class SarielTests
         s.HitUpdateForTests();
         Assert.Equal(18, s.Hp);
     }
+
+    // ---- part 2: form 1 phase machine (patterns are stubs that end at once) ----
+
+    [Fact]
+    public void A_finished_pattern_advances_the_ring_and_counts_it()
+    {
+        var (_, s) = Make();
+        s.Phase = 1; s.PatternsUntilNext = 99;
+        s.Update();
+        Assert.Equal((1, 1, 1), (s.Phase, s.PatternCur, s.PatternsDone));
+        s.Update(); s.Update();
+        Assert.Equal((0, 3), (s.PatternCur, s.PatternsDone));
+        s.Phase = 5; s.PatternCur = 5;
+        s.Update();
+        Assert.Equal(10, s.PatternCur);
+        s.Phase = 3; s.PatternCur = 0;
+        s.Update();
+        Assert.Equal(1, s.PatternCur);
+        s.Update();
+        Assert.Equal(0, s.PatternCur);
+    }
+
+    [Fact]
+    public void The_phase_ends_when_the_pattern_count_is_reached_unless_invincible()
+    {
+        var (_, s) = Make();
+        s.Phase = 1; s.PatternsUntilNext = 2; s.Invincible = true;
+        s.Update(); s.Update();
+        Assert.Equal(1, s.Phase);
+        s.Invincible = false;
+        s.Update();
+        Assert.Equal((2, 0, 0, 0), (s.Phase, s.PatternCur, s.PatternsDone, s.PhaseFrame));
+    }
+
+    [Fact]
+    public void Zero_hp_goes_to_phase_99()
+    {
+        var (_, s) = Make();
+        s.Phase = 7; s.PatternsUntilNext = 99; s.Hp = 0;
+        s.Update();
+        Assert.Equal(Sariel.PhaseForm1Defeated, s.Phase);
+    }
+
+    [Theory]
+    [InlineData(2, 3, 1)]
+    [InlineData(4, 5, 2)]
+    [InlineData(6, 7, 3)]
+    [InlineData(8, 1, 0)]
+    public void A_background_transition_takes_109_ticks_and_6000_random_numbers(int phase, int next, int bg)
+    {
+        var (w, s) = Make(seed: 11);
+        s.Phase = phase;
+        var probe = new IRand(11);
+        int ticks = 0;
+        while (s.Phase == phase) { s.Update(); ticks++; Assert.True(ticks < 1000); }
+        Assert.Equal(109, ticks);
+        Assert.Equal((next, bg), (s.Phase, s.BackgroundId));
+        for (int i = 0; i < 6000; i++) probe.Next();
+        int roll = probe.Next();
+        int expect = next switch { 3 => roll % 5 + 1, 5 => roll % 4 + 3, 7 => roll % 5 + 2, _ => roll % 6 + 1 };
+        Assert.Equal(expect, s.PatternsUntilNext);
+    }
+
+    [Fact]
+    public void The_form_1_cycle_is_deterministic_and_returns_to_phase_1()
+    {
+        ulong Run()
+        {
+            var (_, s) = Make(seed: 3);
+            s.Update();                                   // phase 0 -> 1
+            var seen = new HashSet<int>();
+            for (int i = 0; i < 3000; i++) { s.Update(); seen.Add(s.Phase); }
+            Assert.Contains(8, seen); Assert.Contains(7, seen);
+            var h = new StateHasher(); s.Hash(ref h); return h.Value;
+        }
+        Assert.Equal(Run(), Run());
+    }
 }

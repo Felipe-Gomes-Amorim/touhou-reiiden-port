@@ -112,15 +112,98 @@ public sealed class Sariel : Boss
             Top = ShieldTop;
             return;
         }
-        // Phases 1 and up: later parts.
+        switch (Phase)
+        {
+            case 1: FormOnePatternFrame(1, 0, 2, 2); break;
+            case 3: FormOnePatternFrame(3, 0, 1, 4); break;
+            case 5: FormOnePatternFrame(5, 10, 5, 6); break;
+            case 7: FormOnePatternFrame(7, 0, 2, 8); break;
+            case 2: BgTransitionFrame(1, 3, () => Irand() % 5 + 1); break;
+            case 4: BgTransitionFrame(2, 5, () => Irand() % 4 + 3); break;
+            case 6: BgTransitionFrame(3, 7, () => Irand() % 5 + 2); break;
+            case 8: BgTransitionFrame(0, 1, () => Irand() % 6 + 1); break;
+            // 99, 100 and 101: later parts.
+        }
     }
+
+    // ---- form 1 ----
+
+    /// <summary>Which background image is shown (0..3); changes at the end of a transition.</summary>
+    public int BackgroundId;
+    int _gustId;
+
+    /// <summary>pattern_next(): alternates when max is 1, otherwise cycles min..max; counts a finished pattern.</summary>
+    void PatternNext(int ringMin, int ringMax)
+    {
+        PatternCur = ringMax == 1 ? 1 - PatternCur : PatternCur == ringMax ? ringMin : PatternCur + 1;
+        PatternsDone++;
+    }
+
+    void FormOnePatternFrame(int phase, int ringMin, int ringMax, int nextPhase)
+    {
+        PhaseFrame++;
+        InvincibilityFrame++;
+        RunPattern(phase, PatternCur);
+        if (PhaseFrame == 0) PatternNext(ringMin, ringMax);
+        HitUpdate();
+        if (Hp <= 0) Phase = PhaseForm1Defeated;
+        if (PatternsDone >= PatternsUntilNext && !Invincible)
+        {
+            PatternsDone = 0;
+            Phase = nextPhase;
+            PatternCur = 0;
+            PhaseFrame = 0;
+        }
+    }
+
+    /// <summary>
+    /// The patterns of each phase. NOT PORTED YET (later parts): until then a pattern ends at once, which zeroes the phase
+    /// frame like the originals do when they finish.
+    /// </summary>
+    void RunPattern(int phase, int pattern)
+    {
+        PhaseFrame = 0;
+    }
+
+    /// <summary>
+    /// bg_transition(): 109 ticks (49 of waiting, then three gusts of 20 calls), 100 irand per call from frame 50 on. The new
+    /// background shows at the end; then the next phase starts with a new pattern count.
+    /// </summary>
+    void BgTransitionFrame(int newBackground, int nextPhase, Func<int> rollPatterns)
+    {
+        PhaseFrame++;
+        if (PhaseFrame == 20) _gustId = 0;
+        if (PhaseFrame >= 50)
+        {
+            for (int row = 0; row < 100; row++) Irand();
+            _gustCalls++;
+            if (_gustCalls >= 20)
+            {
+                _gustCalls = 0;
+                _gustId++;
+                PhaseFrame = 49;
+                if (_gustId >= 3)
+                {
+                    BackgroundId = newBackground;
+                    PhaseFrame = 0;
+                }
+            }
+        }
+        if (PhaseFrame == 0)
+        {
+            Phase = nextPhase;
+            PhaseFrame = 0;
+            PatternsUntilNext = rollPatterns();
+        }
+    }
+    int _gustCalls;
 
     public void HitUpdateForTests() => HitUpdate();
 
     public override void Hash(ref StateHasher h)
     {
         h.Add(Phase); h.Add(PhaseFrame); h.Add(InvincibilityFrame); h.Add(Hp); h.Add(Invincible); h.Add(PatternCur);
-        h.Add(_entranceFrame); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
+        h.Add(_entranceFrame); h.Add(BackgroundId); h.Add(_gustId); h.Add(_gustCalls); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
         h.Add(Left); h.Add(Top); h.Add(HitboxOrbInactive);
     }
 }
