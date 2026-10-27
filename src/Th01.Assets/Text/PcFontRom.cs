@@ -1,20 +1,28 @@
 namespace Th01.Assets.Text;
 
 /// <summary>
-/// Where the glyphs of a PC-98 font ROM image are. No ready-made layout is included: the layout of the
-/// font files used by emulators has not been confirmed from a documented source yet (docs/FORMATS.md), so a
-/// caller has to supply the numbers. Offsets are file offsets in bytes.
+/// Where the glyphs of a PC-98 font ROM image are. <see cref="EmulatorImage"/> is the layout of the 288768-byte
+/// FONT.ROM that emulators use, found by inspecting such a file (docs/FORMATS.md); any other image needs its own
+/// numbers. Offsets are file offsets in bytes.
 /// </summary>
 /// <param name="KanjiOffset">Offset of the glyph for JIS row 1, column 1.</param>
 /// <param name="RowStride">Bytes from one JIS row to the next (row r starts at KanjiOffset + (r-1)*RowStride).</param>
 /// <param name="CellStride">Bytes from one column to the next inside a row (normally 32 for a 16x16 glyph).</param>
 /// <param name="HalvesSplit">False: a 16x16 glyph is 16 rows of 2 bytes (left, right). True: 16 bytes of left halves, then 16 bytes of right halves.</param>
 /// <param name="AnkOffset">Offset of the 8x16 glyph of code 0, or -1 when the ROM has no ANK table.</param>
-public sealed record FontRomLayout(int KanjiOffset, int RowStride, int CellStride, bool HalvesSplit, int AnkOffset);
+public sealed record FontRomLayout(int KanjiOffset, int RowStride, int CellStride, bool HalvesSplit, int AnkOffset)
+{
+    /// <summary>
+    /// The emulator image: 8x8 ANK at 0, 8x16 ANK at 0x800, then JIS rows of 0xC00 bytes from 0x1800 whose cells are
+    /// indexed by the low JIS byte minus 0x20 (so column 1 is at +32); each cell is 16 bytes of left half and 16 of right half.
+    /// </summary>
+    public static FontRomLayout EmulatorImage { get; } = new(0x1800 + 32, 0xC00, 32, true, 0x800);
+}
 
 /// <summary>
 /// Glyphs read from a font ROM image supplied by the user (optional "option C" of the font chain). Read-only;
-/// nothing from the file is ever stored in the repo. NOT VERIFIED WITH A REAL ROM: only synthetic tests exist.
+/// nothing from the file is ever stored in the repo. Verified against the 288768-byte emulator image (<see cref="FontRomLayout.EmulatorImage"/>), with
+/// real-ROM tests that skip when none is configured (<c>FontRomConfig</c>).
 /// </summary>
 public sealed class PcFontRom : IGlyphProvider
 {
@@ -32,6 +40,11 @@ public sealed class PcFontRom : IGlyphProvider
         _rom = rom;
         _layout = layout;
     }
+
+    public const int EmulatorImageSize = 288768;
+
+    /// <summary>True when the image has the size of the emulator FONT.ROM that <see cref="FontRomLayout.EmulatorImage"/> describes.</summary>
+    public static bool LooksLikeEmulatorImage(byte[] rom) => rom.Length == EmulatorImageSize;
 
     /// <summary>Reads a ROM image from a user file; the layout still has to be supplied.</summary>
     public static PcFontRom Load(string path, FontRomLayout layout) => new(File.ReadAllBytes(path), layout);
