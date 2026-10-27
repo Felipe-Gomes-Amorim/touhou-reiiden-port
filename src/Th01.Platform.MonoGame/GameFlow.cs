@@ -68,10 +68,8 @@ public sealed class GameFlow
     long _screenStart;
 
     // title
-    bool _inOptions;
-    int _menuSel;
-    ArtFrame _titleBase, _titleTop;
-    bool _hasTitle;
+    TitleScene? _title;
+    readonly TitleTexts _titleTexts;
 
     // in game
     GameStart? _start;
@@ -99,14 +97,15 @@ public sealed class GameFlow
     public bool QuitRequested { get; private set; }
     public long Ticks => _tick;
 
-    /// <summary>True where Esc should close the window (logo, main title menu); elsewhere Esc is only "cancel".</summary>
-    public bool EscapeQuits => Screen is Screen.Logo or Screen.Warning || (Screen == Screen.Title && !_inOptions);
+    /// <summary>True where Esc should close the window (logo, warning). On the title screen Esc is "cancel" and the menu itself quits.</summary>
+    public bool EscapeQuits => Screen is Screen.Logo or Screen.Warning;
 
     /// <param name="startStage">If set (0-based), skips logo and title and starts that stage directly.</param>
     public GameFlow(IStageProvider stages, IScreenImages images, IFontSource font, GameSettings settings,
         Action<GameSettings>? saveSettings = null, int? startStage = null, int route = 0,
-        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null, bool showWarning = false)
+        IScoreStore? scores = null, int? startCutscene = null, ISoundSink? sound = null, bool showWarning = false, TitleTexts? titleTexts = null)
     {
+        _titleTexts = titleTexts ?? TitleTexts.Default;
         _sound = sound;
         _scores = scores ?? new MemoryScoreStore();
         _stages = stages;
@@ -180,7 +179,7 @@ public sealed class GameFlow
             case Screen.Logo:
                 if (_tick - _screenStart >= LogoTicks || ok || cancel) GoTo(Screen.Title);
                 break;
-            case Screen.Title: TickTitle(dirs, ok, cancel); break;
+            case Screen.Title: TickTitle(input); break;
             case Screen.InGame: TickGame(input); break;
             case Screen.GameOver: TickGameOver(dirs, ok); break;
             case Screen.NameEntry: TickNameEntry(dirs, ok, cancel); break;
@@ -200,76 +199,36 @@ public sealed class GameFlow
         _screenStart = _tick;
         // Like the original: title and ending have their own track, a game over keeps the stage music playing,
         // everything else stops it. Stage music is (re)started by LoadStage and ignores a request for the track already playing.
-        if (s == Screen.Title) { if (Settings.Music) _sound?.PlayBgm(BgmTracks.Title); }
+        if (s == Screen.Title) { /* the title scene starts its own music */ }
         else if (s == Screen.Cutscene) { if (Settings.Music) _sound?.PlayBgm(BgmTracks.Ending); }
         else if (s != Screen.InGame && s != Screen.GameOver) _sound?.StopBgm();
-        if (s == Screen.Title)
-        {
-            _inOptions = false;
-            _menuSel = 0;
-            _hasTitle = _images.TryLoad("REIIDEN2.GRP", out _titleBase);
-            if (_hasTitle) _images.TryLoad("REIIDEN3.GRP", out _titleTop);
-        }
+        if (s == Screen.Title) _title = new TitleScene(_images, _font, Settings, _titleTexts, _sound, _saveSettings);
     }
 
-    // ---- title / menu. ref: th01/op_01.cpp (MAIN_CHOICES, OPTION_CHOICES)
-    const int MainStart = 0, MainContinue = 1, MainOption = 2, MainQuit = 3;
-    const int OptRank = 0, OptMusic = 1, OptPlayer = 2, OptQuit = 3;
-
-    void TickTitle(GameButtons dirs, bool ok, bool cancel)
+    // ---- title / menu: the screen itself is TitleScene (ref: th01/op_01.cpp); here we only act on what it chose
+    void TickTitle(GameButtons input)
     {
-        int count = _inOptions ? 4 : 4;
-        if ((dirs & GameButtons.Up) != 0) _menuSel = (_menuSel + count - 1) % count;
-        if ((dirs & GameButtons.Down) != 0) _menuSel = (_menuSel + 1) % count;
-
-        if (_inOptions)
+        var t = _title!;
+        t.Tick(input);
+        switch (t.Action)
         {
-            int step = (dirs & GameButtons.Right) != 0 ? 1 : (dirs & GameButtons.Left) != 0 ? -1 : 0;
-            if (step != 0) ChangeOption(step);
-            if (cancel || (ok && _menuSel == OptQuit))
-            {
-                _inOptions = false;
-                _menuSel = MainOption;
-                _saveSettings?.Invoke(Settings);
-            }
-            return;
-        }
-        if (cancel) { _menuSel = MainQuit; return; }
-        if (!ok) return;
-        switch (_menuSel)
-        {
-            case MainStart: StartNewGame(0); break;
-            case MainContinue:
+            case TitleAction.Start: StartNewGame(0, t.FrameRand); break;
+            case TitleAction.Continue:
                 if (_continue is not null) StartContinue();
+                else t.ClearAction();      // nothing to continue yet: stay in the menu
                 break;
-            case MainOption: _inOptions = true; _menuSel = 0; break;
-            case MainQuit: QuitRequested = true; break;
-        }
-    }
-
-    void ChangeOption(int step)
-    {
-        switch (_menuSel)
-        {
-            case OptRank: Settings.Rank = (Rank)(((int)Settings.Rank + step + 4) % 4); break;
-            case OptMusic:
-                Settings.Music = !Settings.Music;
-                if (Settings.Music) _sound?.PlayBgm(BgmTracks.Title); else _sound?.StopBgm();
-                break;
-            case OptPlayer:
-                Settings.LivesExtra = (Settings.LivesExtra + step + GameSettings.LivesExtraMax + 1) % (GameSettings.LivesExtraMax + 1);
-                break;
+            case TitleAction.Quit: QuitRequested = true; break;
         }
     }
 
     // ---- stages
-    void StartNewGame(int stageId)
+    void StartNewGame(int stageId, uint? titleFrameRand = null)
     {
         Array.Clear(_continues);
         _continue = null;
         _lastCarry = null;
         _endNote = null;
-        uint frameRand = (uint)_tick;
+        uint frameRand = titleFrameRand ?? (uint)_tick;
         LoadStage(stageId, setup => new GameOptions
         {
             Stage = setup, Rank = Settings.Rank, Lives = Settings.LivesExtra + 2, Bombs = Settings.Bombs,
@@ -401,14 +360,14 @@ public sealed class GameFlow
         {
             case Screen.Warning: RenderWarning(fb); break;
             case Screen.Logo: RenderLogo(fb); break;
-            case Screen.Title: RenderTitle(fb); break;
+            case Screen.Title: _title!.Render(fb); break;
             case Screen.InGame: RenderGame(fb); break;
             case Screen.GameOver: RenderGame(fb); RenderGameOver(fb); break;
             case Screen.NameEntry: RenderNameEntry(fb); break;
             case Screen.Ranking: RenderRanking(fb); break;
             case Screen.Cutscene: _show!.Render(fb); break;
         }
-        if (Screen != Screen.Cutscene) ApplyFadeIn(fb); // cutscenes carry their own tone
+        if (Screen is not (Screen.Cutscene or Screen.Title)) ApplyFadeIn(fb); // cutscenes and the title carry their own fades
         if (Screen == Screen.InGame && ShakeLine() is var shake and not 0) fb.ScrollY = shake;   // the bomb sets its own shake while drawing
     }
 
@@ -471,41 +430,6 @@ public sealed class GameFlow
         fb.Clear(0);
         TextCentered(fb, "TH01 - UNOFFICIAL FAN PORT", 168, 15);
         TextCentered(fb, "REQUIRES YOUR OWN COPY OF THE ORIGINAL GAME", 196, 8);
-    }
-
-    void RenderTitle(Framebuffer fb)
-    {
-        if (_hasTitle)
-        {
-            fb.Clear(0);
-            fb.ApplyPalette(_titleBase);
-            fb.Draw(_titleBase, 0, 0);
-            fb.Draw(_titleTop, 0, 0);
-        }
-        else { Grayscale(fb); fb.Clear(0); TextCentered(fb, "TH01", 60, 15); }
-
-        var (dark, dim, light) = Colors(fb);
-        string[] main = ["START", _continue is null ? "CONTINUE (NO GAME)" : "CONTINUE", "OPTION", "QUIT"];
-        string[] opts =
-        [
-            $"RANK    {RankNames[(int)Settings.Rank]}",
-            $"MUSIC   {(Settings.Music ? "ON" : "OFF")}",
-            $"PLAYER  {Settings.LivesExtra + 2} LIVES",
-            "QUIT",
-        ];
-        var items = _inOptions ? opts : main;
-        int w = 0;
-        foreach (var s in items) w = Math.Max(w, TextRenderer.Measure(_font, s));
-        int boxW = w + 48, boxX = (Framebuffer.Width - boxW) / 2, boxY = 280;
-        fb.FillRect(boxX - 2, boxY - 2, boxW + 4, items.Length * 22 + 20, light);
-        fb.FillRect(boxX, boxY, boxW, items.Length * 22 + 16, dark);
-        for (int i = 0; i < items.Length; i++)
-        {
-            byte col = i == _menuSel ? light : dim;
-            if (i == _menuSel) Text(fb, ">", boxX + 12, boxY + 8 + i * 22, light);
-            Text(fb, items[i], boxX + 32, boxY + 8 + i * 22, col);
-        }
-        if (_inOptions) TextCentered(fb, "LEFT/RIGHT: CHANGE   CANCEL: BACK", boxY + items.Length * 22 + 28, dim);
     }
 
     void RenderGame(Framebuffer fb)
