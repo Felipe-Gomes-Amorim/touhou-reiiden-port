@@ -106,9 +106,9 @@ public class SarielTests
     public void A_finished_pattern_advances_the_ring_and_counts_it()
     {
         var (_, s) = Make();
-        s.Phase = 1; s.PatternsUntilNext = 99; s.PatternCur = 1;      // pattern 1 is still a stub that ends at once
+        s.Phase = 3; s.PatternsUntilNext = 99; s.PatternCur = 0;      // phase 3 patterns are still stubs that end at once
         s.Update();
-        Assert.Equal((1, 2, 1), (s.Phase, s.PatternCur, s.PatternsDone));
+        Assert.Equal((3, 1, 1), (s.Phase, s.PatternCur, s.PatternsDone));
         s.Update();
         Assert.Equal((0, 2), (s.PatternCur, s.PatternsDone));
         s.Phase = 5; s.PatternCur = 5;
@@ -125,12 +125,12 @@ public class SarielTests
     public void The_phase_ends_when_the_pattern_count_is_reached_unless_invincible()
     {
         var (_, s) = Make();
-        s.Phase = 1; s.PatternsUntilNext = 2; s.Invincible = true; s.PatternCur = 1;
+        s.Phase = 3; s.PatternsUntilNext = 2; s.Invincible = true; s.PatternCur = 0;
         s.Update(); s.Update();
-        Assert.Equal(1, s.Phase);
+        Assert.Equal(3, s.Phase);
         s.Invincible = false;
         s.Update();
-        Assert.Equal((2, 0, 0, 0), (s.Phase, s.PatternCur, s.PatternsDone, s.PhaseFrame));
+        Assert.Equal((4, 0, 0, 0), (s.Phase, s.PatternCur, s.PatternsDone, s.PhaseFrame));
     }
 
     [Fact]
@@ -230,5 +230,66 @@ public class SarielTests
             var h = new StateHasher(); s.Hash(ref h); return h.Value;
         }
         Assert.Equal(Run(), Run());
+    }
+
+    // ---- part 4: birds, vortices (pattern 1) and birds on an ellipse arc (pattern 2) ----
+
+    static int Pellets(GameWorld w) => Enumerable.Range(0, Th01.Core.Game.Pellets.Count).Count(i => w.Pellets.Moving[i] || w.Pellets.CloudFrame[i] != 0);
+
+    [Fact]
+    public void Vortices_stand_then_rise_towards_the_middle_then_sweep_sideways_for_320_frames()
+    {
+        var (w, s) = Make(Rank.Hard, seed: 5);
+        s.Phase = 1; s.PatternCur = 1; s.PatternsUntilNext = 99;
+        for (int f = 1; f <= 49; f++) s.Update();
+        Assert.Equal(0, Pellets(w));
+        for (int f = 50; f <= 51; f++) s.Update();
+        Assert.Equal(0, Pellets(w));
+        s.Update();                                        // frame 52: first volley straight down from both
+        Assert.Equal(((0, 200), (608, 200)), ((s.VortexLeft[0], s.VortexTop[0]), (s.VortexLeft[1], s.VortexTop[1])));
+        Assert.True(Pellets(w) >= 2);
+        while (s.PhaseFrame < 101) s.Update();
+        Assert.Equal((5 * 2, 200 - 2 * 2, 608 - 5 * 2), (s.VortexLeft[0], s.VortexTop[0], s.VortexLeft[1]));
+        int ticks = s.PhaseFrame;
+        while (s.PatternsDone == 0) { s.Update(); ticks++; Assert.True(ticks < 1000); }
+        Assert.Equal(320, ticks);
+    }
+
+    [Fact]
+    public void Birds_on_an_arc_drop_eggs_then_hatch_into_birds_that_fire()
+    {
+        var (w, s) = Make(Rank.Normal, seed: 12);
+        s.Phase = 1; s.PatternCur = 2; s.PatternsUntilNext = 99;
+        for (int f = 1; f <= 199; f++) s.Update();
+        Assert.InRange(s.EggsAlive, 1, 10);                  // one every 15 frames from 60 on, 9 or 10 of them at most
+        Assert.Equal(0, s.BirdAlive.Count(b => b));
+        s.Update();                                          // frame 200: the eggs become birds
+        Assert.Equal(s.EggsAlive, s.BirdAlive.Count(b => b));
+        Assert.All(Enumerable.Range(0, Sariel.BirdCount).Where(i => s.BirdAlive[i]), i => Assert.Equal(Sariel.BirdHatchTicks, s.BirdHatch[i]));
+        while (s.PhaseFrame < 225) s.Update();
+        Assert.Equal(0, Pellets(w));
+        Assert.All(Enumerable.Range(0, Sariel.BirdCount).Where(i => s.BirdAlive[i]), i => Assert.Equal(0, s.BirdHatch[i]));
+        s.Update();                                          // frame 226: first volley
+        Assert.True(Pellets(w) > 0);
+        int ticks = s.PhaseFrame;
+        while (s.PatternsDone == 0) { s.Update(); ticks++; Assert.True(ticks < 1000); }
+        Assert.Equal(400, ticks);
+    }
+
+    [Fact]
+    public void A_flying_bird_hits_the_player_only_when_not_invincible()
+    {
+        foreach (bool invincible in new[] { false, true })
+        {
+            var (w, s) = Make();
+            s.Phase = 1; s.PatternCur = 1; s.PatternsUntilNext = 99;
+            w.PlayerInvincible = invincible;
+            s.BirdAlive[3] = true;
+            s.BirdHatch[3] = 0;
+            s.BirdLeft[3] = w.Player.Left << 4;
+            s.BirdTop[3] = (Player.Top - 4) << 4;
+            s.Update();
+            Assert.Equal(!invincible, w.PlayerIsHit);
+        }
     }
 }
