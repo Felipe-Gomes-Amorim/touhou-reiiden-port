@@ -67,7 +67,7 @@ public class KonngaraTests
         Assert.Equal(Konngara.EntranceTotal, ticks);
         Assert.InRange(ticks, 300, 1500);
         w.Rng = new IRand(99);
-        w.Orb.PrevLeft = 300; w.Orb.PrevTop = 130;                    // inside the head box: phase 0 must not apply hits
+        w.Orb.Left = 300; w.Orb.Top = 130;                            // inside the head box: phase 0 must not apply hits
         k.Update();
         Assert.Equal((1, 18, 0), (k.Phase, k.Hp, k.PhaseFrame));
         Assert.Equal(w.FrameRand, w.Rng.Seed);                        // random_seed = frame_rand
@@ -153,12 +153,12 @@ public class KonngaraTests
     public void The_orb_inside_the_head_box_scores_10000_and_outside_it_does_nothing()
     {
         var w = World();
-        w.Orb.PrevLeft = 288 + 64; w.Orb.PrevTop = 120 + 40;          // the far corner of the box
+        w.Orb.Left = 288 + 64; w.Orb.Top = 120 + 40;                  // the far corner of the box (current position)
         Run(w, 1);
         Assert.Equal(17, K(w).Hp);
         Assert.Equal(10000u, w.Score);
         var o = World();
-        o.Orb.PrevLeft = 288 + 65; o.Orb.PrevTop = 130;
+        o.Orb.Left = 288 + 65; o.Orb.Top = 130;
         Run(o, 1);
         Assert.Equal(18, K(o).Hp);
     }

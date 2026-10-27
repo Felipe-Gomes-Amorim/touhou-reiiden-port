@@ -205,8 +205,16 @@ public sealed class Konngara : Boss
         _patternsDone++;
     }
 
+    // overlap_xy_xywh_le_ge_2(orb_cur_left, orb_cur_top, ...): the CURRENT Orb position (not the previous one).
+    bool OrbCurInside()
+    {
+        var o = World.Orb;
+        return o.Left >= HitboxLeft && o.Left <= HitboxLeft + HitboxOrbW - Playfield.OrbW &&
+               o.Top >= HitboxTop && o.Top <= HitboxTop + HitboxOrbH - Playfield.OrbH;
+    }
+
     void HitUpdate() =>
-        HitCommon(OrbPrevInside(0, HitboxOrbW - Playfield.OrbW, 0, HitboxOrbH - Playfield.OrbH), HitScore,
+        HitCommon(OrbCurInside(), HitScore,
             HitboxLeft, HitboxTop, HitboxShotW - Shots.W, HitboxShotH - Shots.H);
 
     void AfterPattern()
