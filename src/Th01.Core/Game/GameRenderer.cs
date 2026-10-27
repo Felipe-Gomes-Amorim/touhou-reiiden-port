@@ -56,9 +56,14 @@ internal sealed class GameRenderer
         if (!_paletteFromArt) FallbackPalette(fb);
         if (w.Boss is Konngara { Phase: 0 } konngaraEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKonngaraEntranceBackdrop(fb, konngaraEntrance);
         if (w.Boss is Kikuri { Phase: 0 } kikuriEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKikuriEntranceBackdrop(fb, kikuriEntrance);
+        // Konngara's blocking entrance shows full-screen pictures only: no HUD, player or Orb until the fight starts.
+        bool coverEntrance = w.Boss is Konngara { Phase: 0 } && _s.Phase == SessionPhase.BossEntrance;
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
-        DrawMono(fb, HudMask, 0, 0, 0, ColRed);
-        fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
+        if (!coverEntrance)
+        {
+            DrawMono(fb, HudMask, 0, 0, 0, ColRed);
+            fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
+        }
 
         if (w.Stage != null)
         {
@@ -75,9 +80,12 @@ internal sealed class GameRenderer
         DrawParticles(fb, w.Particles);
         DrawSparkles(fb, w.Sparkles);
         DrawShots(fb, w.Shots);
-        if (_s.Phase != SessionPhase.RouteSelect) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
-        DrawPlayer(fb, w);
-        DrawHud(fb, w);
+        if (_s.Phase != SessionPhase.RouteSelect && !coverEntrance) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
+        if (!coverEntrance)
+        {
+            DrawPlayer(fb, w);
+            DrawHud(fb, w);
+        }
         if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame, _s.Visuals);
         else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb
         if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
@@ -676,10 +684,15 @@ internal sealed class GameRenderer
     {
         bool entering = k.Phase == 0 && _s.Phase == SessionPhase.BossEntrance;
         var view = entering ? k.ViewAt(k.EntranceTick) : default;
-        if (entering && !view.Revealed) return;          // the scroll and the pan show only pictures
+        if (entering)
+        {
+            // Only pictures: the boss and her face are in BOSS8_A1; the seal syllables are put on top at the very end.
+            if (view.SealStep >= 0) DrawSealSyllables(fb, k, view.SealStep);
+            return;
+        }
         if (k.Phase >= 1) DrawHpBar(fb, k);
-        // The seal syllables (colourkeyed pictures in the colour of palette entry 9) appear at the end of the entrance and stay.
-        if (!entering || view.SealStep >= 0) DrawSealSyllables(fb, k, entering ? view.SealStep : -1);   // -1: not in the entrance
+        // The seal syllables (colourkeyed pictures in the colour of palette entry 9) stay on the screen during the fight.
+        DrawSealSyllables(fb, k, -1);                      // -1: not in the entrance
         // Slash images accumulate on the screen while the pattern runs (BOSS8.GRZ images 0..n).
         for (int n = 0; n <= k.SlashImage; n++) DrawColorKey(fb, SlashSheet, n);
         // Head and face: BOSS8_1.BOS frame = direction, BOSS8_E1.BOS frame = (expression - 1) * 3 + direction (closed, glare),
