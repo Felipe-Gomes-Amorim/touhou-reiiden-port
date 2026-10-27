@@ -168,4 +168,53 @@ public class KonngaraDrawTests
         Assert.Equal(baseline, Run(null, true));
         Assert.Equal(baseline, Run(new Art(), true));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Palette_entry_9_is_continuous_from_the_end_of_the_entrance_into_the_fight(bool soft)
+    {
+        var g = Session(new Art(), soft);
+        var k = (Konngara)g.World.Boss!;
+        RunTo(g, k, Konngara.EntranceTotal - 1);
+        (int, int, int) Pal9()
+        {
+            var fb = Render(g);
+            fb.GetPalette4(9, out int r, out int gg, out int b);
+            return (r, gg, b);
+        }
+        var lastEntrance = Pal9();
+        Assert.Equal((0, 9, 10), lastEntrance);                   // the end of the fade: dark blue-green
+        while (g.Phase == SessionPhase.BossEntrance) g.Step(GameButtons.None);
+        for (int i = 0; i < 20; i++)
+        {
+            Assert.Equal(lastEntrance, Pal9());                    // the same colour all through the quiet part of the fight
+            g.Step(GameButtons.None);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, 15)]
+    [InlineData(true, 3)]
+    public void The_seal_phases_flash_entry_9_from_frame_50_and_fade_it_back(bool soft, int expectedRedAt50)
+    {
+        var g = Session(new Art(), soft);
+        var k = (Konngara)g.World.Boss!;
+        while (g.Phase == SessionPhase.BossEntrance) g.Step(GameButtons.None);
+        int Red()
+        {
+            var fb = Render(g);
+            fb.GetPalette4(9, out int r, out _, out _);
+            return r;
+        }
+        k.Phase = 2; k.PhaseFrame = 49;
+        Assert.Equal(0, Red());
+        k.PhaseFrame = 50;
+        Assert.Equal(expectedRedAt50, Red());
+        k.PhaseFrame = 60;                                         // three steps later
+        int later = Red();
+        Assert.True(later < expectedRedAt50 || soft && later <= expectedRedAt50);
+        k.PhaseFrame = 50 + 4 * 16;
+        Assert.Equal(0, Red());
+    }
 }

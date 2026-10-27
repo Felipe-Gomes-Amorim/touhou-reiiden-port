@@ -679,7 +679,7 @@ internal sealed class GameRenderer
         if (entering && !view.Revealed) return;          // the scroll and the pan show only pictures
         if (k.Phase >= 1) DrawHpBar(fb, k);
         // The seal syllables (colourkeyed pictures in the colour of palette entry 9) appear at the end of the entrance and stay.
-        if (!entering || view.SealStep >= 0) DrawSealSyllables(fb, k, view.SealStep);
+        if (!entering || view.SealStep >= 0) DrawSealSyllables(fb, k, entering ? view.SealStep : -1);   // -1: not in the entrance
         // Slash images accumulate on the screen while the pattern runs (BOSS8.GRZ images 0..n).
         for (int n = 0; n <= k.SlashImage; n++) DrawColorKey(fb, SlashSheet, n);
         // Head and face: BOSS8_1.BOS frame = direction, BOSS8_E1.BOS frame = (expression - 1) * 3 + direction (closed, glare),
