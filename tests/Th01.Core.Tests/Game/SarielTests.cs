@@ -106,11 +106,11 @@ public class SarielTests
     public void A_finished_pattern_advances_the_ring_and_counts_it()
     {
         var (_, s) = Make();
-        s.Phase = 1; s.PatternsUntilNext = 99;
+        s.Phase = 1; s.PatternsUntilNext = 99; s.PatternCur = 1;      // pattern 1 is still a stub that ends at once
         s.Update();
-        Assert.Equal((1, 1, 1), (s.Phase, s.PatternCur, s.PatternsDone));
-        s.Update(); s.Update();
-        Assert.Equal((0, 3), (s.PatternCur, s.PatternsDone));
+        Assert.Equal((1, 2, 1), (s.Phase, s.PatternCur, s.PatternsDone));
+        s.Update();
+        Assert.Equal((0, 2), (s.PatternCur, s.PatternsDone));
         s.Phase = 5; s.PatternCur = 5;
         s.Update();
         Assert.Equal(10, s.PatternCur);
@@ -125,7 +125,7 @@ public class SarielTests
     public void The_phase_ends_when_the_pattern_count_is_reached_unless_invincible()
     {
         var (_, s) = Make();
-        s.Phase = 1; s.PatternsUntilNext = 2; s.Invincible = true;
+        s.Phase = 1; s.PatternsUntilNext = 2; s.Invincible = true; s.PatternCur = 1;
         s.Update(); s.Update();
         Assert.Equal(1, s.Phase);
         s.Invincible = false;
@@ -172,6 +172,61 @@ public class SarielTests
             var seen = new HashSet<int>();
             for (int i = 0; i < 3000; i++) { s.Update(); seen.Add(s.Phase); }
             Assert.Contains(8, seen); Assert.Contains(7, seen);
+            var h = new StateHasher(); s.Hash(ref h); return h.Value;
+        }
+        Assert.Equal(Run(), Run());
+    }
+
+    // ---- part 3: phase 1, pattern 0 (random purple lasers) ----
+
+    [Fact]
+    public void Purple_lasers_wait_50_frames_pick_ten_points_and_fire_one_every_10_frames()
+    {
+        var (w, s) = Make(Rank.Hard, seed: 21);
+        s.Phase = 1; s.PatternsUntilNext = 99;
+        var probe = new IRand(21);
+        for (int f = 1; f < 50; f++) { s.Update(); Assert.Equal(f, s.PhaseFrame); }
+        w.Rng = probe;
+        var mirror = new IRand(21);
+        s.Update();                                          // frame 50
+        for (int i = 0; i < 10; i++)
+        {
+            Assert.Equal(Playfield.Left + 120 + mirror.Next() % 400, s.SpawnerX[i]);
+            Assert.Equal(Playfield.Top + 36 + mirror.Next() % 100, s.SpawnerY[i]);
+            Assert.InRange(s.SpawnerX[i], 120, 519); Assert.InRange(s.SpawnerY[i], 100, 199);
+        }
+        int fired = 0;
+        for (int f = 51; f < 150; f++)
+        {
+            int i = (f - 50) / 10;
+            Assert.False(w.Lasers[i].Alive);
+            s.Update();
+            if (f % 10 == 9)
+            {
+                int tx = Playfield.Left + mirror.Next() % 640;
+                var l = w.Lasers[i];
+                Assert.True(l.Alive);
+                int angle = AngleMath.Iatan2(Playfield.Bottom - s.SpawnerY[i], tx - s.SpawnerX[i]);
+                Assert.Equal((AngleMath.Cos8(angle), AngleMath.Sin8(angle), 68 / 8 * 0 + 76 / 8, 25, 4), (l.StepX, l.StepY, l.RayExtendSpeed, l.MoveoutAtAge, l.Color));
+                fired++;
+            }
+            else Assert.False(w.Lasers[i].Alive);
+        }
+        Assert.Equal(10, fired);
+        while (s.PhaseFrame != 0 && s.PatternCur == 0) s.Update();
+        Assert.Equal((1, 1), (s.PatternCur, s.PatternsDone));
+    }
+
+    [Fact]
+    public void Purple_lasers_last_201_frames_and_are_deterministic()
+    {
+        ulong Run()
+        {
+            var (_, s) = Make(seed: 8);
+            s.Phase = 1; s.PatternsUntilNext = 99;
+            int n = 0;
+            while (s.PatternsDone == 0) { s.Update(); n++; Assert.True(n < 300); }
+            Assert.Equal(201, n);
             var h = new StateHasher(); s.Hash(ref h); return h.Value;
         }
         Assert.Equal(Run(), Run());

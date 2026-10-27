@@ -162,8 +162,46 @@ public sealed class Sariel : Boss
     /// </summary>
     void RunPattern(int phase, int pattern)
     {
+        if (phase == 1 && pattern == 0) { PurpleLasers(); return; }
         PhaseFrame = 0;
     }
+
+    // ---- patterns ----
+
+    const int ColLaser = 4;
+    int _state;                                         // pattern_state: the laser speed (times 8) and the like
+    public readonly int[] SpawnerX = new int[10], SpawnerY = new int[10];
+
+    /// <summary>playfield_rand_x(): PLAYFIELD_LEFT + fraction_min * W + irand() % ((max - min) * W), the fractions truncated.</summary>
+    int RandX(int min, int max) => Playfield.Left + min + Irand() % (max - min);
+    int RandY(int min, int max) => Playfield.Top + min + Irand() % (max - min);
+
+    /// <summary>pattern_random_purple_lasers: ten warning circles, each followed by a laser at a random target on the bottom edge.</summary>
+    void PurpleLasers()
+    {
+        const int LaserCount = 10, Interval = 10, Key0 = 50, Key1 = Key0 + LaserCount * Interval, Key2 = Key1 + 50;
+        if (PhaseFrame < Key0) return;
+        if (PhaseFrame == Key0)
+        {
+            _state = ByRank(68, 72, 76, 80);            // 8.5 / 9 / 9.5 / 10 times 8
+            for (int i = 0; i < LaserCount; i++)
+            {
+                SpawnerX[i] = RandX(120, 520);          // fractions 0.1875 .. 0.8125 of 640
+                SpawnerY[i] = RandY(36, 136);           // fractions 9/84 .. 34/84 of 336
+            }
+        }
+        if (PhaseFrame < Key1)
+        {
+            int i = (PhaseFrame - Key0) / Interval;
+            if (PhaseFrame % Interval == Interval - 1)
+                World.Lasers[i].Spawn(SpawnerX[i], SpawnerY[i], RandX(0, Playfield.Right - Playfield.Left), Playfield.Bottom, _state, ColLaser, 25, 5);
+        }
+        else if (PhaseFrame > Key2) PhaseFrame = 0;
+    }
+
+    /// <summary>Radius of the warning circle of the laser being prepared (drawing only); -1 when none is shown.</summary>
+    public int WarningRadius => Phase == 1 && PatternCur == 0 && PhaseFrame is >= 50 and < 150 && PhaseFrame % 10 is not (8 or 9)
+        ? 64 - PhaseFrame % 10 * 8 : -1;
 
     /// <summary>
     /// bg_transition(): 109 ticks (49 of waiting, then three gusts of 20 calls), 100 irand per call from frame 50 on. The new
@@ -203,7 +241,7 @@ public sealed class Sariel : Boss
     public override void Hash(ref StateHasher h)
     {
         h.Add(Phase); h.Add(PhaseFrame); h.Add(InvincibilityFrame); h.Add(Hp); h.Add(Invincible); h.Add(PatternCur);
-        h.Add(_entranceFrame); h.Add(BackgroundId); h.Add(_gustId); h.Add(_gustCalls); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
+        h.Add(_entranceFrame); h.Add(BackgroundId); h.Add(_state); for (int i = 0; i < 10; i++) { h.Add(SpawnerX[i]); h.Add(SpawnerY[i]); } h.Add(_gustId); h.Add(_gustCalls); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
         h.Add(Left); h.Add(Top); h.Add(HitboxOrbInactive);
     }
 }
