@@ -56,6 +56,7 @@ public sealed class SessionFactory
     {
         StageSetup.BossStage => "BOSS1.GRP",
         2 * StageSetup.StagesPerScene - 1 => route == 0 ? "BOSS2.GRP" : "BOSS3.GRP",
+        4 * StageSetup.StagesPerScene - 1 when route == 1 => "BOSS8_A1.GRP",   // Konngara's stage (Jigoku); the Makai one (Sariel) is not ported yet
         3 * StageSetup.StagesPerScene - 1 => route == 1 ? "BOSS4.GRP" : "BOSS5.GRP",
         _ => $"ST{scene}.GRP",
     };
@@ -87,6 +88,7 @@ public sealed class SessionFactory
         RegisterEmbedded(art);
         RegisterHudMask(art);
         RegisterResultsPicture(art);
+        RegisterBossPictures(art);
         string grp = BackgroundFile(_stageId, _route, scene);
         if (_assets.Exists(grp)) art.SetBackground(Load(grp, GrpImage.Load));
         // frame_rand is the title screen's frame counter in the original; callers pass a deterministic value.
@@ -137,6 +139,47 @@ public sealed class SessionFactory
             return new SpriteSheet([new IndexedImageA(img.Width, img.Height, img.Pixels, Enumerable.Repeat((byte)1, img.Pixels.Length).ToArray(), img.Palette)]);
         });
     }
+
+    /// <summary>Boss pictures drawn as one opaque 640x400 frame with their palette (backgrounds and full-screen poses).</summary>
+    public static readonly string[] OpaquePictureNames =
+        ["BOSS7_D1.GRP", "BOSS8_A1.GRP", "BOSS6_A.GRP", "BOSS6_A1.GRP", "BOSS6_A2.GRP", "BOSS6_A3.GRP", "BOSS6_A4.GRP", "BOSS6_A5.GRP", "BOSS6_A6.GRP", "BOSS6_H.GRP", "BOSS6_L.GRP"];
+
+    /// <summary>Boss pictures laid over the stage: one frame, transparent where the colour is the colour key (index 15, as the game draws its
+    /// boss overlays). Checked on the real BOSS8_D1..D4: index 0 does not occur in them and 15 fills about 98 % of the picture.</summary>
+    public static readonly string[] KeyedPictureNames = ["BOSS8_D1.GRP", "BOSS8_D2.GRP", "BOSS8_D3.GRP", "BOSS8_D4.GRP"];
+
+    public const string BossGrz = "BOSS8.GRZ";
+
+    /// <summary>
+    /// The loose boss pictures of the later bosses, registered lazily under their file names (a missing file just stays missing and the
+    /// renderer falls back): opaque pictures, colour-key overlays, and BOSS8.GRZ whose frames are all its images in order (16 in the real file).
+    /// The .GRC sheets of the Sariel fight (BOSS6GR*.GRC) come from the archive and are registered with the other sheets.
+    /// </summary>
+    public void RegisterBossPictures(GameAssetArt art)
+    {
+        foreach (string name in OpaquePictureNames)
+            if (_assets.Exists(name)) art.AddLazySheet(name, () => OpaqueSheet(Load(name, GrpImage.Load)));
+        foreach (string name in KeyedPictureNames)
+            if (_assets.Exists(name)) art.AddLazySheet(name, () => KeyedSheet(Load(name, GrpImage.Load)));
+        if (_assets.Exists(BossGrz))
+            art.AddLazySheet(BossGrz, () => GrzFrames(Load(BossGrz, s =>
+            {
+                using var ms = new MemoryStream();
+                s.CopyTo(ms);
+                return GrzImage.LoadGrz(ms.ToArray());
+            })));
+    }
+
+    /// <summary>One frame, every pixel drawn, with the picture's own palette.</summary>
+    public static SpriteSheet OpaqueSheet(IndexedImage img) =>
+        new([new IndexedImageA(img.Width, img.Height, img.Pixels, Enumerable.Repeat((byte)1, img.Pixels.Length).ToArray(), img.Palette)]);
+
+    /// <summary>One frame, drawn wherever the index is not the colour key (<see cref="GrpImage.ColorKey"/>).</summary>
+    public static SpriteSheet KeyedSheet(IndexedImage img) => new([GrpImage.WithColorKey(img)]);
+
+    /// <summary>All the frames of all the images of a .GRZ, in order, as one sheet.</summary>
+    public static SpriteSheet GrzFrames(IReadOnlyList<SpriteSheet> images) =>
+        new(images.SelectMany(i => i.Frames).ToList());
 
     void RegisterEmbedded(GameAssetArt art)
     {
