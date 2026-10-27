@@ -20,6 +20,9 @@ public static class LauncherBackdrop
         };
     }
 
+    /// <summary>Frame of the spinning orb at a tick: one turn per second at the game's tick rate (56.423 Hz), in <see cref="OrbFrames.Count"/> steps.</summary>
+    public static int SpinFrame(int tick) => (int)((long)tick * OrbFrames.Count * 1000 / Th01.Core.Timing.TickRate.TicksPerThousandSeconds % OrbFrames.Count);
+
     /// <summary>Horizontal offset of the bands at a tick: the picture moves left one pixel per tick and repeats every 4 pixels.</summary>
     public static int ScrollOffset(int tick) => (int)((long)tick * BandPixelsPerTick % TilePeriod);
 

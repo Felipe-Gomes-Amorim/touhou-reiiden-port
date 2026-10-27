@@ -86,25 +86,19 @@ public sealed class LauncherCanvas
             }
     }
 
-    /// <summary>The yin-yang orb of the design (red right half, two dots), optionally with a dark outline.</summary>
-    public void YinYang(int cx, int cy, int r, int outline = 0)
+    /// <summary>
+    /// The yin-yang orb of the design (red right half, two dots), optionally with a dark outline. <paramref name="frame"/> picks one of the
+    /// <see cref="OrbFrames.Count"/> turns of the orb (0 = upright); each frame is made by sampling the shape at the rotated position of every
+    /// pixel (nearest neighbour), so the edges stay sharp.
+    /// </summary>
+    public void YinYang(int cx, int cy, int r, int outline = 0, int frame = 0)
     {
         if (outline > 0) Circle(cx, cy, r + outline, LauncherColors.Dark);
-        double h = r / 2.0;
-        for (int y = -r; y <= r; y++)
-            for (int x = -r; x <= r; x++)
-            {
-                if (x * x + y * y > r * r) continue;
-                double dxu = x, dyu = y + h, dyl = y - h;
-                double dot = Math.Max(1.5, r * 0.15);
-                uint c;
-                if (dxu * dxu + dyu * dyu <= dot * dot) c = LauncherColors.Red;               // dot in the upper (white) bulb
-                else if (dxu * dxu + dyl * dyl <= dot * dot) c = LauncherColors.White;        // dot in the lower (red) bulb
-                else if (dxu * dxu + dyu * dyu <= h * h) c = LauncherColors.White;
-                else if (dxu * dxu + dyl * dyl <= h * h) c = LauncherColors.Red;
-                else c = x >= 0 ? LauncherColors.Red : LauncherColors.White;
-                Put(cx + x, cy + y, c);
-            }
+        var px = OrbFrames.Get(r, frame);
+        int side = 2 * r + 1;
+        for (int y = 0; y < side; y++)
+            for (int x = 0; x < side; x++)
+                if (px[y * side + x] != 0) Put(cx - r + x, cy - r + y, px[y * side + x]);
     }
 
     /// <summary>Pixel width of a string: glyph widths times the scale plus <paramref name="spacing"/> after each character.</summary>

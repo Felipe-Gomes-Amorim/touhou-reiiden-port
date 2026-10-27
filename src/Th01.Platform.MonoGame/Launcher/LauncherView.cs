@@ -36,6 +36,7 @@ public static partial class LauncherView
         LauncherBackdrop.DrawBands(c, m.Tick, 96);
 
         c.DrawTextShadow(font, m.Text(Str.Title), 72, 56, White, Red, 3, 3, 1);
+        DrawHeaderOrb(m, c, 72 + LauncherCanvas.MeasureText(font, m.Text(Str.Title), 3, 1) + 34, 56 + 24, 20, 72, 56, LauncherCanvas.MeasureText(font, m.Text(Str.Title), 3, 1) + 68, 48);
         c.DrawText(font, m.Text(Str.Subtitle), 72 + 56, 56 + 48 + 14, Cyan);
         DrawDither(c, DitherKind.Half, 72, 56 + 48 + 14 + 16 + 22, 520, 8);
 
@@ -73,7 +74,7 @@ public static partial class LauncherView
                 x += 8;
                 c.FillRect(x + 5, y + 5, w, MenuItemH, Red);
                 c.FillRect(x, y, w, MenuItemH, White);
-                c.YinYang(x + 14 + 13, y + MenuItemH / 2, 12, 1);
+                c.YinYang(x + 14 + 13, y + MenuItemH / 2, 12, 1, m.OrbSpinning ? LauncherBackdrop.SpinFrame(m.Tick) : 0);
                 c.DrawText(font, text, x + 54, y + 12, Dark, 2, 3);
             }
             else if (!enabled)
@@ -156,6 +157,13 @@ public static partial class LauncherView
         c.FillRect(x - 2, y + 18, w + 8, 2, Cyan);
     }
 
+    /// <summary>The orb beside a screen's title; it turns while the header is hovered or the screen is driven by keyboard/pad. The box is its hover area.</summary>
+    static void DrawHeaderOrb(LauncherModel m, LauncherCanvas c, int cx, int cy, int r, int boxX, int boxY, int boxW, int boxH)
+    {
+        Hit(boxX, boxY, boxW, boxH, HitKind.Header);
+        c.YinYang(cx, cy, r, 0, m.HeaderSpinning ? LauncherBackdrop.SpinFrame(m.Tick) : 0);
+    }
+
     static void DrawFooterFrame(LauncherCanvas c, int height)
     {
         int top = LauncherCanvas.Height - height;
@@ -172,6 +180,8 @@ public static partial class LauncherView
 
         c.DrawText(font, m.Text(Str.Title), 72, 30, Purple3);
         c.DrawTextShadow(font, m.Text(Str.OptionsHeading), 72, 50, White, Red, 3, 2, 4);
+        int ow = LauncherCanvas.MeasureText(font, m.Text(Str.OptionsHeading), 2, 4);
+        DrawHeaderOrb(m, c, 72 + ow + 28, 50 + 16, 14, 72, 28, ow + 56, 56);
 
         DrawKeyCap(c, font, "L", 30, 142, 30, true);
         DrawKeyCap(c, font, "R", 1220, 142, 30, true);
@@ -237,6 +247,8 @@ public static partial class LauncherView
 
         c.DrawText(font, m.Text(Str.Title), 72, 44, Purple3);
         c.DrawTextShadow(font, m.Text(Str.AboutHeading), 72, 64, White, Red, 3, 2, 4);
+        int aw0 = LauncherCanvas.MeasureText(font, m.Text(Str.AboutHeading), 2, 4);
+        DrawHeaderOrb(m, c, 72 + aw0 + 28, 64 + 16, 14, 72, 42, aw0 + 56, 56);
 
         const int px = 72, py = 150, pw = 760, inner = 760 - 4 - 48;
         var note = Wrap(font, m.Text(Str.AboutNote), pw - 4 - 48 - 28 - 4);

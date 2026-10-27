@@ -180,7 +180,8 @@ public class LauncherTests
     [Fact]
     public void Model_StepMovesTheClock_AndTheBandsFollowIt()
     {
-        var m = Model();
+        // With motion reduced the orbs stand still, so the only thing that moves is the bands (period of four ticks).
+        var m = Model(settings: new LauncherSettings { SoftenBombFlash = true, ReduceShake = true, RemoveTitleLines = true });
         var font = JapaneseFont.CreateDefault();
         var a = new LauncherCanvas(); var b = new LauncherCanvas();
         LauncherView.Render(m, a, font);
