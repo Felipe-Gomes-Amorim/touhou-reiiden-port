@@ -5,9 +5,9 @@ using Th01.Assets.Disk;
 namespace Th01.Platform.MonoGame.Launcher;
 
 /// <summary>Outcome of choosing a game in the launcher: a usable game, or the reason the choice was refused.</summary>
-public sealed record GameChoice(LauncherGameInfo? Game, GameProblemCode? ErrorCode = null, string? ErrorFile = null);
+public sealed record GameChoice(LauncherGameInfo? Game, GameProblemCode? ErrorCode = null, string? ErrorFile = null, LauncherLogo? Logo = null);
 
-/// <summary>What the launcher calls for the DIRECTORY / "Change…" / "Select game…" actions. Null = the user cancelled.</summary>
+/// <summary>What the launcher calls for the "Change…" / "Select game…" actions. Null = the user cancelled.</summary>
 public interface IGameChooser
 {
     GameChoice? Choose();
@@ -25,6 +25,8 @@ public sealed class LauncherGameHost(string userDir, IUserPrompt prompt, Func<st
     /// <summary>Folder with the game's files, null while no valid game is chosen.</summary>
     public string? DataPath { get; private set; }
     public LauncherGameInfo Current { get; private set; } = LauncherGameInfo.None;
+    /// <summary>The game's own title logo, read from the chosen copy; null when there is none.</summary>
+    public LauncherLogo? Logo { get; private set; }
 
     /// <summary>Picks the game without asking anything: --data, --game, the developer folder, then the remembered choice.</summary>
     public GameChoice? Startup(string? dataArg, string? gameArg)
@@ -79,6 +81,7 @@ public sealed class LauncherGameHost(string userDir, IUserPrompt prompt, Func<st
             GameEdition.Translated => GameVersion.Translated,
             _ => GameVersion.Unknown,
         });
-        return new GameChoice(Current);
+        Logo = LauncherLogo.TryLoad(new FolderAssetSource(folder));
+        return new GameChoice(Current, Logo: Logo);
     }
 }

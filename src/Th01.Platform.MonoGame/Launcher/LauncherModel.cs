@@ -49,6 +49,9 @@ public sealed partial class LauncherModel
 
     public LauncherScreen Screen { get; private set; } = LauncherScreen.Home;
     public LauncherGameInfo Game { get; set; }
+
+    /// <summary>The game's own logo for the home header (read from the user's files); null shows the plain subtitle.</summary>
+    public LauncherLogo? Logo { get; set; }
     public string Version { get; }
     public LauncherLanguage Language => _settings.Language;
 
@@ -157,7 +160,7 @@ public sealed partial class LauncherModel
     public void ApplyChoice(GameChoice? choice)
     {
         if (choice is null) return;
-        if (choice.Game is not null) SetGame(choice.Game);
+        if (choice.Game is not null) { SetGame(choice.Game); Logo = choice.Logo; }
         else Error = new GameError(choice.ErrorCode ?? Th01.Assets.GameProblemCode.NotFound, choice.ErrorFile);
     }
 

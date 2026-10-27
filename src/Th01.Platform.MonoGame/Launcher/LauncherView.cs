@@ -37,8 +37,12 @@ public static partial class LauncherView
 
         c.DrawTextShadow(font, m.Text(Str.Title), 72, 56, White, Red, 3, 3, 1);
         DrawHeaderOrb(m, c, 72 + LauncherCanvas.MeasureText(font, m.Text(Str.Title), 3, 1) + 34, 56 + 24, 20, 72, 56, LauncherCanvas.MeasureText(font, m.Text(Str.Title), 3, 1) + 68, 48);
-        c.DrawText(font, m.Text(Str.Subtitle), 72 + 56, 56 + 48 + 14, Cyan);
-        DrawDither(c, DitherKind.Half, 72, 56 + 48 + 14 + 16 + 22, 520, 8);
+        if (HasLogo(m)) m.Logo!.Draw(c, 72, LogoTop);   // the game's own logo replaces the subtitle line; the "fan port" title stays
+        else
+        {
+            c.DrawText(font, m.Text(Str.Subtitle), 72 + 56, 56 + 48 + 14, Cyan);
+            DrawDither(c, DitherKind.Half, 72, 56 + 48 + 14 + 16 + 22, 520, 8);
+        }
 
         DrawMenu(m, c, font);
         DrawPlayOffNote(m, c, font);
@@ -46,11 +50,15 @@ public static partial class LauncherView
         DrawHomeFooter(m, c, font);
     }
 
-    const int MenuX = 96, MenuY = 270, MenuItemH = 56, MenuGap = 14;
+    const int MenuX = 96, MenuYPlain = 270, MenuYWithLogo = 316, MenuItemH = 56, MenuGap = 14, LogoTop = 110;
+
+    /// <summary>The logo shows only with a valid game whose title picture was read.</summary>
+    internal static bool HasLogo(LauncherModel m) => m.Logo is not null && m.Game.Valid;
     static readonly HomeItem[] MenuItems = [HomeItem.Play, HomeItem.Options, HomeItem.Quit];
 
     static void DrawMenu(LauncherModel m, LauncherCanvas c, IFontSource font)
     {
+        int MenuY = HasLogo(m) ? MenuYWithLogo : MenuYPlain;   // the logo is tall: the menu moves down to make room
         // Dotted red diagonal with a square at each item's step.
         double x0 = MenuX + 25, y0 = MenuY + 28, x1 = MenuX + 137, y1 = MenuY + 168;
         double len = Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));

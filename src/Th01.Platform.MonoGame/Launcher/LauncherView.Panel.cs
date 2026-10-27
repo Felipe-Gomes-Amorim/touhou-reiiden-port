@@ -34,7 +34,7 @@ public static partial class LauncherView
     static void DrawGamePanel(LauncherModel m, LauncherCanvas c, IFontSource font)
     {
         bool first = m.FirstRun;
-        int py = first ? 190 : 250;
+        int py = first ? 190 : HasLogo(m) ? 316 : 250;
         int x = PanelX + 18;
         var errLines = m.Error is null ? null : Wrap(font, ErrorText(m, m.Error), PanelInner - 28);
         var lead = first ? Wrap(font, m.Text(Str.FirstRunLead), PanelInner) : null;

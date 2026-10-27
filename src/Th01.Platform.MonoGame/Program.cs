@@ -98,6 +98,7 @@ try
     live = LauncherSettings.Load(settingsPath);
     var launcher = new LauncherModel(live, host?.Current ?? new LauncherGameInfo(fixedData, fixedData is not null), LauncherModel.AssemblyVersion(),
         ls => { try { ls.Save(settingsPath); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Console.Error.WriteLine($"Could not save {LauncherSettings.FileName}: {e.Message}"); } });
+    launcher.Logo = host?.Logo;   // the game's own title logo, read from the player's files
     var services = new LauncherServices(userDir, missingArt, prompt, () => fonts.State);
     using var game = new Th01Game(factory) { Launcher = launcher, ShowLauncher = useLauncher, LauncherFont = fonts, Fonts = fonts, GameFolder = CurrentData, GameChooser = host, OpenChooserAtStart = forceSelect && host is not null, Mixer = sound.Mixer, LauncherSvc = services, AudioOutput = audioOut, ScreenshotDirectory = Path.Combine(userDir, "screenshots"), MissingArt = missingArt, MissingArtPath = Path.Combine(userDir, MissingArtLog.FileName) };
     game.Run();
