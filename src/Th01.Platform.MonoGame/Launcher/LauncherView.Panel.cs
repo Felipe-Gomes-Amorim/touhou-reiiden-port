@@ -105,6 +105,7 @@ public static partial class LauncherView
             // The button.
             bool focus = m.FocusedItem == HomeItem.Change;
             string label = m.Text(first ? Str.ButtonSelect : Str.ButtonChange);
+            if (draw) Hit(x, y, PanelInner, 46, HitKind.HomeItem, (int)HomeItem.Change);
             if (draw)
             {
                 if (focus) c.FillRect(x + 4, y + 4, PanelInner, 46, Red);

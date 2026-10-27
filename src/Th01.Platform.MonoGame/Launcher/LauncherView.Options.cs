@@ -23,6 +23,7 @@ public static partial class LauncherView
             var r = rows[first + i];
             int y = RowsY + i * RowPitch;
             bool focus = first + i == m.Row && !m.ShowingReport;
+            Hit(RowsX, y, RowsW, RowH, HitKind.Row, first + i);
             if (focus)
             {
                 c.FillRect(RowsX + 4, y + 4, RowsW, RowH, Red);
@@ -35,7 +36,7 @@ public static partial class LauncherView
                 c.StrokeRect(RowsX, y, RowsW, RowH, 2, Purple2);
             }
             c.DrawText(font, m.Text(r.Label), RowsX + 16, y + 18, White);
-            DrawRowControl(c, font, r, RowsX + RowsW - 16, y, focus);
+            DrawRowControl(c, font, r, RowsX + RowsW - 16, y, focus, first + i);
         }
         // Arrows when the list goes on above or below the visible rows.
         if (first > 0) Triangle(c, RowsX + RowsW / 2, RowsY - 12, true);
@@ -49,7 +50,7 @@ public static partial class LauncherView
     }
 
     /// <summary>Right-aligned control of a row; <paramref name="rx"/> is the right edge.</summary>
-    static void DrawRowControl(LauncherCanvas c, IFontSource font, OptionRow r, int rx, int y, bool focus)
+    static void DrawRowControl(LauncherCanvas c, IFontSource font, OptionRow r, int rx, int y, bool focus, int rowIndex)
     {
         switch (r.Kind)
         {
@@ -78,6 +79,7 @@ public static partial class LauncherView
                 for (int i = 0; i < 10; i++)
                 {
                     int cx = x0 + i * 19;
+                    Hit(cx, y + 14, 19, 24, HitKind.BarCell, rowIndex, i + 1);
                     c.FillRect(cx, y + 14, 16, 24, i < r.Level ? Cyan : Dark);
                     c.StrokeRect(cx, y + 14, 16, 24, 2, White);
                 }

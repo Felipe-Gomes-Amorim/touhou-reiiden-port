@@ -152,6 +152,7 @@ public sealed class Th01Game : Game
             _prevKb = kb;
 
             var pad = GamePad.GetState(PlayerIndex.One, GamePadDeadZone.None); // deadzone is ours (InputBindings)
+            IsMouseVisible = _inLauncher;   // the pointer is for the launcher only
             if (_inLauncher)
             {
                 UpdateLauncher(kb, pad, elapsedUs);
@@ -197,6 +198,45 @@ public sealed class Th01Game : Game
         if (Mixer is not null) { Mixer.MusicLevel = s.MusicLevel; Mixer.EffectLevel = s.EffectsLevel; }
     }
 
+    readonly LauncherHitMap _hits = new();
+    MouseState _lprevMouse;
+    bool _mouseSeen;
+
+    /// <summary>
+    /// The mouse in the launcher: hover focuses what is under it (only when it moves, so the keyboard keeps its say), left click is
+    /// Select, right click is Back, the wheel scrolls the options list. The game itself never reads the mouse.
+    /// Returns true when the launcher was left (Play / Quit) and the rest of the update must be skipped.
+    /// </summary>
+    bool HandleLauncherMouse(long elapsedUs)
+    {
+        var ms = Mouse.GetState();
+        var prev = _lprevMouse;
+        bool had = _mouseSeen;
+        _lprevMouse = ms;
+        _mouseSeen = true;
+        if (!had || !IsActive) return false;
+        var vp = GraphicsDevice.Viewport;
+        var pos = LauncherViewport.ToCanvas(ms.X, ms.Y, vp.Width, vp.Height);
+        HitTarget? target = pos is { } p ? _hits.At(p.X, p.Y) : null;
+        if (ms.X != prev.X || ms.Y != prev.Y) Launcher!.Hover(target);
+        int wheel = ms.ScrollWheelValue - prev.ScrollWheelValue;
+        if (wheel != 0) Launcher!.Scroll(wheel > 0 ? -1 : 1);   // wheel up moves the list up
+        var result = LauncherResult.None;
+        if (ms.LeftButton == ButtonState.Pressed && prev.LeftButton == ButtonState.Released) result = Launcher!.Click(target, false);
+        if (ms.RightButton == ButtonState.Pressed && prev.RightButton == ButtonState.Released)
+        {
+            var back = Launcher!.Click(target, true);
+            if (result == LauncherResult.None) result = back;
+        }
+        switch (result)
+        {
+            case LauncherResult.Play: _inLauncher = false; StartFlow(); return true;
+            case LauncherResult.Quit: Exit(); return true;
+            case LauncherResult.ChooseGame: Launcher!.ApplyChoice(GameChooser?.Choose()); break;
+        }
+        return false;
+    }
+
     KeyboardState _lprevKb;
     GamePadState _lprevPad;
     bool _lwasListening, _lwaitRelease;
@@ -208,6 +248,7 @@ public sealed class Th01Game : Game
         bool P(Buttons b) => pad.IsButtonDown(b);
         if (LauncherSvc is not null) LauncherSvc.GamepadConnected = pad.IsConnected;
         ApplyLauncherSettings();
+        if (HandleLauncherMouse(elapsedUs)) return;
         var held = LauncherKey.None;
         if (Launcher!.Listening)
         {
@@ -350,14 +391,13 @@ public sealed class Th01Game : Game
             GraphicsDevice.Clear(Color.Black);
             if (_inLauncher)
             {
-                LauncherView.Render(Launcher!, _lcanvas, LauncherFont!);
+                LauncherView.Render(Launcher!, _lcanvas, LauncherFont!, _hits);
                 _lcanvas.ToRgba(_lrgba);
                 _ltex!.SetData(_lrgba);
                 var lv = GraphicsDevice.Viewport;
-                double ls = Math.Min(lv.Width / (double)LauncherCanvas.Width, lv.Height / (double)LauncherCanvas.Height);
-                int lw = (int)(LauncherCanvas.Width * ls), lh = (int)(LauncherCanvas.Height * ls);
-                _batch!.Begin(samplerState: ls == Math.Floor(ls) ? SamplerState.PointClamp : SamplerState.LinearClamp);
-                _batch.Draw(_ltex, new Rectangle((lv.Width - lw) / 2, (lv.Height - lh) / 2, lw, lh), Color.White);
+                var (fx, fy, lw, lh) = LauncherViewport.Fit(lv.Width, lv.Height);
+                _batch!.Begin(samplerState: lw % LauncherCanvas.Width == 0 ? SamplerState.PointClamp : SamplerState.LinearClamp);
+                _batch.Draw(_ltex, new Rectangle(fx, fy, lw, lh), Color.White);
                 _batch.End();
                 base.Draw(gameTime);
                 return;

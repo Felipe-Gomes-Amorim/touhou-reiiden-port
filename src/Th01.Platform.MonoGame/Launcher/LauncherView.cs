@@ -9,8 +9,16 @@ public static partial class LauncherView
     public static readonly string[] TabKanji = ["視", "映", "音", "字", "操", "遊", "録", "診"];
     static readonly Str[] TabNames = [Str.TabAccessibility, Str.TabVideo, Str.TabAudio, Str.TabFont, Str.TabControls, Str.TabGame, Str.TabData, Str.TabDiagnostics];
 
-    public static void Render(LauncherModel m, LauncherCanvas c, IFontSource font)
+    [ThreadStatic] static LauncherHitMap? _hits;
+
+    /// <summary>Records a clickable region while drawing (when a hit map was given to <see cref="Render"/>).</summary>
+    static void Hit(int x, int y, int w, int h, HitKind kind, int a = 0, int b = 0) => _hits?.Add(x, y, w, h, new HitTarget(kind, a, b));
+
+    /// <param name="hits">Filled with the clickable regions of this frame (cleared first); null for none.</param>
+    public static void Render(LauncherModel m, LauncherCanvas c, IFontSource font, LauncherHitMap? hits = null)
     {
+        _hits = hits;
+        hits?.Clear();
         switch (m.Screen)
         {
             case LauncherScreen.Home: RenderHome(m, c, font); break;
@@ -59,6 +67,7 @@ public static partial class LauncherView
             string text = m.Text(names[i]);
             int x = MenuX + 56 * i, y = MenuY + i * (MenuItemH + MenuGap);
             int w = Math.Max(264, 14 + 26 + 14 + LauncherCanvas.MeasureText(font, text, 2, 3) + 24);
+            Hit(x, y, w + 8, MenuItemH, HitKind.HomeItem, (int)item);   // includes the 8 px the selected item slides right
             if (sel && enabled)
             {
                 x += 8;
@@ -107,6 +116,7 @@ public static partial class LauncherView
         int ax = 1208 - aw;
         bool aboutFocus = m.FocusedItem == HomeItem.About;
         DrawLink(c, font, about, ax, y2 + 2, aboutFocus);
+        Hit(ax - 6, y2 - 6, aw + 12, 28, HitKind.HomeItem, (int)HomeItem.About);
 
         string[] parts = ["EN", "/", "日本語"];
         int sw = parts.Sum(p => LauncherCanvas.MeasureText(font, p) + 12) + 2 * 6;
@@ -127,6 +137,7 @@ public static partial class LauncherView
         {
             int w = LauncherCanvas.MeasureText(font, parts[i]);
             bool active = i == 0 ? m.Language == LauncherLanguage.English : i == 2 && m.Language == LauncherLanguage.Japanese;
+            if (i != 1) Hit(cx, y - 6, w + 12, 28, HitKind.Language, i == 0 ? 0 : 1);
             if (active) c.FillRect(cx, y - 2, w + 12, 20, Cyan);
             c.DrawText(font, parts[i], cx + 6, y, active ? Dark : Purple3);
             cx += w + 12 + 6;
@@ -170,6 +181,7 @@ public static partial class LauncherView
         {
             int x = 72 + i * (tabW + 8), y = 112;
             bool act = i == (int)m.Tab;
+            Hit(x, y, tabW, tabH, HitKind.Tab, i);
             if (act)
             {
                 c.FillRect(x + 4, y + 4, tabW, tabH, Red);
@@ -208,6 +220,7 @@ public static partial class LauncherView
     {
         int w = 22 + 24 + 10 + LauncherCanvas.MeasureText(font, label) + 22;
         int x = 1208 - w, y = 648 + 15;
+        Hit(x, y, w + 4, 46, HitKind.Back);
         c.FillRect(x + 4, y + 4, w, 42, Red);
         c.FillRect(x, y, w, 42, White);
         c.Circle(x + 22 + 12, y + 21, 12, Dark, 2);
