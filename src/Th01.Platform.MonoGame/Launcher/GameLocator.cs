@@ -14,6 +14,9 @@ public interface IUserPrompt
     string? PickGameFile();
 
     void ShowError(string message);
+
+    /// <summary>Lets the user pick a FONT.ROM file. Null = cancelled (or not supported).</summary>
+    string? PickFontRom() => null;
 }
 
 /// <summary>
@@ -38,12 +41,12 @@ public sealed class GameLocator(string userDir, IUserPrompt prompt, Func<string?
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException) { return null; }
     }
 
-    void SaveState(LauncherState state)
+    public void SaveState(LauncherState state)
     {
         try
         {
-            Directory.CreateDirectory(userDir);
-            File.WriteAllText(StatePath, JsonSerializer.Serialize(state));
+            // Only our two keys: the launcher settings live in the same file.
+            LauncherFile.Update(StatePath, o => { o["Source"] = state.Source; o["DataPath"] = state.DataPath; });
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

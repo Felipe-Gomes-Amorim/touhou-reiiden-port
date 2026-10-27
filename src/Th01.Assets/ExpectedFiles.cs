@@ -51,6 +51,7 @@ public static class ExpectedFiles
         new("ENDB_A.GRP", false, "image (PI variant)"),
         new("ENDB_B.GRP", false, "image (PI variant)"),
         new("ENDM_A.GRP", false, "image (PI variant)"),
+        new("FONT.ROM", false, "PC-98 font ROM supplied by the user (optional; not part of the game)"),
         new("FUUIN.EXE", false, "executable"),
         new("GAME_O.GRP", false, "image (PI variant)"),
         new("INIT.MDT", false, "music"),

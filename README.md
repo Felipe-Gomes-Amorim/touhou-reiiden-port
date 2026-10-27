@@ -8,7 +8,7 @@
 An engine-free C# (.NET 8) re-implementation of the 1997 PC-98 game. The community decompilation
 [ReC98](https://github.com/nmlgc/ReC98) is used only as a behavioural reference; no ReC98 code is included.
 
-**Status: v0.4.0, the Jigoku route can be played to the end.** Logo, title/menu (rebuilt after the original), the card stages, stage bonus,
+**Status: v0.5.0, the Jigoku route can be played to the end, now with a launcher.** Launcher (English and Japanese, options, mouse support), logo, title/menu (rebuilt after the original), the card stages, stage bonus,
 game over, ranking (saved to disk), Japanese text, music and sound effects (synthesized from your own game files), and the bosses
 SinGyoku (stage 5), YuugenMagan and Mima (stage 10), Kikuri and Elis (stage 15) and Konngara (stage 20, Jigoku route) work, followed by the
 ending pictures, captions and the final verdict screen (`--cutscene 4..7`). **Sariel (stage 20, Makai route) is not done yet, so the Makai route
@@ -20,12 +20,12 @@ boss details are still being checked against the original; expect differences.
 ## Play
 
 1. Download the latest zip from **Releases** and unzip it anywhere (keep `ReiidenPort.exe`, `SDL2.dll` and `openal.dll` together).
-2. Run `ReiidenPort.exe`. The first time, it asks for your game file: pick your **`.hdi` disk image** of Touhou Reiiden (Anex86 format, FAT12).
+2. Run `ReiidenPort.exe`. It opens the launcher. The first time, pick your game with **Select game...**: your **`.hdi` disk image** of Touhou Reiiden (Anex86 format, FAT12) or a folder with the game files.
    The game files are copied into `%LOCALAPPDATA%\ReiidenPort\data` on your own machine.
-3. Your choice is remembered; later runs open the game directly. To choose another file, hold **Shift** while starting, or run `ReiidenPort.exe --select`.
+3. Your choice is remembered. Press **Play** to start; change the game any time with **Change...** in the launcher (or run `ReiidenPort.exe --select`). The launcher has options for accessibility (softer flashes, less shaking), video (fullscreen, window size, integer scale, image filter), audio volumes, controls, and the text font; it can use your own `FONT.ROM` image for the original PC-98 look.
 
 Controls: arrows move, `Z` / `Space` shoot, `X` bomb, `P` pause, `F11` fullscreen, `F10` scale mode, `Esc` quit.
-Remap keys with `input.local.json` in `%LOCALAPPDATA%\ReiidenPort`.
+Keys and gamepad buttons can be remapped in the launcher (stored in `input.local.json` in `%LOCALAPPDATA%\ReiidenPort`).
 
 Command line: `--select`, `--game <hdi|folder>`, `--data <folder>`, `--stage 1..20`, `--route 0|1`, `--cutscene 1..7`. Set `REIIDENPORT_HOME` to keep all data elsewhere.
 

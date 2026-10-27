@@ -1,4 +1,4 @@
-using Microsoft.Xna.Framework;
+﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Th01.Core.Game;
@@ -6,6 +6,7 @@ using Th01.Core.Graphics;
 using Th01.Core.Input;
 using Th01.Core.Sim;
 using Th01.Core.Timing;
+using Th01.Platform.MonoGame.Launcher;
 
 namespace Th01.Platform.MonoGame;
 
@@ -53,12 +54,40 @@ public sealed class Th01Game : Game
 
     bool _screenshotRequested;
 
+    /// <summary>The launcher shown before the game; null starts the game at once (--stage, --cutscene, tests).</summary>
+    public LauncherModel? Launcher { get; init; }
+    /// <summary>Show the launcher first (false for --stage / --cutscene: the model still carries the player's settings).</summary>
+    public bool ShowLauncher { get; init; } = true;
+    /// <summary>Sound mixer whose two volumes the launcher sets.</summary>
+    public Th01.Audio.Playback.AudioMixer? Mixer { get; init; }
+    /// <summary>The font in use; it is told about the FONT.ROM settings whenever they change.</summary>
+    public LauncherFonts? Fonts { get; init; }
+    /// <summary>Folder of the chosen game (a FONT.ROM may be there).</summary>
+    public Func<string?>? GameFolder { get; init; }
+    /// <summary>Gamepad status and report files for the options screens.</summary>
+    public LauncherServices? LauncherSvc { get; init; }
+    /// <summary>Picks the game when the launcher asks (DIRECTORY / Change / Select game).</summary>
+    public IGameChooser? GameChooser { get; init; }
+    /// <summary>Ask for the game as soon as the launcher opens (--select).</summary>
+    public bool OpenChooserAtStart { get; init; }
+    /// <summary>Font for the launcher text (kana and kanji included).</summary>
+    public IFontSource? LauncherFont { get; init; }
+    readonly LauncherCanvas _lcanvas = new();
+    readonly uint[] _lrgba = new uint[LauncherCanvas.Width * LauncherCanvas.Height];
+    readonly LauncherInputState _linput = new();
+    Texture2D? _ltex;
+    ImagePresenter? _presenter;
+    int _filter;
+    LauncherApplier _applier = null!;
+    bool _inLauncher;
+
     /// <summary>Set when an unhandled error stopped the game; Program turns it into the exit code.</summary>
     public Exception? Fatal { get; private set; }
 
     public Th01Game(Func<GameFlow?>? flowFactory = null)
     {
         _flowFactory = flowFactory;
+        _applier = new LauncherApplier(new Surface(this));
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = Framebuffer.Width * 2,
@@ -76,7 +105,18 @@ public sealed class Th01Game : Game
     {
         _batch = new SpriteBatch(GraphicsDevice);
         _tex = new Texture2D(GraphicsDevice, Framebuffer.Width, Framebuffer.Height, false, SurfaceFormat.Color);
-        StartFlow();
+        _ltex = new Texture2D(GraphicsDevice, LauncherCanvas.Width, LauncherCanvas.Height, false, SurfaceFormat.Color);
+        _presenter = new ImagePresenter(GraphicsDevice);
+        Launcher?.Attach(LauncherSvc, _bindings, () => GameSettings.Load(null, GameFolder?.Invoke()));
+        ApplyLauncherSettings();
+        _inLauncher = ShowLauncher && Launcher is not null && LauncherFont is not null;
+        if (_inLauncher)
+        {
+            _status = "launcher";
+            UpdateTitle();
+            if (OpenChooserAtStart) Launcher!.ApplyChoice(GameChooser?.Choose());
+        }
+        else StartFlow();
     }
 
     /// <summary>(Re)creates the flow from the factory. Without a factory, or if it fails, the test pattern is shown.</summary>
@@ -112,6 +152,14 @@ public sealed class Th01Game : Game
             _prevKb = kb;
 
             var pad = GamePad.GetState(PlayerIndex.One, GamePadDeadZone.None); // deadzone is ours (InputBindings)
+            IsMouseVisible = _inLauncher;   // the pointer is for the launcher only
+            if (_inLauncher)
+            {
+                UpdateLauncher(kb, pad, elapsedUs);
+                AudioOutput?.Update();
+                base.Update(gameTime);
+                return;
+            }
             var live = _bindings.Poll(kb, pad);
             // Esc quits from the logo and the main title menu; on other screens it is just "cancel" (the bindings handle it).
             if (kb.IsKeyDown(Keys.Escape) && (_flow is null || _flow.EscapeQuits)) { Exit(); return; }
@@ -127,6 +175,145 @@ public sealed class Th01Game : Game
         catch (Exception e) { Fail(e); }
         AudioOutput?.Update();
         base.Update(gameTime);
+    }
+
+    /// <summary>Applies the launcher's video, audio and input settings whenever they changed (draw-only options never touch the simulation).</summary>
+    void ApplyLauncherSettings()
+    {
+        if (Launcher is null) return;
+        _applier.Apply(Launcher.Settings, Launcher.Revision, GameFolder?.Invoke());
+    }
+
+    /// <summary>The window, mixer, key map and font as the launcher's settings see them.</summary>
+    sealed class Surface(Th01Game g) : ILauncherSurface
+    {
+        public bool IsFullscreen => g._graphics.IsFullScreen;
+        public void SetFullscreen(bool on) { if (g._graphics.IsFullScreen != on) g._graphics.ToggleFullScreen(); }
+        public void SetWindowClientSize(int width, int height)
+        {
+            g._graphics.PreferredBackBufferWidth = width;
+            g._graphics.PreferredBackBufferHeight = height;
+            g._graphics.ApplyChanges();
+        }
+        public void SetIntegerScale(bool on) => g._scaleMode = on ? ScaleMode.Integer : ScaleMode.Fit;
+        public void SetFilter(int filter) => g._filter = filter;
+        public void SetVolumes(float music, float effects)
+        {
+            if (g.Mixer is null) return;
+            g.Mixer.MusicLevel = music;
+            g.Mixer.EffectLevel = effects;
+        }
+        public void SetNumpad(bool on) => g._bindings.Numpad = on;
+        public void ConfigureFonts(string? romPath, bool preferRom, string? gameFolder) => g.Fonts?.Configure(romPath, preferRom, gameFolder);
+        public void SetRecordMissingArt(bool on) { if (g.MissingArt is not null) g.MissingArt.Recording = on; }
+    }
+
+    readonly LauncherHitMap _hits = new();
+    MouseState _lprevMouse;
+    bool _mouseSeen;
+
+    /// <summary>
+    /// The mouse in the launcher: hover focuses what is under it (only when it moves, so the keyboard keeps its say), left click is
+    /// Select, right click is Back, the wheel scrolls the options list. The game itself never reads the mouse.
+    /// Returns true when the launcher was left (Play / Quit) and the rest of the update must be skipped.
+    /// </summary>
+    bool HandleLauncherMouse(long elapsedUs)
+    {
+        var ms = Mouse.GetState();
+        var prev = _lprevMouse;
+        bool had = _mouseSeen;
+        _lprevMouse = ms;
+        _mouseSeen = true;
+        if (!had || !IsActive) return false;
+        var vp = GraphicsDevice.Viewport;
+        var pos = LauncherViewport.ToCanvas(ms.X, ms.Y, vp.Width, vp.Height);
+        HitTarget? target = pos is { } p ? _hits.At(p.X, p.Y) : null;
+        if (ms.X != prev.X || ms.Y != prev.Y) Launcher!.Hover(target);
+        int wheel = ms.ScrollWheelValue - prev.ScrollWheelValue;
+        if (wheel != 0) Launcher!.Scroll(wheel > 0 ? -1 : 1);   // wheel up moves the list up
+        var result = LauncherResult.None;
+        if (ms.LeftButton == ButtonState.Pressed && prev.LeftButton == ButtonState.Released) result = Launcher!.Click(target, false);
+        if (ms.RightButton == ButtonState.Pressed && prev.RightButton == ButtonState.Released)
+        {
+            var back = Launcher!.Click(target, true);
+            if (result == LauncherResult.None) result = back;
+        }
+        switch (result)
+        {
+            case LauncherResult.Play: _inLauncher = false; StartFlow(); return true;
+            case LauncherResult.Quit: Exit(); return true;
+            case LauncherResult.ChooseGame: Launcher!.ApplyChoice(GameChooser?.Choose()); break;
+        }
+        return false;
+    }
+
+    KeyboardState _lprevKb;
+    GamePadState _lprevPad;
+    bool _lwasListening, _lwaitRelease;
+
+    /// <summary>Launcher: the keys and pad become presses, once per timestep tick, and the model runs the screens.</summary>
+    void UpdateLauncher(KeyboardState kb, GamePadState pad, long elapsedUs)
+    {
+        bool K(params Keys[] keys) => keys.Any(kb.IsKeyDown);
+        bool P(Buttons b) => pad.IsButtonDown(b);
+        if (LauncherSvc is not null)
+        {
+            LauncherSvc.GamepadConnected = pad.IsConnected;
+            LauncherSvc.GamepadName = pad.IsConnected ? GamePad.GetCapabilities(PlayerIndex.One).DisplayName : null;
+        }
+        ApplyLauncherSettings();
+        if (HandleLauncherMouse(elapsedUs)) return;
+        var held = LauncherKey.None;
+        if (Launcher!.Listening)
+        {
+            // Remapping: every key (or pad button) but Esc is the new binding; Esc cancels.
+            _lwasListening = true;
+            if (K(Keys.Escape)) held |= LauncherKey.Back;
+            else if (Launcher.ListeningForButton)
+            {
+                foreach (Buttons b in Enum.GetValues<Buttons>())
+                    if (b != Buttons.None && pad.IsButtonDown(b) && !_lprevPad.IsButtonDown(b)) { Launcher.OfferButton(b); break; }
+            }
+            else
+            {
+                foreach (var k in kb.GetPressedKeys())
+                    if (!_lprevKb.IsKeyDown(k)) { Launcher.OfferKey(k); break; }
+            }
+            _lprevKb = kb; _lprevPad = pad;
+            if (held == LauncherKey.None) { _linput.Step(LauncherKey.None); _timestep.Advance(elapsedUs); return; }
+        }
+        if (K(Keys.Up) || P(Buttons.DPadUp) || pad.ThumbSticks.Left.Y > 0.5f) held |= LauncherKey.Up;
+        if (K(Keys.Down) || P(Buttons.DPadDown) || pad.ThumbSticks.Left.Y < -0.5f) held |= LauncherKey.Down;
+        if (K(Keys.Left) || P(Buttons.DPadLeft) || pad.ThumbSticks.Left.X < -0.5f) held |= LauncherKey.Left;
+        if (K(Keys.Right) || P(Buttons.DPadRight) || pad.ThumbSticks.Left.X > 0.5f) held |= LauncherKey.Right;
+        if (K(Keys.Z, Keys.Enter) || P(Buttons.A)) held |= LauncherKey.Select;
+        if (K(Keys.X, Keys.Escape) || P(Buttons.B)) held |= LauncherKey.Back;
+        if (K(Keys.Q) || P(Buttons.LeftShoulder)) held |= LauncherKey.TabPrev;
+        if (K(Keys.E) || P(Buttons.RightShoulder)) held |= LauncherKey.TabNext;
+
+        _lprevKb = kb; _lprevPad = pad;
+        if (_lwasListening && !Launcher.Listening) { _lwasListening = false; _lwaitRelease = true; }
+        if (_lwaitRelease) { if (held != LauncherKey.None) held = LauncherKey.None; else _lwaitRelease = false; }
+
+        int ticks = _timestep.Advance(elapsedUs);
+        for (int i = 0; i < ticks; i++)
+        {
+            Launcher!.Step();
+            var pressed = _linput.Step(held);
+            held = LauncherKey.None; // a long frame must not press twice
+            foreach (LauncherKey one in Enum.GetValues<LauncherKey>())
+            {
+                if (one == LauncherKey.None || !pressed.HasFlag(one)) continue;
+                switch (Launcher.Press(one))
+                {
+                    case LauncherResult.Play: _inLauncher = false; StartFlow(); return;
+                    case LauncherResult.Quit: Exit(); return;
+                    case LauncherResult.ChooseGame:
+                        Launcher.ApplyChoice(GameChooser?.Choose()); // a native dialog: the window waits for it
+                        return;
+                }
+            }
+        }
     }
 
     /// <summary>Input for this tick: the script while replaying, else the live input (recorded if recording).</summary>
@@ -149,9 +336,8 @@ public sealed class Th01Game : Game
         if (Pressed(Keys.F11))
         {
             _graphics.ToggleFullScreen();
-            // Fullscreen fills the screen height (16:10 picture, black bars at the sides if the screen is wider);
-            // windowed keeps whole-number scales. F10 still cycles the modes.
-            _scaleMode = _graphics.IsFullScreen ? ScaleMode.Fit : ScaleMode.Integer;
+            // The scale mode follows the launcher's "whole-number scaling" setting; F10 still cycles the modes.
+            Launcher?.SetFullscreen(_graphics.IsFullScreen);
         }
         if (Pressed(Keys.F10))
         {
@@ -216,6 +402,18 @@ public sealed class Th01Game : Game
         try
         {
             GraphicsDevice.Clear(Color.Black);
+            if (_inLauncher)
+            {
+                LauncherView.Render(Launcher!, _lcanvas, LauncherFont!, _hits);
+                _lcanvas.ToRgba(_lrgba);
+                _ltex!.SetData(_lrgba);
+                var lv = GraphicsDevice.Viewport;
+                var (fx, fy, lw, lh) = LauncherViewport.Fit(lv.Width, lv.Height);
+                // The same filter path as the game, so a change in the options shows in the launcher at once (read from the live setting).
+                _presenter!.Present(_batch!, _ltex, new Rectangle(fx, fy, lw, lh), (ImageFilter)Launcher!.Settings.Filter);
+                base.Draw(gameTime);
+                return;
+            }
             _flow?.Render(_fb);
             _fb.ToRgba(_rgba);
             // Framebuffer holds 0xAARRGGBB; MonoGame's Color layout is R,G,B,A in memory (0xAABBGGRR as uint).
@@ -229,9 +427,8 @@ public sealed class Th01Game : Game
 
             var vp = GraphicsDevice.Viewport;
             var r = ViewportLayout.Compute(vp.Width, vp.Height, _scaleMode);
-            _batch!.Begin(samplerState: SamplerState.PointClamp); // filter off
-            _batch.Draw(_tex, new Rectangle(r.X, r.Y, r.Width, r.Height), Color.White);
-            _batch.End();
+            var dest = new Rectangle(r.X, r.Y, r.Width, r.Height);
+            _presenter!.Present(_batch!, _tex, dest, (ImageFilter)_filter);
         }
         catch (Exception e) { Fail(e); }
         base.Draw(gameTime);
@@ -248,7 +445,7 @@ public sealed class Th01Game : Game
 
     protected override void OnExiting(object sender, ExitingEventArgs args)
     {
-        if (MissingArt is { Count: > 0 } && MissingArtPath is not null && MissingArt.Save(MissingArtPath))
+        if (Launcher?.Settings.RecordMissingArt != false && MissingArt is { Count: > 0 } && MissingArtPath is not null && MissingArt.Save(MissingArtPath))
             Console.WriteLine($"{MissingArt.Count} missing art item(s) written to {MissingArtPath}");
         base.OnExiting(sender, args);
     }
