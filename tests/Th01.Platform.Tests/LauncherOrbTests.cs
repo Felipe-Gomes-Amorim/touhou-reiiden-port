@@ -105,58 +105,52 @@ public class LauncherOrbTests
     }
 
     [Fact]
-    public void HeaderOrb_TurnsOnHoverOrKeyboardFocus_NotWhenTheMouseIsElsewhere_NotWhenReduced()
+    public void HeaderOrbs_NeverTurn_OnAnyScreen_NoMatterTheFocusOrTheMouse()
     {
-        var m = Model();
-        Assert.True(m.HeaderSpinning);                                       // keyboard-driven screen
-        m.Hover(new HitTarget(HitKind.HomeItem, (int)HomeItem.Quit));
-        Assert.Equal(InputDevice.Mouse, m.LastDevice);
-        Assert.False(m.HeaderSpinning);                                      // mouse is on a button, not the header
-        m.Hover(new HitTarget(HitKind.Header));
-        Assert.True(m.HeaderSpinning);
-        m.Hover(null);
-        Assert.False(m.HeaderSpinning);
-        m.Hover(new HitTarget(HitKind.Header));
-        m.Press(LauncherKey.Down);                                           // keyboard takes over: the one focus
-        Assert.Equal(InputDevice.Keyboard, m.LastDevice);
-        Assert.True(m.HeaderSpinning);
-
-        var reduced = Model(new LauncherSettings { SoftenBombFlash = true, ReduceShake = true, RemoveTitleLines = true });
-        reduced.Hover(new HitTarget(HitKind.Header));
-        Assert.False(reduced.HeaderSpinning);
-        Assert.False(reduced.OrbSpinning);
-    }
-
-    [Fact]
-    public void ClickingKeepsTheMouseAsTheLastDevice()
-    {
-        var m = Model();
-        m.Click(new HitTarget(HitKind.HomeItem, (int)HomeItem.Options), false);   // Press runs inside, the device must stay "mouse"
-        Assert.Equal(InputDevice.Mouse, m.LastDevice);
-    }
-
-    [Fact]
-    public void EveryScreenHasAHeaderHitRegion_AndHoveringItDoesNotMoveTheFocus()
-    {
-        var m = Model();
-        var hits = new LauncherHitMap();
-        var canvas = new LauncherCanvas();
-        bool Has(HitKind k)
+        // Each screen has an orb next to its title. Render at two ticks a quarter turn apart and compare the header strip: it must not change.
+        // (Bands at the bottom and the focused menu orb do change, so only the header region is compared.)
+        foreach (int screen in new[] { 0, 1, 2 })
         {
-            for (int y = 0; y < 720; y += 2) for (int x = 0; x < 1280; x += 2) if (hits.At(x, y) is { } t && t.Kind == k) return true;
-            return false;
+            var m = Model();
+            if (screen == 1) { m.Press(LauncherKey.Down); m.Press(LauncherKey.Select); }
+            if (screen == 2) { m.Press(LauncherKey.Up); m.Press(LauncherKey.Select); }
+            m.Hover(new HitTarget(HitKind.HomeItem, (int)HomeItem.Quit));
+            var a = new LauncherCanvas(); var b = new LauncherCanvas();
+            LauncherView.Render(m, a, Font);
+            for (int i = 0; i < 14; i++) m.Step();
+            LauncherView.Render(m, b, Font);
+            int stripBottom = screen == 0 ? 108 : 100;
+            for (int y = 24; y < stripBottom; y++)
+                for (int x = 60; x < 800; x++)
+                    Assert.True(a.Get(x, y) == b.Get(x, y), $"screen {screen}: header pixel {x},{y} changed");
         }
-        LauncherView.Render(m, canvas, Font, hits);
-        Assert.True(Has(HitKind.Header));
-        int focus = m.Focus;
-        m.Hover(new HitTarget(HitKind.Header));
-        Assert.Equal(focus, m.Focus);
-        m.Press(LauncherKey.Down); m.Press(LauncherKey.Select);              // options
-        LauncherView.Render(m, canvas, Font, hits);
-        Assert.True(Has(HitKind.Header));
-        m.Press(LauncherKey.Back);
-        m.Press(LauncherKey.Up); m.Press(LauncherKey.Select);                // About is last in the order; Up from OPTIONS wraps through PLAY to it
-        m.Press(LauncherKey.Up);
+    }
+
+    [Fact]
+    public void OrbSpinning_IsOffWhenMotionIsReduced_AndThereIsNoHeaderHoverState()
+    {
+        Assert.True(Model().OrbSpinning);
+        var reduced = Model(new LauncherSettings { SoftenBombFlash = true, ReduceShake = true, RemoveTitleLines = true });
+        Assert.False(reduced.OrbSpinning);
+        Assert.DoesNotContain("Header", Enum.GetNames<HitKind>());
+    }
+
+    [Fact]
+    public void EveryMenuItemOrb_TurnsOnlyWhileThatItemHasTheFocus()
+    {
+        // PLAY, OPTIONS and QUIT: each orb, when focused, differs between two ticks; the others show nothing.
+        foreach (var (downs, index) in new[] { (0, 0), (1, 1), (2, 2) })
+        {
+            var m = Model();
+            for (int i = 0; i < downs; i++) m.Press(LauncherKey.Down);
+            Assert.Equal(LauncherModel.HomeOrder[index], m.FocusedItem);
+            int cx = 96 + 56 * index + 8 + 27, cy = 270 + 70 * index + 28;
+            var a = new LauncherCanvas(); var b = new LauncherCanvas();
+            LauncherView.Render(m, a, Font);
+            for (int i = 0; i < 14; i++) m.Step();
+            LauncherView.Render(m, b, Font);
+            Assert.NotEqual(Region(a, cx, cy, 11), Region(b, cx, cy, 11));
+        }
     }
 
     /// <summary>LAUNCHER_DUMP=folder writes four turns of the orb on the options header, to look at.</summary>

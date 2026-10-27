@@ -1,6 +1,6 @@
 namespace Th01.Platform.MonoGame.Launcher;
 
-public enum HitKind { HomeItem, Language, Tab, Row, BarCell, Back, Header }
+public enum HitKind { HomeItem, Language, Tab, Row, BarCell, Back }
 
 /// <summary>What a screen region means. A and B depend on the kind: HomeItem = item; Language = 0 English / 1 Japanese;
 /// Tab = tab index; Row = absolute row; BarCell = row, cell 1..10; Back = nothing.</summary>
@@ -49,30 +49,18 @@ public static class LauncherViewport
     }
 }
 
-public enum InputDevice { Keyboard, Mouse }
-
 public sealed partial class LauncherModel
 {
-    /// <summary>Which device moved the focus last: keyboard/gamepad or mouse (one focus, the latest device wins).</summary>
-    public InputDevice LastDevice { get; private set; } = InputDevice.Keyboard;
-
-    /// <summary>The mouse is over the screen's header.</summary>
-    public bool HeaderHover { get; private set; }
-
     /// <summary>"Reduce lights and motion" is on: nothing spins.</summary>
     public bool ReduceMotion => _settings.ReduceAll;
 
-    /// <summary>The header orb turns while the mouse is on the header, or while the screen is being driven by keyboard/gamepad.</summary>
-    public bool HeaderSpinning => !ReduceMotion && (HeaderHover || LastDevice == InputDevice.Keyboard);
-
-    /// <summary>The orb of the focused menu item turns (focus and hover are the same thing here).</summary>
+    /// <summary>Only the orb of the focused or hovered item of the main menu (PLAY, OPTIONS, QUIT) turns, and not when motion is reduced.
+    /// Every other orb (screen headers, panels, rows) stays still.</summary>
     public bool OrbSpinning => !ReduceMotion;
 
     /// <summary>Mouse over something: the focus goes there (home items, options rows). Tabs and the back button have no focus to move.</summary>
     public void Hover(HitTarget? target)
     {
-        LastDevice = InputDevice.Mouse;
-        HeaderHover = target is { Kind: HitKind.Header };
         if (target is not { } t || Listening || ShowingReport) return;
         if (Screen == LauncherScreen.Home)
         {
@@ -88,13 +76,6 @@ public sealed partial class LauncherModel
 
     /// <summary>A click: left acts like Select on what is under the pointer, right acts like Back. Returns what the host must do (Play, Quit, ChooseGame).</summary>
     public LauncherResult Click(HitTarget? target, bool right)
-    {
-        var result = ClickCore(target, right);
-        LastDevice = InputDevice.Mouse;   // Press (used inside) marks the keyboard
-        return result;
-    }
-
-    LauncherResult ClickCore(HitTarget? target, bool right)
     {
         if (right) return Press(LauncherKey.Back);
         if (ShowingReport) { Press(LauncherKey.Back); return LauncherResult.None; }   // any click closes the report

@@ -306,7 +306,7 @@ public class LauncherMouseTests
         var r = new Rig();
         r.Click(HitKind.HomeItem, (int)HomeItem.About);
         Assert.Equal(LauncherScreen.About, r.Model.Screen);
-        Assert.Equal(2, r.Hits.Count);                   // the header and the back button are the only targets there
+        Assert.Equal(1, r.Hits.Count);                   // only the back button is a target there
         r.Click(HitKind.Back);
         Assert.Equal(LauncherScreen.Home, r.Model.Screen);
     }

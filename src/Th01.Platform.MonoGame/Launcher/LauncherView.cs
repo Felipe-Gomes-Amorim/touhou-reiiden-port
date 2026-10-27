@@ -36,7 +36,7 @@ public static partial class LauncherView
         LauncherBackdrop.DrawBands(c, m.Tick, 96);
 
         c.DrawTextShadow(font, m.Text(Str.Title), 72, 56, White, Red, 3, 3, 1);
-        DrawHeaderOrb(m, c, 72 + LauncherCanvas.MeasureText(font, m.Text(Str.Title), 3, 1) + 34, 56 + 24, 20, 72, 56, LauncherCanvas.MeasureText(font, m.Text(Str.Title), 3, 1) + 68, 48);
+        DrawHeaderOrb(c, 72 + LauncherCanvas.MeasureText(font, m.Text(Str.Title), 3, 1) + 34, 56 + 24, 20);
         if (HasLogo(m)) m.Logo!.Draw(c, 72, LogoTop);   // the game's own logo replaces the subtitle line; the "fan port" title stays
         else
         {
@@ -165,12 +165,8 @@ public static partial class LauncherView
         c.FillRect(x - 2, y + 18, w + 8, 2, Cyan);
     }
 
-    /// <summary>The orb beside a screen's title; it turns while the header is hovered or the screen is driven by keyboard/pad. The box is its hover area.</summary>
-    static void DrawHeaderOrb(LauncherModel m, LauncherCanvas c, int cx, int cy, int r, int boxX, int boxY, int boxW, int boxH)
-    {
-        Hit(boxX, boxY, boxW, boxH, HitKind.Header);
-        c.YinYang(cx, cy, r, 0, m.HeaderSpinning ? LauncherBackdrop.SpinFrame(m.Tick) : 0);
-    }
+    /// <summary>The orb beside a screen's title. It never turns.</summary>
+    static void DrawHeaderOrb(LauncherCanvas c, int cx, int cy, int r) => c.YinYang(cx, cy, r);   // upright and still: only the menu orbs turn
 
     static void DrawFooterFrame(LauncherCanvas c, int height)
     {
@@ -189,7 +185,7 @@ public static partial class LauncherView
         c.DrawText(font, m.Text(Str.Title), 72, 30, Purple3);
         c.DrawTextShadow(font, m.Text(Str.OptionsHeading), 72, 50, White, Red, 3, 2, 4);
         int ow = LauncherCanvas.MeasureText(font, m.Text(Str.OptionsHeading), 2, 4);
-        DrawHeaderOrb(m, c, 72 + ow + 28, 50 + 16, 14, 72, 28, ow + 56, 56);
+        DrawHeaderOrb(c, 72 + ow + 28, 50 + 16, 14);
 
         DrawKeyCap(c, font, "L", 30, 142, 30, true);
         DrawKeyCap(c, font, "R", 1220, 142, 30, true);
@@ -256,7 +252,7 @@ public static partial class LauncherView
         c.DrawText(font, m.Text(Str.Title), 72, 44, Purple3);
         c.DrawTextShadow(font, m.Text(Str.AboutHeading), 72, 64, White, Red, 3, 2, 4);
         int aw0 = LauncherCanvas.MeasureText(font, m.Text(Str.AboutHeading), 2, 4);
-        DrawHeaderOrb(m, c, 72 + aw0 + 28, 64 + 16, 14, 72, 42, aw0 + 56, 56);
+        DrawHeaderOrb(c, 72 + aw0 + 28, 64 + 16, 14);
 
         const int px = 72, py = 150, pw = 760, inner = 760 - 4 - 48;
         var note = Wrap(font, m.Text(Str.AboutNote), pw - 4 - 48 - 28 - 4);

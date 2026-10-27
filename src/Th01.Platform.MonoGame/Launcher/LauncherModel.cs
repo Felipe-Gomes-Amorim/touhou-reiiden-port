@@ -78,7 +78,6 @@ public sealed partial class LauncherModel
 
     public LauncherResult Press(LauncherKey key)
     {
-        LastDevice = InputDevice.Keyboard;
         switch (Screen)
         {
             case LauncherScreen.Home: return PressHome(key);
