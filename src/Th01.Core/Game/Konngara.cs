@@ -122,7 +122,8 @@ public sealed class Konngara : Boss
     }
 
     /// <summary>Defeat: nine "kuji" images, a 64-tick shake and the final scroll fade, plus the white-out (estimate).</summary>
-    public const int DefeatSequenceTicks = 9 * 10 + 64 + 270;
+    public const int KujiCount = 9, KujiTicks = 10, DefeatShakeTicks = 64, FinalScrollTicks = 270;
+    public const int DefeatSequenceTicks = KujiCount * KujiTicks + DefeatShakeTicks + FinalScrollTicks;
 
     // ---- state ----
     int _entranceFrame;
@@ -175,10 +176,13 @@ public sealed class Konngara : Boss
     public override int HpFirstRedWhite => HpFirstRedWhiteValue;
     public override int HpFirstWhite => HpFirstWhiteValue;
 
-    public override int DefeatTicks()
+    public override int DefeatTicks() => WhiteoutTicks() + DefeatSequenceTicks;
+
+    /// <summary>The white-out before the sequence (an estimate that the original may not have at all: its sequence starts at once). TODO(T5)</summary>
+    public int WhiteoutTicks()
     {
         int startY = World.Orb.Top + Playfield.OrbH / 2;
-        return Math.Max(startY + 1, Playfield.Bottom - startY) / DefeatLineDistance + 15 * DefeatWhiteinInterval + DefeatSequenceTicks;
+        return Math.Max(startY + 1, Playfield.Bottom - startY) / DefeatLineDistance + 15 * DefeatWhiteinInterval;
     }
 
     /// <summary>The seal syllable colour has been fading in for this many steps during phases 2, 4 and 6 (drawing only).</summary>

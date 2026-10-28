@@ -56,6 +56,13 @@ internal sealed partial class GameRenderer
         if (!_paletteFromArt) FallbackPalette(fb);
         if (w.Boss is Konngara { Phase: 0 } konngaraEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKonngaraEntranceBackdrop(fb, konngaraEntrance);
         if (w.Boss is Sariel sarielBackdrop) DrawSarielBackdrop(fb, sarielBackdrop);
+        if (_s.Phase == SessionPhase.BossDefeat && w.Boss is Konngara konngaraDefeated && _s.DefeatElapsed >= konngaraDefeated.WhiteoutTicks())
+        {
+            // the defeat of Konngara is a blocking sequence of full-screen pictures: nothing of the stage is on screen
+            _bomb.Draw(fb, null, uint.MaxValue);
+            DrawKonngaraDefeat(fb, _s.DefeatElapsed - konngaraDefeated.WhiteoutTicks());
+            return;
+        }
         if (w.Boss is Kikuri { Phase: 0 } kikuriEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKikuriEntranceBackdrop(fb, kikuriEntrance);
         // Konngara's blocking entrance shows full-screen pictures only: no HUD, player or Orb until the fight starts.
         bool coverEntrance = w.Boss is Konngara { Phase: 0 } or Sariel { Phase: 0 } && _s.Phase == SessionPhase.BossEntrance;
