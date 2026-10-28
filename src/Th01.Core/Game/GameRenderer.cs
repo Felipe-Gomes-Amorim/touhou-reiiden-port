@@ -9,7 +9,7 @@ namespace Th01.Core.Game;
 /// and leaves one-frame artifacts (unblit-before-blit bugs); this draws each frame from scratch and does not
 /// reproduce those artifacts (the logic that causes them is kept, see GAMEPLAY-NOTES.md section 7 and 19).
 /// </summary>
-internal sealed class GameRenderer
+internal sealed partial class GameRenderer
 {
     // ref: th01/main/stage/stageobj.cpp CARD_ANIM -- STG.PTN frame per [remaining flips][animation cel]
     static readonly int[][] CardAnim =
@@ -55,10 +55,16 @@ internal sealed class GameRenderer
         if (_art != null) DrawBackground(fb);
         if (!_paletteFromArt) FallbackPalette(fb);
         if (w.Boss is Konngara { Phase: 0 } konngaraEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKonngaraEntranceBackdrop(fb, konngaraEntrance);
+        if (w.Boss is Sariel sarielBackdrop) DrawSarielBackdrop(fb, sarielBackdrop);
         if (w.Boss is Kikuri { Phase: 0 } kikuriEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKikuriEntranceBackdrop(fb, kikuriEntrance);
+        // Konngara's blocking entrance shows full-screen pictures only: no HUD, player or Orb until the fight starts.
+        bool coverEntrance = w.Boss is Konngara { Phase: 0 } or Sariel { Phase: 0 } && _s.Phase == SessionPhase.BossEntrance;
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
-        DrawMono(fb, HudMask, 0, 0, 0, ColRed);
-        fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
+        if (!coverEntrance)
+        {
+            DrawMono(fb, HudMask, 0, 0, 0, ColRed);
+            fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
+        }
 
         if (w.Stage != null)
         {
@@ -66,7 +72,7 @@ internal sealed class GameRenderer
             DrawObstacles(fb, w.Stage);
         }
         bool bossGone = _s.Phase == SessionPhase.RouteSelect
-            || _s.Phase == SessionPhase.BossDefeat && _s.DefeatElapsed >= DefeatLineTicks(w.Boss!);
+            || _s.Phase == SessionPhase.BossDefeat && w.Boss is not Sariel && _s.DefeatElapsed >= DefeatLineTicks(w.Boss!);
         if (w.Boss != null && !bossGone) DrawBoss(fb, w.Boss);
         DrawItems(fb, w.Items);
         DrawPellets(fb, w.Pellets);
@@ -75,12 +81,16 @@ internal sealed class GameRenderer
         DrawParticles(fb, w.Particles);
         DrawSparkles(fb, w.Sparkles);
         DrawShots(fb, w.Shots);
-        if (_s.Phase != SessionPhase.RouteSelect) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
-        DrawPlayer(fb, w);
-        DrawHud(fb, w);
+        if (_s.Phase != SessionPhase.RouteSelect && !coverEntrance) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
+        if (!coverEntrance)
+        {
+            DrawPlayer(fb, w);
+            DrawHud(fb, w);
+        }
         if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame, _s.Visuals);
         else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb
-        if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
+        if (_s.Phase == SessionPhase.BossDefeat && w.Boss is Sariel sarielDefeated) DrawSarielDefeat(fb, sarielDefeated);
+        else if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
         else if (w.Boss is { } flashing && (_s.Visuals.SoftFlashes ? flashing.FlashSteady : flashing.FlashOn)) FlashColors(fb, flashing.FlashColors);
         // The route menu is drawn over the stage picture (the boss is gone, the HUD and Reimu stay), under a darker palette.
         if (_s.Phase == SessionPhase.RouteSelect) DrawRouteMenu(fb);
@@ -534,6 +544,7 @@ internal sealed class GameRenderer
         else if (boss is Kikuri k) DrawKikuri(fb, k);
         else if (boss is Elis e) DrawElis(fb, e);
         else if (boss is Konngara kg) DrawKonngara(fb, kg);
+        else if (boss is Sariel sa) DrawSariel(fb, sa);
     }
 
     void DrawSinGyoku(Framebuffer fb, SinGyoku b)
@@ -676,10 +687,15 @@ internal sealed class GameRenderer
     {
         bool entering = k.Phase == 0 && _s.Phase == SessionPhase.BossEntrance;
         var view = entering ? k.ViewAt(k.EntranceTick) : default;
-        if (entering && !view.Revealed) return;          // the scroll and the pan show only pictures
+        if (entering)
+        {
+            // Only pictures: the boss and her face are in BOSS8_A1; the seal syllables are put on top at the very end.
+            if (view.SealStep >= 0) DrawSealSyllables(fb, k, view.SealStep);
+            return;
+        }
         if (k.Phase >= 1) DrawHpBar(fb, k);
-        // The seal syllables (colourkeyed pictures in the colour of palette entry 9) appear at the end of the entrance and stay.
-        if (!entering || view.SealStep >= 0) DrawSealSyllables(fb, k, entering ? view.SealStep : -1);   // -1: not in the entrance
+        // The seal syllables (colourkeyed pictures in the colour of palette entry 9) stay on the screen during the fight.
+        DrawSealSyllables(fb, k, -1);                      // -1: not in the entrance
         // Slash images accumulate on the screen while the pattern runs (BOSS8.GRZ images 0..n).
         for (int n = 0; n <= k.SlashImage; n++) DrawColorKey(fb, SlashSheet, n);
         // Head and face: BOSS8_1.BOS frame = direction, BOSS8_E1.BOS frame = (expression - 1) * 3 + direction (closed, glare),
@@ -856,11 +872,11 @@ internal sealed class GameRenderer
     /// 32 squares of 32x32 invert the red plane around the screen centre. A square not fully on the screen is skipped.
     /// ref: th01/hardware/grpinv32.hpp entrance_rings_update_and_render
     /// </summary>
-    static void DrawEntranceRings(Framebuffer fb, int frame)
+    static void DrawEntranceRings(Framebuffer fb, int frame, int firstFrame = 70, int radiusInitial = 0)
     {
-        int updates = frame / 4 - 17;
-        if (updates <= 0) return;
-        int radiusBase = 16 * updates;
+        if (frame <= firstFrame) return;
+        int radiusBase = radiusInitial + 16 * Math.Max(0, frame / 4 - (firstFrame + 1) / 4);
+        if (radiusBase <= 0) return;
         for (int i = 32; i < 5 * 32; i++)
         {
             int radius = radiusBase * (i / 32), angle = i % 32 * (0x100 / 32);

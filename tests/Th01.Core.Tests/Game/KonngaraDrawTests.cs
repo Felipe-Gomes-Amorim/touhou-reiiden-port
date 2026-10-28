@@ -217,4 +217,27 @@ public class KonngaraDrawTests
         k.PhaseFrame = 50 + 4 * 16;
         Assert.Equal(0, Red());
     }
+
+    [Fact]
+    public void The_entrance_shows_only_the_pictures_no_hud_player_or_orb_until_the_fight_starts()
+    {
+        var g = Session(new Art());
+        var k = (Konngara)g.World.Boss!;
+        var allowed = new HashSet<byte> { 0, 3, 4, 9 };          // the colours of the synthetic pictures and seal syllables
+        for (int tick = 1; tick < Konngara.EntranceTotal; tick += 37)
+        {
+            RunTo(g, k, tick);
+            var fb = Render(g);
+            for (int y = 0; y < Framebuffer.Height; y++)
+                for (int x = 0; x < Framebuffer.Width; x++)
+                    Assert.True(allowed.Contains(fb.GetPixel(x, y)), $"stray pixel {fb.GetPixel(x, y)} at ({x},{y}) in entrance tick {tick}");
+        }
+        while (g.Phase == SessionPhase.BossEntrance) g.Step(GameButtons.None);
+        var play = Render(g);
+        int other = 0;
+        for (int y = 0; y < Framebuffer.Height; y++)
+            for (int x = 0; x < Framebuffer.Width; x++)
+                if (!allowed.Contains(play.GetPixel(x, y))) other++;
+        Assert.True(other > 0);                                   // HUD, player and Orb are back
+    }
 }

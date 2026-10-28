@@ -143,6 +143,7 @@ public sealed class GameWorld
                 else if (o.Stage.StageId == Kikuri.Id && o.Stage.Route == 1) Boss = new Kikuri(this);
                 else if (o.Stage.StageId == Elis.Id && o.Stage.Route == 0) Boss = new Elis(this);
                 else if (o.Stage.StageId == Konngara.Id && o.Stage.Route == 1) Boss = new Konngara(this);
+                else if (o.Stage.StageId == Sariel.Id && o.Stage.Route == 0) Boss = new Sariel(this);
             }
             else
             {

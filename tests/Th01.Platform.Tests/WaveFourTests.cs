@@ -199,18 +199,21 @@ public class WaveFourTests : IDisposable
     }
 
     [Fact]
-    public void TheRunEndsAfterTheLastStageThatIsPorted_WithANoteOnTheRanking()
+    public void OnTheMakaiRoute_ClearingStage20LeadsToTheEnding()
     {
         var stages = new FlowFakeStages { Lives = 3 };
-        var f = new GameFlow(stages, new NoScreenImages(), BdfFont.LoadSpleen8x16(), new GameSettings(), startStage: GameFlow.LastPlayableStage);
-        for (int i = 0; i < EntranceOverlay.TotalTicks(true) + 5; i++) f.Tick(GameButtons.None);
-        f.Game!.World.StageCleared = true;
+        var f = new GameFlow(stages, new NoScreenImages(), BdfFont.LoadSpleen8x16(), new GameSettings(), startStage: GameFlow.LastStage, route: 0);
+        Assert.Equal(SessionPhase.BossEntrance, f.Game!.Phase);   // no stage banner for Sariel either
+        for (int i = 0; i < 20000 && f.Game!.Phase != SessionPhase.Playing; i++) f.Tick(GameButtons.None);
+        Assert.IsType<Sariel>(f.Game!.World.Boss);
         f.Tick(GameButtons.Shot);
+        f.Game!.World.StageCleared = true;
+        f.Tick(GameButtons.None);
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
-        for (int i = 0; i < GameSession.BonusBoxTicks; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < TotleTimeline.InputAt; i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
-        Assert.Contains(f.Screen, new[] { Screen.NameEntry, Screen.Ranking });
-        Assert.Single(stages.Requests);                       // no stage 20 was requested
+        Assert.Equal(Screen.Cutscene, f.Screen);              // the Makai ending
+        Assert.Single(stages.Requests);
     }
 
     [Fact]
