@@ -290,6 +290,7 @@ public sealed class GameSession : IGameSession, ITraceSource
     void StepPlaying(GameButtons input)
     {
         var w = _w;
+        if (w.Boss is { BlockingTransition: true }) { w.Boss.Update(); return; }
         w.FrameRand++;
         int raiseCycle = 1800 - w.RemLives * 200 - w.RemBombs * 50;
         if (w.FrameRand % (uint)raiseCycle == 0) w.Pellets.SpeedRaise(1);   // pellet_speed_raise(0.025f)

@@ -532,4 +532,98 @@ public class SarielTests
         while (s.PatternsDone == 0) { s.Update(); ticks++; Assert.True(ticks < 2000); }
         Assert.Equal(601, ticks);
     }
+
+    // ---- part 8: form 1 defeated, form 2 ----
+
+    [Fact]
+    public void Zero_hp_in_form_1_resets_the_field_then_runs_200_frames_of_shaking_and_the_transition_into_form_2()
+    {
+        var (w, s) = Make(seed: 17);
+        s.Phase = 1; s.PatternCur = 0; s.PatternsUntilNext = 99;
+        w.Lasers[2].Spawn(100, 100, 200, 300, 60, 15, 20, 4);
+        w.Orb.Left = 123; w.Orb.Top = 222; w.Player.Left = 55;
+        s.Hp = 0;
+        s.Update();
+        Assert.Equal(Sariel.PhaseForm1Defeated, s.Phase);
+        Assert.True(s.BlockingTransition);
+        s.Update();                                          // the first call of the animation does the resets
+        Assert.False(w.Lasers[2].Alive);
+        Assert.Equal((Playfield.OrbLeftStart, Playfield.OrbTopStart, Playfield.PlayerLeftStart), (w.Orb.Left, w.Orb.Top, w.Player.Left));
+        int ticks = 0;
+        bool sawShake = false, sawFlash = false;
+        while (s.Phase == Sariel.PhaseForm1Defeated && ticks++ < 1000)
+        {
+            s.Update();
+            sawShake |= s.Form1DefeatShakeLine != 0;
+            sawFlash |= s.Form1DefeatFlash;
+        }
+        Assert.Equal(Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatTransitionTicks, ticks);
+        Assert.True(sawShake && sawFlash);
+        Assert.Equal((Sariel.PhaseForm2, 6, 0, 0, 10, 3), (s.Phase, s.Hp, s.PhaseFrame, s.PatternCur, s.HpFirstWhite, s.HpFirstRedWhite));
+        Assert.False(s.BlockingTransition);
+    }
+
+    static (GameWorld w, Sariel s) Form2(int cur, Rank rank = Rank.Normal, uint seed = 6)
+    {
+        var (w, s) = Make(rank, seed);
+        s.Phase = Sariel.PhaseForm2; s.Hp = 6; s.PatternCur = cur;
+        w.PlayerInvincible = true;
+        return (w, s);
+    }
+
+    [Fact]
+    public void Form_2_cycles_through_the_patterns_0_to_8_then_4_to_8_and_ends_at_zero_hp()
+    {
+        var (w, s) = Form2(0);
+        var order = new List<int> { 0 };
+        int guard = 0;
+        while (order.Count < 14 && guard++ < 20000)
+        {
+            s.Update();
+            if (s.PatternCur != order[^1]) order.Add(s.PatternCur);
+        }
+        Assert.Equal(new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 4, 5, 6, 7, 8 }, order);
+        s.Hp = 0;
+        s.Update();
+        Assert.True(s.Defeated);
+        Assert.Equal(Sariel.PhaseForm2Defeated, s.Phase);
+    }
+
+    [Fact]
+    public void Form_2_pattern_lengths()
+    {
+        var (_, s) = Form2(0);
+        var lengths = new Dictionary<int, int>();
+        int cur = 0, ticks = 0, total = 0;
+        while (lengths.Count < 6 && total++ < 20000)
+        {
+            s.Update();
+            ticks++;
+            if (s.PatternCur != cur) { lengths[cur] = ticks; cur = s.PatternCur; ticks = 0; }
+        }
+        Assert.Equal(101, lengths[0]);
+        Assert.Equal(104, lengths[2]);                        // the climbing ray, then the rain
+        Assert.Equal(301, lengths[4]);                        // leaves with the interval a spray left in pattern_state
+        Assert.Equal(201, lengths[5]);
+    }
+
+    [Fact]
+    public void A_curved_spray_starts_at_frame_100_and_a_falling_leaf_hurts_a_player_it_touches()
+    {
+        var (w, s) = Form2(1, Rank.Normal, 9);
+        for (int f = 1; f < 100; f++) s.Update();
+        int Live() => Enumerable.Range(0, Th01.Core.Game.Pellets.Count).Count(i => w.Pellets.Moving[i] || w.Pellets.CloudFrame[i] != 0);
+        Assert.Equal(0, Live());
+        s.Update();                                          // 100: the first shot
+        Assert.Equal(1, Live());
+
+        var (w2, s2) = Form2(5);
+        w2.PlayerInvincible = false;
+        s2.LeafFlag[0] = Sariel.LfLeaf;
+        s2.LeafLeft[0] = (w2.Player.Left + 4) * 10;
+        s2.LeafTop[0] = (Player.Top + 8) * 10;
+        s2.PhaseFrame = 1;
+        s2.Update();                                         // frame 2 (even): the leaf pass runs and tests the player
+        Assert.True(w2.PlayerIsHit);
+    }
 }

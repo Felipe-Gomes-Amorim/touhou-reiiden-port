@@ -74,6 +74,12 @@ public abstract class Boss
     /// <summary>One tick of the (blocking in the original) entrance. Returns true on the last one.</summary>
     public abstract bool EntranceFrame();
 
+    /// <summary>
+    /// True while the boss runs one of its animations that block the whole game in the original: the session then only
+    /// calls <see cref="Update"/> and skips the player, Orb, pellets and lasers.
+    /// </summary>
+    public virtual bool BlockingTransition => false;
+
     /// <summary>One tick of the boss (phases 1 and up).</summary>
     public abstract void Update();
 

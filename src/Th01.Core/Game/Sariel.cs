@@ -61,7 +61,7 @@ public sealed class Sariel : Boss
     public override bool ClearsGame => true;
 
     /// <summary>Placeholder until the second form's defeat sequence is ported (a later part).</summary>
-    public override int DefeatTicks() => 0;
+    public override int DefeatTicks() => 231 * 2;       // phase 101: 231 iterations of frame_delay(2) (shake, fade out)
 
     int Irand() => World.Rng.Next();
 
@@ -124,7 +124,8 @@ public sealed class Sariel : Boss
             case 4: BgTransitionFrame(2, 5, () => Irand() % 4 + 3); break;
             case 6: BgTransitionFrame(3, 7, () => Irand() % 5 + 2); break;
             case 8: BgTransitionFrame(0, 1, () => Irand() % 6 + 1); break;
-            // 99, 100 and 101: later parts.
+            case PhaseForm1Defeated: Form1Defeated(); break;
+            case PhaseForm2: Form2(); break;
         }
     }
 
@@ -885,6 +886,315 @@ public sealed class Sariel : Boss
         else if (PhaseFrame > key5) PhaseFrame = 0;
     }
 
+    // ---- form 1 defeated (phase 99): a blocking animation in the original ----
+
+    /// <summary>Ticks of the diagonal page transition after the 200 frames of shaking (ASSUMPTION: 130 frames of about 2 ticks). TODO(T5)</summary>
+    public const int Form1DefeatShakeTicks = 200, Form1DefeatTransitionTicks = 260;
+    bool _form1DefeatStarted;
+
+    /// <summary>The session must not run anything else while this is true: the original blocks inside this animation.</summary>
+    public override bool BlockingTransition => Phase == PhaseForm1Defeated;
+
+    /// <summary>Scroll line of the shake (drawing only): alternates every frame during the first 200.</summary>
+    public int Form1DefeatShakeLine => Phase == PhaseForm1Defeated && PhaseFrame is >= 1 and < Form1DefeatShakeTicks
+        ? (PhaseFrame % 2 == 0 ? ScreenH + 16 : ScreenH - 14) % ScreenH : 0;
+
+    /// <summary>True on the even frames of the shake, when the original flashes palette entry 15 to white.</summary>
+    public bool Form1DefeatFlash => Phase == PhaseForm1Defeated && PhaseFrame is >= 1 and < Form1DefeatShakeTicks && PhaseFrame % 2 == 0;
+
+    void Form1Defeated()
+    {
+        var w = World;
+        if (!_form1DefeatStarted)
+        {
+            _form1DefeatStarted = true;
+            PhaseFrame = 0;
+            InvincibilityFrame = 399;
+            w.Shots.Reset();
+            w.Pellets.ResetNonClouds();
+            w.Lasers.ResetAll();
+            w.Orb.StageStart();                              // orb_cur / force / velocity back to their start values
+            w.Player.Left = Playfield.PlayerLeftStart;
+            w.Player.Reset();
+            Invincible = false;
+            w.Rng = new IRand(w.FrameRand);
+            return;
+        }
+        PhaseFrame++;
+        if (PhaseFrame <= Form1DefeatShakeTicks) return;
+        // frames 201 on: the diagonal page transition, then the second form starts
+        if (PhaseFrame < Form1DefeatShakeTicks + Form1DefeatTransitionTicks) return;
+        PhaseFrame = 0;
+        InvincibilityFrame = 0;
+        PatternCur = 0;
+        PatternsDone = 0;                                    // pulse_fade_direction shares this slot
+        Phase = PhaseForm2;
+        w.PlayerInvincibilityTime = 0;
+        w.PlayerInvincible = false;
+        Hp = HpForm2;
+        InitialHpRendered = false;
+        _pulseR = _pulseG = _pulseB = 0;
+        Array.Clear(_leafFlag);                              // pattern_swaying_leaves(frame, 999)
+    }
+
+    // ---- form 2 (phase 100) ----
+
+    public int PulseR => _pulseR;
+    public int PulseG => _pulseG;
+    public int PulseB => _pulseB;
+    int _pulseR, _pulseG, _pulseB;
+
+    // horizontal particles (decoration; random numbers and free slots only). Positions and velocity in tenths of a pixel.
+    public readonly bool[] HParticleAlive = new bool[ParticleCount];
+    public readonly int[] HParticleLeft = new int[ParticleCount], HParticleTop = new int[ParticleCount], HParticleVx = new int[ParticleCount];
+
+    void ParticlesHorizontal(int frame)
+    {
+        if (frame % 7 == 0)
+        {
+            for (int i = 0; i < ParticleCount; i++)
+            {
+                if (HParticleAlive[i]) continue;
+                HParticleLeft[i] = Irand() % ScreenW * 10;
+                HParticleTop[i] = Irand() % ScreenH;
+                HParticleVx[i] = Irand() % 2 == 0 ? -60 : 60;
+                HParticleAlive[i] = true;
+                break;
+            }
+        }
+        if (frame % 2 != 0) return;
+        for (int i = 0; i < ParticleCount; i++)
+        {
+            if (!HParticleAlive[i]) continue;
+            HParticleLeft[i] += HParticleVx[i];
+            HParticleVx[i] += HParticleVx[i] < 0 ? 1 : -1;
+            if (HParticleLeft[i] >= ScreenW * 10 || HParticleLeft[i] < 0 || Math.Abs(HParticleVx[i]) < 5) HParticleAlive[i] = false;
+        }
+    }
+
+    // the curved spray: pellets from the seal centre at the angle of a target sweeping along the floor, slowing down
+    sealed class CurvedSpray
+    {
+        public int TargetX, TargetY, Speed, SubpatternId;
+    }
+
+    readonly CurvedSpray _sprayOnce = new(), _sprayTwice = new();
+
+    void SprayInit(CurvedSpray sp)
+    {
+        sp.TargetX = Playfield.Left;
+        sp.TargetY = Playfield.Bottom;
+        sp.Speed = 7 * 16;
+        sp.SubpatternId = 0;
+        _state = ByRank(Playfield.Width / 20, 24, 18, Playfield.Width / 40);     // 640/26.66 and 640/35.55, truncated
+    }
+
+    void SprayFireAndAdvance(CurvedSpray sp, bool right)
+    {
+        int angle = AngleMath.Iatan2(sp.TargetY - SealCenterY, sp.TargetX - SealCenterX);
+        World.Pellets.AddSingle(SealCenterX, SealCenterY, angle, sp.Speed);
+        sp.Speed -= 4;
+        sp.TargetX += right ? _state : -_state;
+    }
+
+    void CurvedSprayLeftRightOnce()
+    {
+        if (PhaseFrame < 100) return;
+        var sp = _sprayOnce;
+        if (PhaseFrame == 100) SprayInit(sp);
+        if (sp.SubpatternId == 0)
+        {
+            SprayFireAndAdvance(sp, true);
+            if (sp.TargetX >= Playfield.Right) { sp.SubpatternId = 1; sp.Speed = 7 * 16; sp.TargetX = Playfield.Right; }
+        }
+        else
+        {
+            SprayFireAndAdvance(sp, false);
+            if (sp.TargetX < Playfield.Left) PhaseFrame = 0;
+        }
+    }
+
+    void CurvedSprayLeftRightTwice()
+    {
+        if (PhaseFrame < 80) return;
+        var sp = _sprayTwice;
+        if (PhaseFrame == 80) SprayInit(sp);
+        if (sp.SubpatternId % 2 == 0)
+        {
+            SprayFireAndAdvance(sp, true);
+            if (sp.TargetX >= Playfield.Right) { sp.SubpatternId++; sp.Speed = 7 * 16; sp.TargetX = Playfield.Right; }
+        }
+        else
+        {
+            SprayFireAndAdvance(sp, false);
+            if (sp.TargetX < Playfield.Left)
+            {
+                sp.SubpatternId++;
+                sp.TargetX = Playfield.Left;
+                sp.Speed = 7 * 16;
+                if (sp.SubpatternId == 4) PhaseFrame = 0;
+            }
+        }
+    }
+
+    /// <summary>The rain from the seal centre: a spawn ray climbs from the floor to the seal (drawing reads RaysTarget*), then a row of rain pellets.</summary>
+    void RainFromSealCenter()
+    {
+        const int velocityY = 8;
+        if (PhaseFrame < 50) return;
+        if (PhaseFrame == 50)
+        {
+            RaysTargetLeftX = Playfield.Left;
+            RaysTargetY = Playfield.Bottom - 1;
+            _state = ByRank(30, 35, 40, 45);
+        }
+        if (RaysTargetY > SealCenterY)
+        {
+            if (PhaseFrame % 2 == 1) RaysTargetY -= velocityY;
+            return;
+        }
+        World.Sound.PlaySe(3);
+        for (int i = 0; i < _state; i++)
+            World.Pellets.AddSingle(Playfield.Left + Playfield.Width / _state * i, SealCenterY, Irand() & 0xFF, 16, PelletMotion.Gravity, 1);
+        PhaseFrame = 0;
+    }
+
+    // ---- swaying leaves ----
+
+    public const int LeafCount = 30, LeafW = 8, LeafH = 8;
+    public const int LfFree = 0, LfSpark = 1, LfSplash = 2, LfSplashDone = LfSplash + 3, LfLeaf = LfSplashDone + 1;
+    public readonly int[] _leafFlag = new int[LeafCount];
+    public readonly int[] LeafLeft = new int[LeafCount], LeafTop = new int[LeafCount];          // tenths of a pixel
+    readonly int[] _leafVx = new int[LeafCount], _leafVy = new int[LeafCount];
+    public int[] LeafFlag => _leafFlag;
+    public int LeafVelocityX(int i) => _leafVx[i];
+
+    bool LeafOnScreen(int i) => LeafLeft[i] >= 0 && LeafTop[i] >= 0 && LeafLeft[i] < (ScreenW - LeafW) * 10 && LeafTop[i] < (ScreenH - LeafH) * 10;
+
+    void SwayingLeaves(int spawnInterval)
+    {
+        int frame = PhaseFrame;
+        if (spawnInterval < 1) spawnInterval = 1;          // never 0 in the original's order of patterns; keeps a forced pattern from dividing by zero
+        if (frame % spawnInterval == 0)
+        {
+            for (int i = 0; i < LeafCount; i++)
+            {
+                if (_leafFlag[i] != LfFree) continue;
+                LeafLeft[i] = Playfield.Left * 10 + Irand() % (Playfield.Width * 10);
+                LeafTop[i] = FaceCenterY * 10 + Irand() % (Playfield.Height * 25 / 84 * 10);
+                int angle = AngleMath.Iatan2(Playfield.Top - LeafTop[i] / 10, Irand() % Playfield.Width - LeafLeft[i] / 10);
+                _leafVx[i] = AngleMath.PolarX(0, 40, angle);
+                _leafVy[i] = AngleMath.PolarY(0, 40, angle);
+                _leafFlag[i] = LfSpark;
+                break;
+            }
+        }
+        if (frame % 2 != 0) return;
+        for (int i = 0; i < LeafCount; i++)
+        {
+            int f = _leafFlag[i];
+            if (f == LfFree) continue;
+            if (f == LfSpark)
+            {
+                LeafLeft[i] += _leafVx[i];
+                LeafTop[i] += _leafVy[i];
+                if (LeafTop[i] < Playfield.Top * 10) _leafFlag[i] = LfSplash;
+            }
+            else if (f <= LfSplashDone)
+            {
+                if (f == LfSplashDone)
+                {
+                    _leafFlag[i] = LfLeaf;
+                    _leafVy[i] = 3 + Irand() % 2;
+                    _leafVx[i] = 2;
+                }
+            }
+            else if (f == LfLeaf)
+            {
+                LeafLeft[i] += _leafVx[i];
+                LeafTop[i] += _leafVy[i];
+                _leafVy[i]--;
+                if (_leafVy[i] < -1)
+                {
+                    _leafVy[i] = 30 + Irand() % 20;
+                    _leafVx[i] = _leafVx[i] < 0 ? +20 : -20;
+                }
+                if (LeafTop[i] / 10 > Playfield.Bottom) _leafFlag[i] = LfFree;
+            }
+        }
+        var w = World;
+        for (int i = 0; i < LeafCount; i++)
+        {
+            int f = _leafFlag[i];
+            if (f == LfFree || f == LfSpark) continue;
+            if (f <= LfSplashDone)
+            {
+                if (frame % 4 == 0) _leafFlag[i]++;
+            }
+            else if (f == LfLeaf)
+            {
+                if (LeafTop[i] > Player.Top * 10 && LeafTop[i] < (Player.Top + Playfield.PlayerH - LeafH) * 10 &&
+                    LeafLeft[i] / 10 > w.Player.Left && LeafLeft[i] / 10 < w.Player.Left + Playfield.PlayerW - LeafW &&
+                    !w.PlayerInvincible)
+                    w.PlayerIsHit = true;
+            }
+        }
+    }
+
+    // ---- the second form ----
+
+    void Form2()
+    {
+        PhaseFrame++;
+        InvincibilityFrame++;
+        ParticlesHorizontal(PhaseFrame);
+        switch (PatternCur)
+        {
+            case 0:
+                _state = ByRank(56, 32, 24, 20);
+                if (PhaseFrame > 100) PhaseFrame = 0;
+                break;
+            case 1: CurvedSprayLeftRightOnce(); break;
+            case 2: RainFromSealCenter(); break;
+            case 3: CurvedSprayLeftRightTwice(); break;
+            case 4:
+                SwayingLeaves(_state);
+                if (PhaseFrame > 300) PhaseFrame = 0;
+                break;
+            case 5:
+                SwayingLeaves(500);
+                if (PhaseFrame > 200) PhaseFrame = 0;
+                break;
+            case 6: SwayingLeaves(500); CurvedSprayLeftRightOnce(); break;
+            case 7: SwayingLeaves(500); RainFromSealCenter(); break;
+            case 8: SwayingLeaves(32); CurvedSprayLeftRightTwice(); break;
+        }
+        if (PhaseFrame == 0) PatternNext(4, 8);
+        HitUpdate();
+        if (PhaseFrame % 10 == 0)
+        {
+            // the pulse of palette entry 6; PatternsDone doubles as the fade direction (a union in the original)
+            if (PatternsDone == 0)
+            {
+                if (_pulseR < 0xA) _pulseR++; else PatternsDone = 1;
+                if (_pulseG < 0xA) _pulseG++;
+                if (_pulseB < 0x6) _pulseB++;
+            }
+            else
+            {
+                if (_pulseR > 0) _pulseR--; else PatternsDone = 0;
+                if (_pulseG > 0) _pulseG--;
+                if (_pulseB > 0) _pulseB--;
+            }
+        }
+        if (Hp <= 0)
+        {
+            Phase = PhaseForm2Defeated;
+            PhaseFrame = 0;
+            InvincibilityFrame = 0;
+        }
+    }
+
     /// <summary>Radius of the warning circle of the laser being prepared (drawing only); -1 when none is shown.</summary>
     public int WarningRadius => Phase == 1 && PatternCur == 0 && PhaseFrame is >= 50 and < 150 && PhaseFrame % 10 is not (8 or 9)
         ? 64 - PhaseFrame % 10 * 8 : -1;
@@ -933,6 +1243,10 @@ public sealed class Sariel : Boss
         h.Add(_laserTargetFirst); h.Add(_radialAngle); h.Add(RayOriginX); h.Add(RayOriginY);
         for (int i = 0; i < ParticleCount; i++) { h.Add(WavyAlive[i]); h.Add(WavyLeft[i]); h.Add(WavyTop[i]); h.Add(WavyAge[i]); }
         h.Add(RaysTargetLeftX); h.Add(RaysTargetY);
+        h.Add(_form1DefeatStarted); h.Add(_pulseR); h.Add(_pulseG); h.Add(_pulseB);
+        foreach (var sp in new[] { _sprayOnce, _sprayTwice }) { h.Add(sp.TargetX); h.Add(sp.TargetY); h.Add(sp.Speed); h.Add(sp.SubpatternId); }
+        for (int i = 0; i < ParticleCount; i++) { h.Add(HParticleAlive[i]); h.Add(HParticleLeft[i]); h.Add(HParticleTop[i]); h.Add(HParticleVx[i]); }
+        for (int i = 0; i < LeafCount; i++) { h.Add(_leafFlag[i]); h.Add(LeafLeft[i]); h.Add(LeafTop[i]); h.Add(_leafVx[i]); h.Add(_leafVy[i]); }
         h.Add(_dirFirst); h.Add(_dirSecond); h.Add(_eggsAlive); h.Add(_birdGroup); h.Add(SpawnerLeft); h.Add(SpawnerTop); h.Add(_spawnerVx); h.Add(_spawnerVy);
         for (int i = 0; i < BirdCount; i++) { h.Add(BirdAlive[i]); h.Add(BirdLeft[i]); h.Add(BirdTop[i]); h.Add(_birdVx[i]); h.Add(_birdVy[i]); h.Add(BirdHatch[i]); h.Add(EggLeft[i]); h.Add(EggTop[i]); }
         for (int i = 0; i < VortexCount; i++) { h.Add(VortexLeft[i]); h.Add(VortexTop[i]); } for (int i = 0; i < 10; i++) { h.Add(SpawnerX[i]); h.Add(SpawnerY[i]); } h.Add(_gustId); h.Add(_gustCalls); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
