@@ -56,7 +56,7 @@ public sealed class SessionFactory
     {
         StageSetup.BossStage => "BOSS1.GRP",
         2 * StageSetup.StagesPerScene - 1 => route == 0 ? "BOSS2.GRP" : "BOSS3.GRP",
-        4 * StageSetup.StagesPerScene - 1 when route == 1 => "BOSS8_A1.GRP",   // Konngara's stage (Jigoku); the Makai one (Sariel) is not ported yet
+        4 * StageSetup.StagesPerScene - 1 => route == 1 ? "BOSS8_A1.GRP" : "BOSS6_A1.GRP",   // stage 20: Konngara (Jigoku) / Sariel (Makai)
         3 * StageSetup.StagesPerScene - 1 => route == 1 ? "BOSS4.GRP" : "BOSS5.GRP",
         _ => $"ST{scene}.GRP",
     };

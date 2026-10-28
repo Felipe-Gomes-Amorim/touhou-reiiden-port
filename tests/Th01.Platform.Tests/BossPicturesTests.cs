@@ -126,11 +126,11 @@ public class BossPicturesTests : IDisposable
     }
 
     [Fact]
-    public void Stage20_Jigoku_UsesTheKonngaraBackground_MakaiKeepsItsStBackground()
+    public void Stage20_UsesTheBossBackground_KonngaraOnJigoku_SarielOnMakai_OtherStagesUnchanged()
     {
         int scene = SessionFactory.SceneId(19, 1);
         Assert.Equal("BOSS8_A1.GRP", SessionFactory.BackgroundFile(19, 1, scene));
-        Assert.Equal("ST5.GRP", SessionFactory.BackgroundFile(19, 0, SessionFactory.SceneId(19, 0)));
+        Assert.Equal("BOSS6_A1.GRP", SessionFactory.BackgroundFile(19, 0, SessionFactory.SceneId(19, 0)));
         Assert.Equal("BOSS3.GRP", SessionFactory.BackgroundFile(9, 1, SessionFactory.SceneId(9, 1)));   // the others are unchanged
     }
 
@@ -185,6 +185,24 @@ public class BossPicturesTests : IDisposable
         Assert.True(start.Art.TryGetBackground(out var bg));
         var expected = GrpImage.Load(File.ReadAllBytes(Path.Combine(d!, "BOSS8_A1.GRP")));
         Assert.Equal(expected.Pixels, bg.Pixels.ToArray());
+    }
+
+    [SkippableFact]
+    public void RealGame_Stage20Makai_ShowsTheSarielPictureAsBackground_AndItIsASingle640x400FrameWithPalette()
+    {
+        string? d = Data();
+        Skip.If(d is null || !File.Exists(Path.Combine(d!, "BOSS6_A1.GRP")) || !File.Exists(Path.Combine(d!, ExpectedFiles.ArchiveName)), "no real game files");
+        var art = new GameAssetArt();
+        new SessionFactory(new FolderAssetSource(d!)).RegisterBossPictures(art);
+        Assert.Equal(1, art.FrameCount("BOSS6_A1.GRP"));
+        Assert.True(art.TryGetFrame("BOSS6_A1.GRP", 0, out var f));
+        Assert.Equal((640, 400), (f.Width, f.Height));
+        Assert.Equal(48, f.Palette.Length);
+        var start = new SessionFactory(new FolderAssetSource(d!), stageId: 19, route: 0).Create();
+        Assert.True(start.Art.TryGetBackground(out var bg));
+        var expected = GrpImage.Load(File.ReadAllBytes(Path.Combine(d!, "BOSS6_A1.GRP")));
+        Assert.Equal(expected.Pixels, bg.Pixels.ToArray());
+        Assert.Equal(f.Pixels.ToArray(), bg.Pixels.ToArray());
     }
 
     [SkippableFact]
