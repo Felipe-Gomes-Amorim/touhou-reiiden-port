@@ -16,7 +16,7 @@ public class WaveSixTests(ITestOutputHelper output)
     [InlineData(9, 1, 2, "BOSS3.GRP")]
     [InlineData(14, 1, 4, "BOSS4.GRP")]
     [InlineData(14, 0, 3, "BOSS5.GRP")]
-    [InlineData(19, 0, 5, "ST5.GRP")]
+    [InlineData(19, 0, 5, "BOSS6_A1.GRP")]   // Sariel (Makai)
     [InlineData(19, 1, 6, "BOSS8_A1.GRP")]   // Konngara (Jigoku); the Makai stage 20 (Sariel) keeps its ST background for now
     public void BackgroundFile_FollowsTheBossStageTable(int stage, int route, int scene, string expected)
     {
