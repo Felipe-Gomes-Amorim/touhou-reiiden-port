@@ -176,14 +176,11 @@ public sealed class Konngara : Boss
     public override int HpFirstRedWhite => HpFirstRedWhiteValue;
     public override int HpFirstWhite => HpFirstWhiteValue;
 
-    public override int DefeatTicks() => WhiteoutTicks() + DefeatSequenceTicks;
-
-    /// <summary>The white-out before the sequence (an estimate that the original may not have at all: its sequence starts at once). TODO(T5)</summary>
-    public int WhiteoutTicks()
-    {
-        int startY = World.Orb.Top + Playfield.OrbH / 2;
-        return Math.Max(startY + 1, Playfield.Bottom - startY) / DefeatLineDistance + 15 * DefeatWhiteinInterval;
-    }
+    /// <summary>
+    /// The defeat is only the blocking sequence: konngara_main() goes straight into it when the HP reaches 0 and never calls
+    /// boss_defeat_animate() (b20j.cpp, "Defeat sequence (blocking)"), so there is no white-out first.
+    /// </summary>
+    public override int DefeatTicks() => DefeatSequenceTicks;
 
     /// <summary>The seal syllable colour has been fading in for this many steps during phases 2, 4 and 6 (drawing only).</summary>
     public int SiddhamSteps => Phase is 2 or 4 or 6 ? Math.Max(0, (PhaseFrame - 48) / 4) : 0;

@@ -170,7 +170,7 @@ public class KonngaraTests
         Assert.False(K(w).Defeated);
         K(w).Hp = 0;
         Assert.True(K(w).Defeated);
-        Assert.True(K(w).DefeatTicks() > Konngara.DefeatSequenceTicks);
+        Assert.Equal(Konngara.DefeatSequenceTicks, K(w).DefeatTicks());      // no white-out: the sequence starts at once
     }
 
     // ---- patterns ----

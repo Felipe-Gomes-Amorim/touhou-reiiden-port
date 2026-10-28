@@ -49,7 +49,7 @@ public class KonngaraDefeatDrawTests
 
     static void RunToSequence(GameSession g, Konngara k, int tick)
     {
-        int target = k.WhiteoutTicks() + tick, guard = 0;
+        int target = tick, guard = 0;
         while (g.DefeatElapsed < target && guard++ < 5000) g.Step(GameButtons.None);
         Assert.Equal(target, g.DefeatElapsed);
     }
