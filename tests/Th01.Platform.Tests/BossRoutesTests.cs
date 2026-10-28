@@ -57,9 +57,9 @@ public class BossRoutesTests
     }
 
     [Fact]
-    public void TheMakaiRunStillEndsBeforeStage20_WhichIsNotPortedYet()
+    public void TheMakaiRunNowReachesStage20_WhereSarielWaits()
     {
-        foreach (int route in new[] { 0 })     // Sariel; Konngara (route 1) is ported
+        foreach (int route in new[] { 0, 1 })     // Sariel and Konngara are both ported
         {
             var stages = new FlowFakeStages { Lives = 3 };
             var f = new GameFlow(stages, new NoScreenImages(), BdfFont.LoadSpleen8x16(), new GameSettings(), startStage: 18, route: route);
@@ -69,7 +69,7 @@ public class BossRoutesTests
             for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
             for (int i = 0; i < GameSession.BonusBoxTicks; i++) f.Tick(GameButtons.None);
             f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
-            Assert.DoesNotContain((19, route), stages.Requests);
+            Assert.Contains((19, route), stages.Requests);
         }
     }
 }
