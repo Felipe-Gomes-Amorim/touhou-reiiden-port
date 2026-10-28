@@ -74,6 +74,14 @@ public sealed class Sariel : Boss
 
     public override bool EntranceFrame() => ++_entranceFrame >= EntranceTotal;
 
+    /// <summary>Ticks of the blocking entrance run so far (drawing only).</summary>
+    public int EntranceTick => _entranceFrame;
+
+    /// <summary>How far the background wipe of a transition phase has gone, 0..1 (three gusts of 20 calls).</summary>
+    public double TransitionProgress => Phase is 2 or 4 or 6 or 8 && PhaseFrame >= 50 ? (_gustId * 20 + _gustCalls) / 60.0 : 0.0;
+    /// <summary>The background the current transition phase leads to.</summary>
+    public int NextBackground => Phase switch { 2 => 1, 4 => 2, 6 => 3, _ => 0 };
+
     // ---- hit ----
 
     /// <summary>
@@ -214,7 +222,7 @@ public sealed class Sariel : Boss
 
     // ---- patterns ----
 
-    const int ColLaser = 4;
+    const int ColLaser = 4, ColWhite = 7;
     int _state;                                         // pattern_state: the laser speed (times 8) and the like
     public readonly int[] SpawnerX = new int[10], SpawnerY = new int[10];
 
@@ -384,7 +392,11 @@ public sealed class Sariel : Boss
         }
         else if (PhaseFrame < 240)
         {
-            if (PhaseFrame == 200) _dirFirst = Irand() % 2;
+            if (PhaseFrame == 200)
+            {
+                _dirFirst = Irand() % 2;
+                if (_dirFirst == 1) WandStage = 0;                 // X_LEFT: wand_lower_both()
+            }
             for (int i = 0; i < VortexCount; i++)
             {
                 VortexLeft[i] += 2 - _dirFirst * 4;
@@ -396,7 +408,8 @@ public sealed class Sariel : Boss
             if (PhaseFrame == 240)
             {
                 _dirSecond = Irand() % 2;
-                if (_dirSecond == 1 && _dirSecond == _dirFirst) _vortWandDone = false;   // X_LEFT twice: the wand is raised again
+                if (_dirSecond == 0 && _dirFirst == 0) WandStage = 0;
+                else if (_dirSecond == 1 && _dirFirst == 1) _vortWandDone = false;   // X_LEFT twice: the wand is raised again
             }
             for (int i = 0; i < VortexCount; i++)
             {
@@ -408,6 +421,7 @@ public sealed class Sariel : Boss
         {
             PhaseFrame = 0;
             _vortWandDone = false;
+            WandStage = 0;
         }
     }
 
@@ -460,6 +474,7 @@ public sealed class Sariel : Boss
                     BirdSpawn(EggLeft[i], EggTop[i], AngleMath.PolarX(0, 3, angle) * 16, AngleMath.PolarY(0, 3, angle) * 16);
                 }
                 _birdGroup = Irand() % (BpgSixRing + 1);
+                WandStage = 0;
             }
             if (SpawnerLeft >= -SpawnCrossW * 16 && SpawnerTop >= -SpawnCrossH * 16 && SpawnerLeft <= ScreenW * 16 && SpawnerTop <= ScreenH * 16)
             {
@@ -484,9 +499,13 @@ public sealed class Sariel : Boss
     {
         if (_wandFrame == 0) { _wandFrame = 1; return false; }
         _wandFrame++;
-        if (_wandFrame == 16) { _wandFrame = 0; return true; }
+        if (_wandFrame == 2) WandStage = 1;
+        if (_wandFrame == 16) { _wandFrame = 0; WandStage = 2; return true; }
         return false;
     }
+
+    /// <summary>Drawing only: 0 = lowered (part of the background picture), 1 = first raised image, 2 = fully raised.</summary>
+    public int WandStage;
 
     // ---- 2x2 particles (decoration, but they draw random numbers and need free slots) ----
 
@@ -554,6 +573,7 @@ public sealed class Sariel : Boss
             if (SnowflakeTop >= (Playfield.Bottom - FlakeH / 2) * 16)
             {
                 SnowflakeState = SnowDetonationStart;
+                WandStage = 0;
                 return;
             }
             SnowflakeLeft += _snowVx;
@@ -665,7 +685,7 @@ public sealed class Sariel : Boss
 
     void FireAimedLaser(int slot, int originX, int originY, int targetLeft)
     {
-        World.Lasers[slot].Spawn(originX, originY, targetLeft, Playfield.Bottom, _state, 15 /* V_WHITE */, 50, 8);
+        World.Lasers[slot].Spawn(originX, originY, targetLeft, Playfield.Bottom, _state, ColWhite, 50, 8);
         World.Sound.PlaySe(6);
     }
 
@@ -744,7 +764,7 @@ public sealed class Sariel : Boss
             int targetX = AngleMath.PolarX(centerX, 600, a), targetY = AngleMath.PolarY(centerY, 600, a);
             World.Sound.PlaySe(7);
             if (PhaseFrame % 15 == 0)
-                World.Lasers[(PhaseFrame - 215) / 15].Spawn(centerX, centerY, targetX, targetY, _state, 15, 20, 4);
+                World.Lasers[(PhaseFrame - 215) / 15].Spawn(centerX, centerY, targetX, targetY, _state, ColWhite, 20, 4);
             else
                 World.Pellets.AddSingle(centerX, centerY, a, 100 /* to_sp(6.25) */);
             World.Pellets.AddSingle(centerX, centerY, (a - 0x04) & 0xFF, 96);
@@ -1228,6 +1248,7 @@ public sealed class Sariel : Boss
             Phase = nextPhase;
             PhaseFrame = 0;
             PatternsUntilNext = rollPatterns();
+            WandStage = 0;
         }
     }
     int _gustCalls;
