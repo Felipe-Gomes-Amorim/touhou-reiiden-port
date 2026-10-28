@@ -111,9 +111,10 @@ public class SarielTests
         Assert.Equal((7, 1, 1), (s.Phase, s.PatternCur, s.PatternsDone));
         s.Update();
         Assert.Equal((2, 2), (s.PatternCur, s.PatternsDone));
-        s.Phase = 5; s.PatternCur = 5;
-        s.Update();
-        Assert.Equal(10, s.PatternCur);
+        s.Phase = 5; s.PatternCur = 5; s.PatternsDone = 0;
+        int guard = 0;
+        while (s.PatternsDone == 0 && guard++ < 1000) s.Update();   // the lasers pattern ends after 301 frames
+        Assert.Equal(10, s.PatternCur);                      // 5 -> 10: the ring of phase 5 jumps to a value with no pattern
         s.Phase = 7; s.PatternCur = 2;
         s.Update();
         Assert.Equal(0, s.PatternCur);                       // the ring of phase 7 wraps from 2 back to 0
@@ -168,7 +169,7 @@ public class SarielTests
             var (_, s) = Make(seed: 3);
             s.Update();                                   // phase 0 -> 1
             var seen = new HashSet<int>();
-            for (int i = 0; i < 3000; i++) { s.Update(); seen.Add(s.Phase); }
+            for (int i = 0; i < 40000; i++) { s.Update(); seen.Add(s.Phase); }
             Assert.Contains(8, seen); Assert.Contains(7, seen);
             var h = new StateHasher(); s.Hash(ref h); return h.Value;
         }
@@ -381,5 +382,89 @@ public class SarielTests
             if (f < 150) Assert.Equal(0, slings);
         }
         Assert.Equal(6, slings);                             // frames 150, 152, ..., 160 with interval 2
+    }
+
+    // ---- part 6: phase 5 ----
+
+    [Fact]
+    public void Four_aimed_lasers_fire_at_50_100_150_and_200_and_the_pattern_lasts_301_frames()
+    {
+        var (w, s) = Make(Rank.Hard, seed: 4);
+        s.Phase = 5; s.PatternCur = 0; s.PatternsUntilNext = 99;
+        w.Player.Left = 100;
+        for (int f = 1; f < 50; f++) s.Update();
+        Assert.False(w.Lasers[0].Alive);
+        s.Update();                                          // 50
+        var l0 = w.Lasers[0];
+        Assert.True(l0.Alive);
+        Assert.Equal((460, 120, 8 + 0 * 0 + 0, 50), (l0.OriginLeft >> 8, l0.OriginY >> 8, l0.WidthCel + 1, l0.MoveoutAtAge));
+        Assert.Equal(AngleMath.Cos8(AngleMath.Iatan2(400 - 120, 100 - 460)), l0.StepX);
+        Assert.Equal(68 / 8, l0.RayExtendSpeed);            // Hard: 8.5 * 8 / 8
+        w.Player.Left = 300;                                 // the second laser mirrors the FIRST aim, not the current one
+        for (int f = 51; f <= 100; f++) s.Update();
+        var l1 = w.Lasers[1];
+        Assert.True(l1.Alive);
+        Assert.Equal(AngleMath.Cos8(AngleMath.Iatan2(400 - 120, 639 - 100 - 180)), l1.StepX);
+        for (int f = 101; f <= 150; f++) s.Update();
+        Assert.Equal((608, 164), (w.Lasers[2].OriginLeft >> 8, w.Lasers[2].OriginY >> 8));
+        for (int f = 151; f <= 200; f++) s.Update();
+        Assert.Equal((24, 164), (w.Lasers[3].OriginLeft >> 8, w.Lasers[3].OriginY >> 8));
+        int ticks = s.PhaseFrame;
+        while (s.PatternsDone == 0) { s.Update(); ticks++; Assert.True(ticks < 1000); }
+        Assert.Equal(301, ticks);
+    }
+
+    [Fact]
+    public void The_shake_pattern_lasts_50_frames_and_the_rain_drops_a_group_every_8_frames()
+    {
+        var (w, s) = Make(Rank.Normal, seed: 6);
+        s.Phase = 5; s.PatternCur = 1; s.PatternsUntilNext = 99;
+        var lines = new HashSet<int>();
+        int ticks = 0;
+        while (s.PatternsDone == 0) { s.Update(); ticks++; lines.Add(s.ShakeLine); Assert.True(ticks < 200); }
+        Assert.Equal(50, ticks);
+        Assert.Contains(396, lines); Assert.Contains(4, lines);
+        Assert.Equal(0, s.ShakeLine);
+
+        var (w2, s2) = Make(Rank.Normal, seed: 6);
+        s2.Phase = 5; s2.PatternCur = 2; s2.PatternsUntilNext = 99;
+        w2.PlayerInvincible = true;
+        for (int f = 1; f < 8; f++) s2.Update();
+        int before = Pellets(w2);
+        s2.Update();                                         // frame 8
+        Assert.Equal(before + 1, Pellets(w2));
+    }
+
+    [Fact]
+    public void Radial_stacks_fire_pellets_every_5_frames_from_201_and_a_laser_every_15()
+    {
+        var (w, s) = Make(Rank.Normal, seed: 9);
+        s.Phase = 5; s.PatternCur = 3; s.PatternsUntilNext = 99;
+        for (int f = 1; f < 205; f++) s.Update();
+        Assert.Equal(0, Pellets(w));
+        s.Update();                                          // 205: one aimed + two at +-4
+        Assert.Equal(3, Pellets(w));
+        for (int f = 206; f < 210; f++) s.Update();
+        Assert.False(w.Lasers[0].Alive);
+        s.Update();                                          // 210: %15 == 0, slot (210 - 215) / 15 = 0
+        Assert.True(w.Lasers[0].Alive);
+        int ticks = s.PhaseFrame;
+        while (s.PatternsDone == 0) { s.Update(); ticks++; Assert.True(ticks < 1000); }
+        Assert.Equal(450, ticks);
+    }
+
+    [Fact]
+    public void Wavy_particles_spawn_every_seventh_frame_and_rise_one_pixel_on_even_frames()
+    {
+        var (w, s) = Make(seed: 14);
+        s.Phase = 5; s.PatternCur = 1; s.PatternsUntilNext = 99;
+        var probe = new IRand(14);
+        for (int f = 1; f < 7; f++) s.Update();
+        w.Rng = new IRand(14);
+        s.Update();                                          // frame 7
+        Assert.True(s.WavyAlive[0]);
+        Assert.Equal((probe.Next() % 640, 400), (s.WavyLeft[0], s.WavyTop[0]));
+        s.Update();                                          // frame 8
+        Assert.Equal((399, 1), (s.WavyTop[0], s.WavyAge[0]));
     }
 }

@@ -145,7 +145,8 @@ public sealed class Sariel : Boss
     {
         PhaseFrame++;
         InvincibilityFrame++;
-        if (phase == 3) ParticlesVertical(false);
+        if (phase == 5) ParticlesWavy();
+        else if (phase == 3) ParticlesVertical(false);
         else if (phase == 7) ParticlesVertical(true);
         if (phase is 1 or 7) UpdateBirds();                  // birds_unput_update_render(), before the pattern
         RunPattern(phase, PatternCur);
@@ -175,6 +176,19 @@ public sealed class Sariel : Boss
                 case 1: Vortices(); return;
                 case 2: BirdsOnEllipseArc(); return;
             }
+        }
+        if (phase == 5)
+        {
+            switch (pattern)
+            {
+                case 0: FourAimedLasers(); break;
+                case 1: ShakeFor50Frames(); break;
+                case 2: FourAimedLasers(); RainFromTop(); break;
+                case 3: RadialStacksAndLasers(); break;
+                case 4: ShakeFor50Frames(); break;
+                case 5: FourAimedLasers(); RainFromTop(); break;
+            }
+            return;                                         // other values (the 10, 11, ... after the ring) run nothing
         }
         if (phase == 3)
         {
@@ -601,6 +615,144 @@ public sealed class Sariel : Boss
         if (PhaseFrame >= 299) PhaseFrame = 0;
     }
 
+    // ---- wavy particles (phase 5; decoration that draws random numbers) ----
+
+    public readonly bool[] WavyAlive = new bool[ParticleCount];
+    public readonly int[] WavyLeft = new int[ParticleCount], WavyTop = new int[ParticleCount], WavyAge = new int[ParticleCount];
+
+    /// <summary>particles2x2_wavy_unput_update_render(): one new particle every 7th frame at a random x on the bottom edge; rising 1 px on even frames for 100 of them.</summary>
+    void ParticlesWavy()
+    {
+        if (PhaseFrame % 7 == 0)
+        {
+            for (int i = 0; i < ParticleCount; i++)
+            {
+                if (WavyAlive[i]) continue;
+                WavyLeft[i] = Irand() % ScreenW;
+                WavyTop[i] = ScreenH;
+                WavyAge[i] = 0;
+                WavyAlive[i] = true;
+                break;
+            }
+        }
+        if (PhaseFrame % 2 != 0) return;
+        for (int i = 0; i < ParticleCount; i++)
+        {
+            if (!WavyAlive[i]) continue;
+            WavyTop[i]--;
+            WavyAge[i]++;
+            if (WavyAge[i] >= 100) WavyAlive[i] = false;
+        }
+    }
+
+    // ---- phase 5, patterns 0/2/5: four aimed lasers ----
+
+    const int SealOriginDistanceX1 = SealCenterX - SealRadius, FaceOriginY = FaceCenterY;
+    int _laserTargetFirst;
+    /// <summary>Where the aiming ray of the four-lasers pattern starts (drawing only; the lasers use the same origins).</summary>
+    public int RayOriginX, RayOriginY;
+
+    void FireAimedLaser(int slot, int originX, int originY, int targetLeft)
+    {
+        World.Lasers[slot].Spawn(originX, originY, targetLeft, Playfield.Bottom, _state, 15 /* V_WHITE */, 50, 8);
+        World.Sound.PlaySe(6);
+    }
+
+    void FourAimedLasers()
+    {
+        if (PhaseFrame < 50) return;
+        int playerLeft = World.Player.Left;
+        if (PhaseFrame == 50)
+        {
+            RayOriginX = Playfield.Right - SealOriginDistanceX1; RayOriginY = FaceOriginY;
+            _laserTargetFirst = playerLeft;
+            _state = ByRank(60, 64, 68, 72);               // 7.5 / 8 / 8.5 / 9 times 8
+            FireAimedLaser(0, RayOriginX, RayOriginY, playerLeft);
+        }
+        else if (PhaseFrame == 100)
+        {
+            RayOriginX = Playfield.Left + SealOriginDistanceX1; RayOriginY = FaceOriginY;
+            FireAimedLaser(1, RayOriginX, RayOriginY, Playfield.Right - 1 - _laserTargetFirst);
+        }
+        else if (PhaseFrame == 150)
+        {
+            RayOriginX = Playfield.Right - Playfield.Width * 4 / 80; RayOriginY = ShieldCenterY;
+            FireAimedLaser(2, RayOriginX, RayOriginY, playerLeft);
+        }
+        else if (PhaseFrame == 200)
+        {
+            RayOriginX = Playfield.Left + Playfield.Width * 3 / 80; RayOriginY = ShieldCenterY;
+            FireAimedLaser(3, RayOriginX, RayOriginY, playerLeft);
+        }
+        else if (PhaseFrame > 300)
+        {
+            PhaseFrame = 0;
+        }
+    }
+
+    // ---- phase 5, patterns 1/4: the screen shakes for 50 frames ----
+
+    void ShakeFor50Frames()
+    {
+        if (PhaseFrame == 50) PhaseFrame = 0;
+    }
+
+    /// <summary>The scroll line the shake pattern sets (drawing only; 0 when it is not shaking). Alternates 396 / 4 every 4 frames.</summary>
+    public int ShakeLine => Phase == 5 && PatternCur is 1 or 4 && PhaseFrame is > 0 and < 50 ? (PhaseFrame % 8 < 4 ? ScreenH - 4 : 4) : 0;
+
+    // ---- phase 5, patterns 2/5: rain from the top ----
+
+    void RainFromTop()
+    {
+        if (PhaseFrame % 8 != 0) return;
+        int left = Playfield.Left + Irand() % Playfield.Width;
+        var group = World.Rank == Rank.Lunatic ? PelletGroup.OneRandomWide : PelletGroup.One;
+        World.Pellets.AddGroup(left, Playfield.Top, group, 44);
+    }
+
+    // ---- phase 5, pattern 3: radial stacks and lasers ----
+
+    int _radialAngle;
+
+    void RadialStacksAndLasers()
+    {
+        const int centerX = Playfield.CenterX, centerY = ShieldCenterY - 8 / 2;
+        if (PhaseFrame < 150) return;
+        if (PhaseFrame == 150)
+        {
+            _radialAngle = 0;
+            _state = ByRank(60, 65, 70, 75);               // 7.5 / 8.125 / 8.75 / 9.375 times 8
+            World.Sound.PlaySe(6);
+        }
+        else if (PhaseFrame < 200) return;                  // the ray sweeps (drawing only)
+        else if (PhaseFrame == 200) _radialAngle = 0;
+        else if (PhaseFrame <= 400)
+        {
+            if (PhaseFrame % 5 != 0) return;
+            int a = _radialAngle;
+            int targetX = AngleMath.PolarX(centerX, 600, a), targetY = AngleMath.PolarY(centerY, 600, a);
+            World.Sound.PlaySe(7);
+            if (PhaseFrame % 15 == 0)
+                World.Lasers[(PhaseFrame - 215) / 15].Spawn(centerX, centerY, targetX, targetY, _state, 15, 20, 4);
+            else
+                World.Pellets.AddSingle(centerX, centerY, a, 100 /* to_sp(6.25) */);
+            World.Pellets.AddSingle(centerX, centerY, (a - 0x04) & 0xFF, 96);
+            World.Pellets.AddSingle(centerX, centerY, (a + 0x04) & 0xFF, 96);
+            if (World.Rank >= Rank.Hard)
+            {
+                World.Pellets.AddSingle(centerX, centerY, (a - 0x04) & 0xFF, 64);
+                World.Pellets.AddSingle(centerX, centerY, (a + 0x04) & 0xFF, 64);
+                if (World.Rank == Rank.Lunatic)
+                {
+                    World.Pellets.AddSingle(centerX, centerY, a, 64);
+                    World.Pellets.AddSingle(centerX, centerY, a, 48);
+                }
+            }
+            _radialAngle = (a + 0x0C) & 0xFF;
+        }
+        else if (PhaseFrame == 450) PhaseFrame = 0;
+    }
+
     /// <summary>Radius of the warning circle of the laser being prepared (drawing only); -1 when none is shown.</summary>
     public int WarningRadius => Phase == 1 && PatternCur == 0 && PhaseFrame is >= 50 and < 150 && PhaseFrame % 10 is not (8 or 9)
         ? 64 - PhaseFrame % 10 * 8 : -1;
@@ -646,6 +798,8 @@ public sealed class Sariel : Boss
         h.Add(_entranceFrame); h.Add(BackgroundId); h.Add(_state); h.Add(_wandFrame); h.Add(_vortWandDone); h.Add(_arcWandDone); h.Add(SnowflakeState); h.Add(SnowflakeLeft); h.Add(SnowflakeTop); h.Add(_snowVx); h.Add(_snowVy);
         h.Add(SnowStarLeft); h.Add(SnowStarTop); h.Add(SnowRadiusOuter1); h.Add(SnowRadiusOuter2); h.Add(SnowRadiusInner); h.Add(_ringsAngleA2); h.Add(_ringsInterval);
         for (int i = 0; i < ParticleCount; i++) { h.Add(ParticleAlive[i]); h.Add(ParticleLeft[i]); h.Add(ParticleTop[i]); h.Add(ParticleVy[i]); h.Add(ParticleAge[i]); }
+        h.Add(_laserTargetFirst); h.Add(_radialAngle); h.Add(RayOriginX); h.Add(RayOriginY);
+        for (int i = 0; i < ParticleCount; i++) { h.Add(WavyAlive[i]); h.Add(WavyLeft[i]); h.Add(WavyTop[i]); h.Add(WavyAge[i]); }
         h.Add(_dirFirst); h.Add(_dirSecond); h.Add(_eggsAlive); h.Add(_birdGroup); h.Add(SpawnerLeft); h.Add(SpawnerTop); h.Add(_spawnerVx); h.Add(_spawnerVy);
         for (int i = 0; i < BirdCount; i++) { h.Add(BirdAlive[i]); h.Add(BirdLeft[i]); h.Add(BirdTop[i]); h.Add(_birdVx[i]); h.Add(_birdVy[i]); h.Add(BirdHatch[i]); h.Add(EggLeft[i]); h.Add(EggTop[i]); }
         for (int i = 0; i < VortexCount; i++) { h.Add(VortexLeft[i]); h.Add(VortexTop[i]); } for (int i = 0; i < 10; i++) { h.Add(SpawnerX[i]); h.Add(SpawnerY[i]); } h.Add(_gustId); h.Add(_gustCalls); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
