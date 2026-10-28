@@ -177,6 +177,16 @@ public sealed class Sariel : Boss
                 case 2: BirdsOnEllipseArc(); return;
             }
         }
+        if (phase == 7)
+        {
+            switch (pattern)
+            {
+                case 0: SymmetricBirdsFromBottom(); break;
+                case 1: FourSemicircleSpreads(); break;
+                case 2: VerticalStacksThenRain(); break;
+            }
+            return;
+        }
         if (phase == 5)
         {
             switch (pattern)
@@ -753,6 +763,128 @@ public sealed class Sariel : Boss
         else if (PhaseFrame == 450) PhaseFrame = 0;
     }
 
+    // ---- phase 7: the symmetric spawn rays (SymmetricSpawnraysWithDebris) ----
+
+    /// <summary>Left ray target x (the right one mirrors it: 639 - x) and y; the rays start at the face. Drawing reads these.</summary>
+    public int RaysTargetLeftX, RaysTargetY;
+    int RaysTargetX(bool right) => right ? Playfield.Right - 1 - RaysTargetLeftX : RaysTargetLeftX;
+
+    /// <summary>fire_random_to_bottom(): aimed from the ray target at a random x on the floor; one random number.</summary>
+    void FireRandomToBottom(bool right, int speed)
+    {
+        int angle = AngleMath.Iatan2(Playfield.Bottom - RaysTargetY, Playfield.Left + Irand() % Playfield.Width - RaysTargetLeftX) & 0xFF;
+        World.Pellets.AddSingle(RaysTargetX(right), RaysTargetY, angle, speed);
+    }
+
+    // ---- phase 7, pattern 0: symmetric birds from the bottom ----
+
+    void SymmetricBirdsFromBottom()
+    {
+        const int velocityX = 2;
+        if (PhaseFrame < 50) return;
+        if (PhaseFrame == 50)
+        {
+            _state = ByRank(6, 7, 8, 9);
+            RaysTargetLeftX = velocityX;
+            RaysTargetY = Playfield.Bottom - 1;
+            return;
+        }
+        if (PhaseFrame < 100)
+        {
+            RaysTargetLeftX += velocityX;
+            if (PhaseFrame % 10 == 0)
+            {
+                World.Sound.PlaySe(6);
+                int targetX = (PhaseFrame - 60) * 10 + RaysTargetLeftX;
+                int angle = AngleMath.Iatan2(0 - (RaysTargetY - BirdH), targetX - RaysTargetLeftX);
+                int vx = AngleMath.PolarX(0, 4, angle), vy = AngleMath.PolarY(0, 4, angle);
+                BirdSpawn(RaysTargetX(false), RaysTargetY - BirdH, vx * 16, vy * 16);
+                BirdSpawn(RaysTargetX(true), RaysTargetY - BirdH, -vx * 16, vy * 16);
+            }
+            if (PhaseFrame % 6 == 0) BirdsFire(BpgRandomRain);
+            return;
+        }
+        if (PhaseFrame == 100) return;
+        if (PhaseFrame % 10 == 0) BirdsFire(BpgRandomRain);
+        if (PhaseFrame >= 300) PhaseFrame = 0;
+    }
+
+    // ---- phase 7, pattern 1: four semicircle spreads ----
+
+    void FourSemicircleSpreads()
+    {
+        const int originX = ShieldCenterX, originY = ShieldCenterY - 8 / 2;
+        void Ring(int count, int angle, int step, int speed)
+        {
+            for (int i = 0; i < count; i++, angle += step) World.Pellets.AddSingle(originX, originY, angle & 0xFF, speed);
+        }
+        if (PhaseFrame < 50) return;
+        if (PhaseFrame == 50) Ring(20, 0x00, 0x07, 32);
+        else if (PhaseFrame == 60) Ring(10, 0x04, 0x0C, 48);
+        else if (PhaseFrame == 70) Ring(8, 0x04, 0x0E, 64);
+        else if (PhaseFrame == 80) Ring(10, 0x0E, 0x0A, 48);
+        else if (PhaseFrame > 150) PhaseFrame = 0;
+    }
+
+    // ---- phase 7, pattern 2: vertical stacks from the bottom, then random rain from the top ----
+
+    void VerticalStacksThenRain()
+    {
+        const int columnInterval = 10, columnCount = 20, rayVelocityX = Playfield.Width / 80, columnDistanceX = Playfield.Width / columnCount;
+        const int key0 = 50, key1 = key0 + Playfield.Width / rayVelocityX, key2 = key1 + 20;
+        const int key3 = key2 + columnCount * columnInterval, key4 = key3 + columnCount * columnInterval, key5 = key4 + 50;
+        if (PhaseFrame < key0) return;
+        if (PhaseFrame == key0)
+        {
+            _state = ByRank(16, 13, 10, 8);
+            RaysTargetLeftX = 2;
+            RaysTargetY = Playfield.Bottom - 1;
+        }
+        else if (PhaseFrame < key1)
+        {
+            RaysTargetLeftX += rayVelocityX;
+        }
+        else if (PhaseFrame == key1)
+        {
+            RaysTargetLeftX = Playfield.Left;
+        }
+        else if (PhaseFrame > key2 && PhaseFrame < key3)
+        {
+            if (PhaseFrame % columnInterval == 0)
+            {
+                int playerCenterX = World.Player.Left + Playfield.PlayerW / 2;
+                for (int i = 0; i < 4 * 16; i += 16)
+                {
+                    if (Math.Abs(playerCenterX - RaysTargetX(false)) > Playfield.PlayerW)
+                        World.Pellets.AddSingle(RaysTargetX(false), RaysTargetY - Pellets.H, 0xC0, i + 48);
+                    if (Math.Abs(playerCenterX - RaysTargetX(true)) > Playfield.PlayerW)
+                        World.Pellets.AddSingle(RaysTargetX(true), RaysTargetY - Pellets.H, 0xC0, i + 48);
+                }
+                RaysTargetLeftX += columnDistanceX;
+                World.Sound.PlaySe(7);
+            }
+        }
+        else if (PhaseFrame == key3)
+        {
+            RaysTargetLeftX = Playfield.Left;
+            RaysTargetY = Playfield.Top;
+        }
+        else if (PhaseFrame < key4)
+        {
+            // (also reached from frame 131 to 150, as in the original: the rain starts from the bottom rays before the columns)
+            if (PhaseFrame % _state == 0)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    FireRandomToBottom(false, 48);
+                    FireRandomToBottom(true, 48);
+                }
+                RaysTargetLeftX += columnDistanceX;
+            }
+        }
+        else if (PhaseFrame > key5) PhaseFrame = 0;
+    }
+
     /// <summary>Radius of the warning circle of the laser being prepared (drawing only); -1 when none is shown.</summary>
     public int WarningRadius => Phase == 1 && PatternCur == 0 && PhaseFrame is >= 50 and < 150 && PhaseFrame % 10 is not (8 or 9)
         ? 64 - PhaseFrame % 10 * 8 : -1;
@@ -800,6 +932,7 @@ public sealed class Sariel : Boss
         for (int i = 0; i < ParticleCount; i++) { h.Add(ParticleAlive[i]); h.Add(ParticleLeft[i]); h.Add(ParticleTop[i]); h.Add(ParticleVy[i]); h.Add(ParticleAge[i]); }
         h.Add(_laserTargetFirst); h.Add(_radialAngle); h.Add(RayOriginX); h.Add(RayOriginY);
         for (int i = 0; i < ParticleCount; i++) { h.Add(WavyAlive[i]); h.Add(WavyLeft[i]); h.Add(WavyTop[i]); h.Add(WavyAge[i]); }
+        h.Add(RaysTargetLeftX); h.Add(RaysTargetY);
         h.Add(_dirFirst); h.Add(_dirSecond); h.Add(_eggsAlive); h.Add(_birdGroup); h.Add(SpawnerLeft); h.Add(SpawnerTop); h.Add(_spawnerVx); h.Add(_spawnerVy);
         for (int i = 0; i < BirdCount; i++) { h.Add(BirdAlive[i]); h.Add(BirdLeft[i]); h.Add(BirdTop[i]); h.Add(_birdVx[i]); h.Add(_birdVy[i]); h.Add(BirdHatch[i]); h.Add(EggLeft[i]); h.Add(EggTop[i]); }
         for (int i = 0; i < VortexCount; i++) { h.Add(VortexLeft[i]); h.Add(VortexTop[i]); } for (int i = 0; i < 10; i++) { h.Add(SpawnerX[i]); h.Add(SpawnerY[i]); } h.Add(_gustId); h.Add(_gustCalls); h.Add(PatternsDone); h.Add(PatternsUntilNext); h.Add(InitialHpRendered);
