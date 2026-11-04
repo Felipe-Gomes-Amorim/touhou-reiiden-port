@@ -64,6 +64,19 @@ public class KonngaraDrawTests
     }
 
     [Fact]
+    public void The_scroll_follows_the_measured_speeds_and_ends_on_line_0()
+    {
+        var k = (Konngara)Session(null).World.Boss!;
+        int Speed(int vsync) => ((k.ViewAt(vsync - 14 + 1).ScrollLine - k.ViewAt(vsync - 14).ScrollLine) + 400) % 400;
+        Assert.Equal(0, Speed(20));                                          // still before the scroll (starts at VSync 24)
+        Assert.InRange(Speed(34), 29, 31);                                   // ~148 lines per 5 ticks
+        Assert.InRange(Speed(99), 15, 16);                                   // 77 per 5 ticks
+        Assert.InRange(Speed(210), 5, 6); Assert.InRange(Speed(230), 4, 5); Assert.InRange(Speed(260), 3, 4); Assert.InRange(Speed(300), 2, 3);   // +-1: the fractional speeds carry over
+        Assert.InRange(Speed(340), 1, 2); Assert.InRange(Speed(420), 1, 2);
+        Assert.Equal(0, k.ViewAt(422 - 14 + 1).ScrollLine);                  // the picture is back on line 0 when the scroll ends
+    }
+
+    [Fact]
     public void The_entrance_timeline_follows_the_original_loops()
     {
         var k = (Konngara)Session(null).World.Boss!;
