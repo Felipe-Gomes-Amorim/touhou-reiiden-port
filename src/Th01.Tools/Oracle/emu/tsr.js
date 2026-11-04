@@ -184,7 +184,7 @@ function assemble() {
   csm([0x80, 0x3e], CFG.hooked); b(0x00); near2('vdone', 0x74);             // cmp hooked,0 ; je vdone
   b(0x2e, 0xa1); w(A(CFG.vs)); csm([0x2b, 0x06], CFG.vs0);                // ax = vs - vs0
   csm([0x8a, 0x1e], CFG.epoch); csm([0x3a, 0x1e], CFG.freezeEpoch); rel(0x75, 'nofr'); // freeze only in the chosen epoch
-  csm([0x8b, 0x1e], CFG.freeze); b(0x85, 0xdb); rel(0x74, 'nofr'); b(0x4b, 0x39, 0xd8); rel(0x75, 'nofr'); b(0xfa); csm([0xc6, 0x06], CFG.frz); b(0x01); L('frzspin'); csm([0x80, 0x3e], CFG.frz); b(0x00); rel(0x75, 'frzspin'); // freeze: bx=freeze; test; dec bx; cmp ax,bx; cli; frz=1; spin until the host clears frz
+  csm([0x8b, 0x1e], CFG.freeze); b(0x85, 0xdb); rel(0x74, 'nofr'); b(0x4b, 0x39, 0xd8); rel(0x72, 'nofr'); b(0xfa); csm([0xc6, 0x06], CFG.frz); b(0x01); L('frzspin'); csm([0x80, 0x3e], CFG.frz); b(0x00); rel(0x75, 'frzspin'); // freeze: bx=freeze; test; dec bx; cmp ax,bx; jb (not yet); cli; frz=1; spin until the host clears frz
   L('nofr');
   csm([0x3b, 0x06], CFG.logCap); near2('vdone', 0x73);                      // cmp ax,logCap ; jae vdone
   b(0x89, 0xc3);                                                          // mov bx,ax

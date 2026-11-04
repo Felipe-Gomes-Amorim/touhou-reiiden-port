@@ -55,24 +55,32 @@ const { parseScript, groupsFor } = require('./capture.js');
       if (h[CFG.started] && firstVs0 === null) firstVs0 = rd16(h, CFG.vs0);   // the epoch of the first REIIDEN run (it re-installs the VSync handler at its start; a later restart would overwrite the log)
       if (firstVs0 !== null && rd16(h, CFG.vs0) !== firstVs0) { console.log('WARNING: REIIDEN restarted before the log was read'); break; }
       if (flist.length && h[CFG.frz]) {   // halted at flist[0]: dump the access page (and its text layer), then move on to the next VSync of the list
-        const N = flist.shift(), tag = `${vramPrefix}_${N}`, P = (await e.mem(seg, CFG.base + CFG.freeze, 2)).readUInt16LE(0) - 1;
-        for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${tag}_${n}.bin`, await e.mem(sg, 0, 0x7d00));
+        h = await e.mem(seg, CFG.base, 0x100); const actual = rd16(h, CFG.vs) - rd16(h, CFG.vs0); const N = flist.shift(), tag = `${vramPrefix}_${N}`, P = (await e.mem(seg, CFG.base + CFG.freeze, 2)).readUInt16LE(0) - 1;
+        if (!process.env.TH01_NOVRAM || N >= Number(process.env.TH01_VRAM_FROM || 1e9)) for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${tag}_${n}.bin`, await e.mem(sg, 0, 0x7d00));
+        if (process.env.TH01_VIDEO) {   // what the VRAM sums cannot see: GDC scroll/partition parameters (PRAM) and the 16-entry digital palette (read back through ports A8h/AAh/ACh/AEh)
+          const gr = (await e.m.exec('PC98 GRAPHICS')).text; if (process.env.TH01_RAWGDC) fs.appendFileSync(`${vramPrefix}_gdc.txt`, `== ${N}
+${gr}
+`); const pram = (/PRAM: wptr=[0-9]+ ([0-9a-f -]+)/.exec(gr) || [])[1] || '?', scan = (/cur-scan=(0x[0-9a-f]+)/.exec(gr) || [])[1] || '?', pal = [];
+          for (let i = 0; i < 16; i++) { await e.m.exec(`OUTP A8 ${i.toString(16)}`); const rd = async p => ((/Result: ([0-9a-f]+)/.exec((await e.m.exec(`INP ${p}`)).text)) || [])[1] || '?'; pal.push(`${await rd('AC')}${await rd('AA')}${await rd('AE')}`); }
+          fs.appendFileSync(`${vramPrefix}_video.txt`, `${N}@${actual} pram=${pram.trim().replace(/ /g, '')} scan=${scan} pal(RGB)=${pal.join(',')}
+`);
+        }
         if (process.env.TH01_DS) { const dsg = h.readUInt16LE(CFG.gameDs); fs.writeFileSync(`${tag}_DS.bin`, await e.mem(dsg, 0, 0xffff)); }
-        console.log('dumped', N, 'guest freeze word', P);
+        console.log('dumped', N, 'at', actual, 'guest freeze word', P);
         if (flist.length) await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} ${((flist[0] + 1) & 255).toString(16)} ${((flist[0] + 1) >> 8).toString(16)}`);
         else await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} 0 0`);
         await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.frz).toString(16)} 0`);
         if (!flist.length) { console.log('list done'); return; }
         continue;
       }
-      if (flist.length) continue;
+      if (flist.length) { if (Date.now() - t0 > (Number(process.env.TH01_TIMEOUT) || 2400000)) { console.log('TIMEOUT waiting for a freeze'); return; } continue; }
       const done = rd16(h, CFG.vs) - rd16(h, CFG.vs0); if (process.env.TH01_VERBOSE) console.log('poll', Date.now() - t0, 'done', done, 'vs0', rd16(h, CFG.vs0), 'tick', rd16(h, CFG.tick), 'started', h[CFG.started]);
       if (h[CFG.hooked] && vramPrefix && nextDump < vramAts.length && done >= vramAts[nextDump]) {       // optional full VRAM dumps (4 planes x 32000 bytes) at the given VSyncs (suffix _<vsync>; the screen must be static: dumps are host-timed)
         const tag = vramAts.length === 1 ? '' : '_' + vramAts[nextDump]; nextDump++; for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${vramPrefix}${tag}_${n}.bin`, await e.mem(sg, 0, 0x7d00));
       }
       if (freeze && h[CFG.hooked] && h[CFG.epoch] === fEpoch && done >= freeze && vramPrefix) { await e.sleep(1500); for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${vramPrefix}_${n}.bin`, await e.mem(sg, 0, 0x7d00)); fs.writeFileSync(`${vramPrefix}_T.bin`, await e.mem(0xa000, 0, 0x1000)); fs.writeFileSync(`${vramPrefix}_A.bin`, await e.mem(0xa200, 0, 0x1000)); { const T = fs.readFileSync(`${vramPrefix}_T.bin`), A = fs.readFileSync(`${vramPrefix}_A.bin`); let hs = 0; for (let i = 0; i < 2000; i++) hs = (hs + T.readUInt16LE(i * 2) + A.readUInt16LE(i * 2)) & 0xffff; const lg = await e.mem(seg + logDelta + (freeze - 1) * 2, 0, 64); console.log('host text sum', hs, 'guest log rows', freeze - 1, freeze, 'word15:', lg.readUInt16LE(30), lg.readUInt16LE(62), 'word0:', lg.readUInt16LE(0), lg.readUInt16LE(32)); } console.log('froze at', rd16(h, CFG.vs) - rd16(h, CFG.vs0)); return; }
       if (h[CFG.hooked] && h[CFG.started] && done >= nv + 5 && nextDump >= vramAts.length) break;
-      if (Date.now() - t0 > 400000) break;
+      if (Date.now() - t0 > (Number(process.env.TH01_TIMEOUT) || 400000)) break;
     }
     const vs = rd16(h, CFG.vs), vs0 = rd16(h, CFG.vs0), vsPush = rd16(h, CFG.vsPush), pushed = h[CFG.pushed];
     const n = Math.min(nv, (vs - vs0) & 0xffff);
