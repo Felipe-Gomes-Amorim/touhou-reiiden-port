@@ -37,7 +37,7 @@ public class SarielTests
         var (_, s) = Make();
         int ticks = 1;
         while (!s.EntranceFrame()) ticks++;
-        Assert.Equal(400 + 130 * 2 + 100, ticks);
+        Assert.Equal(400 + 293 + Sariel.RingsTicks, ticks);
         Assert.Equal(Sariel.EntranceTotal, ticks);
     }
 

@@ -932,11 +932,11 @@ internal sealed partial class GameRenderer
     /// Boss HP: one 7x15 block per point from (128, 48), 8 px apart. The first 2 points are red, up to the
     /// phase-1 limit (6) red/white dithered, the rest white. ref: th01/main/hud/hp.cpp
     /// </summary>
-    static void DrawHpBar(Framebuffer fb, Boss b)
+    static void DrawHpBar(Framebuffer fb, Boss b, int? points = null)
     {
         const int left = 128, top = 48, pointW = 8, h = 15;
         int firstRedWhite = b.HpFirstRedWhite, firstWhite = b.HpFirstWhite;
-        for (int p = 0; p < b.Hp; p++)
+        for (int p = 0; p < (points ?? b.Hp); p++)
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < pointW - 1; x++)
                 {
