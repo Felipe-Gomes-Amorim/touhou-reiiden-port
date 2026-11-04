@@ -111,7 +111,8 @@ public sealed class Konngara : Boss
     {
         tick = Math.Max(tick, 1);
         int t = tick;
-        int steps = (Math.Min(tick, ScrollTicks) + 7) / 8;
+        // T5 (section 11): all 16 entries are black at VSync 19 (tick 5 here), then rise one level every ~8 ticks (entry 7 reaches full at ~139, tick 125)
+        int steps = Math.Clamp((tick - 5) / 8, 0, 15);
         if (t <= ScrollTicks) return new(ScrollLines[t - 1], 400, steps, -1, false);
         t -= ScrollTicks;
         if (t <= GrzLoadTicks) return new(0, 400, steps, -1, false);
