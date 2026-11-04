@@ -72,16 +72,21 @@ public class KonngaraDrawTests
         Assert.True(k.ViewAt(1).PaletteSteps == 1 && k.ViewAt(9).PaletteSteps == 2);          // one fade step every 8 ticks
         for (int t = 1; t <= total; t++) Assert.InRange(k.ViewAt(t).ScrollLine, 0, 416);
         var last = k.ViewAt(total);
-        Assert.Equal((0, 16, 15, Konngara.SealSteps, true), (last.ScrollLine, last.PanLine, last.PaletteSteps, last.SealStep, last.Revealed));
+        Assert.Equal((0, 16, 15, Konngara.SealSteps, true, 4), (last.ScrollLine, last.PanLine, last.PaletteSteps, last.SealStep, last.Revealed, last.SealCount));
         // the pan: 13 steps of 32 lines, 400 down to 16; the shakes before and after alternate 416 / 384 and 416 / 400
         var pans = Enumerable.Range(1, total).Select(t => k.ViewAt(t)).Where(v => v.PanLine == v.ScrollLine && !v.Revealed).Select(v => v.PanLine).ToArray();
         Assert.Equal(Enumerable.Range(0, 13).Select(n => 400 - 32 * n), pans);
-        int belowStart = total - (Konngara.ShakeBelowTicks + Konngara.PanTicks + Konngara.ShakeTicks + Konngara.WaitSealTicks + Konngara.SealSteps * Konngara.SealStepTicks) + 1;
+        int belowStart = total - (Konngara.ShakeBelowTicks + Konngara.PanTicks + Konngara.ShakeTicks + Konngara.WaitSealTicks + Konngara.SealDrawTicks + Konngara.SealFadeTicks) + 1;
         var shakesBelow = Enumerable.Range(belowStart, 4).Select(t => k.ViewAt(t).ScrollLine).ToArray();
         Assert.Equal(new[] { 416, 384, 416, 384 }, shakesBelow);
         // seal fade steps 0..16 in blocks of 10 ticks, only at the end
-        Assert.Equal(-1, k.ViewAt(total - Konngara.SealSteps * Konngara.SealStepTicks - 1).SealStep);
-        Assert.Equal(0, k.ViewAt(total - Konngara.SealSteps * Konngara.SealStepTicks + 1).SealStep);
+        int fadeStart = total - Konngara.SealFadeTicks;
+        int drawStart = fadeStart - Konngara.SealDrawTicks;
+        Assert.Equal(-1, k.ViewAt(drawStart).SealStep);
+        Assert.Equal(0, k.ViewAt(drawStart + 6).SealCount == 1 ? 0 : -9);                // the first picture appears 6 ticks in
+        Assert.Equal((1, 2, 3, 4), (k.ViewAt(drawStart + 10).SealCount, k.ViewAt(drawStart + 33).SealCount, k.ViewAt(drawStart + 44).SealCount, k.ViewAt(drawStart + 56).SealCount));
+        Assert.Equal(0, k.ViewAt(fadeStart + 1).SealStep);
+        Assert.Equal(Konngara.SealSteps, k.ViewAt(total).SealStep);
     }
 
     [Fact]
@@ -124,7 +129,7 @@ public class KonngaraDrawTests
             fb.GetPalette4(9, out int r, out _, out _);
             return r;
         }
-        int sealStart = Konngara.EntranceTotal - Konngara.SealSteps * Konngara.SealStepTicks;
+        int sealStart = Konngara.EntranceTotal - Konngara.SealFadeTicks;
         Assert.Equal(15, Red(false, sealStart + 1));
         Assert.True(Red(false, Konngara.EntranceTotal - 1) < Red(false, sealStart + 1));
         Assert.True(Red(true, sealStart + 1) <= 3);

@@ -67,8 +67,14 @@ public sealed class Konngara : Boss
     static readonly int[] ScrollLines = BuildScrollLines();
     static readonly int ScrollTicks = ScrollLines.Length;
     // lengths of the later parts of the entrance, in ticks: wait, shake below, pan up (13 steps of 32 lines), shake, wait, seal syllables
-    public const int WaitTicks = 40, ShakeBelowTicks = 32, PanTicks = 13, ShakeTicks = 32, WaitSealTicks = 30, SealSteps = 16, SealStepTicks = 10;
-    public static readonly int EntranceTotal = ScrollTicks + WaitTicks + ShakeBelowTicks + PanTicks + ShakeTicks + WaitSealTicks + SealSteps * SealStepTicks;
+    // Fitted to T5's measurement of the original (MEASURED-GAMEPLAY.md section 9, VSync from the start of REIIDEN, the scroll
+    // starting at 14): the 7 GRZ images load for about 9 ticks before the 40-tick wait; the pan (Konngara appears) is 499-511;
+    // the four seal pictures are drawn 579-630 and the palette fade runs 630-780; the first game tick is at 781.
+    public const int GrzLoadTicks = 9, WaitTicks = 40, ShakeBelowTicks = 32, PanTicks = 13, ShakeTicks = 32, WaitSealTicks = 30;
+    public const int SealDrawTicks = 58, SealFadeTicks = 150, SealSteps = 16;
+    /// <summary>The tick, within the drawing of the seal pictures, at which each of the four appears (measured: first 579-585, the rest 606-629).</summary>
+    public static readonly int[] SealAppearTicks = { 6, 33, 44, 56 };
+    public static readonly int EntranceTotal = ScrollTicks + GrzLoadTicks + WaitTicks + ShakeBelowTicks + PanTicks + ShakeTicks + WaitSealTicks + SealDrawTicks + SealFadeTicks;
 
     // the decelerating scroll loop: one tick per iteration but the last
     static int[] BuildScrollLines()
@@ -93,7 +99,7 @@ public sealed class Konngara : Boss
     public int EntranceTick => _entranceFrame;
 
     /// <summary>What the entrance shows at the given tick (1-based): the scroll start line, which pictures fill the page and the seal fade step.</summary>
-    public readonly record struct EntranceView(int ScrollLine, int PanLine, int PaletteSteps, int SealStep, bool Revealed);
+    public readonly record struct EntranceView(int ScrollLine, int PanLine, int PaletteSteps, int SealStep, bool Revealed, int SealCount = 0);
 
     /// <summary>
     /// The entrance as the original plays it: a decelerating vertical scroll of the first picture while the palette fades in;
@@ -108,6 +114,8 @@ public sealed class Konngara : Boss
         int steps = (Math.Min(tick, ScrollTicks) + 7) / 8;
         if (t <= ScrollTicks) return new(ScrollLines[t - 1], 400, steps, -1, false);
         t -= ScrollTicks;
+        if (t <= GrzLoadTicks) return new(0, 400, steps, -1, false);
+        t -= GrzLoadTicks;
         if (t <= WaitTicks) return new(0, 400, steps, -1, false);
         t -= WaitTicks;
         if (t <= ShakeBelowTicks) return new(416 - (t - 1) % 2 * 32, 400, steps, -1, false);
@@ -118,7 +126,14 @@ public sealed class Konngara : Boss
         t -= ShakeTicks;
         if (t <= WaitSealTicks) return new(0, 16, 15, -1, true);
         t -= WaitSealTicks;
-        return new(0, 16, 15, Math.Min(SealSteps, t / SealStepTicks), true);
+        if (t <= SealDrawTicks)
+        {
+            int count = 0;
+            foreach (int at in SealAppearTicks) if (t >= at) count++;
+            return new(0, 16, 15, count > 0 ? 0 : -1, true, count);      // drawn in white: siddham_col_white() comes first
+        }
+        t -= SealDrawTicks;
+        return new(0, 16, 15, Math.Min(SealSteps, t * SealSteps / SealFadeTicks), true, SealAppearTicks.Length);
     }
 
     /// <summary>Defeat: nine "kuji" images, a 64-tick shake and the final scroll fade, plus the white-out (estimate).</summary>
