@@ -83,7 +83,7 @@ internal sealed partial class GameRenderer
             {
                 // The first picture is already on page 1 with its palette, so the old one is seen with the new palette.
                 bool hi = Picture(SarielHigh, out f1), a1 = Picture(SarielBg(0), out f2);
-                int frame = Sariel.TransitionFrameAt(Math.Min(t - Sariel.ScrollTicks, Sariel.TransitionTicks));
+                int frame = Sariel.TransitionFrameAt(t - Sariel.ScrollTicks);
                 ComposePictures(fb, hi ? f1 : null, a1 ? f2 : null, t - Sariel.ScrollTicks >= Sariel.TransitionTicks ? (x, y) => true : DiagonalPageTransition(frame));
                 if (a1 && f2.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(f2);
             }

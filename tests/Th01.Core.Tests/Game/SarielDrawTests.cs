@@ -79,11 +79,13 @@ public class SarielDrawTests
     {
         Assert.Equal(400, Sariel.ScrollTicks);
         Assert.Equal(130, Sariel.TransitionFrames);
-        Assert.Equal(293, Sariel.TransitionTicks);                  // 130 frames of delay(40): 5200 ms at 56.423 Hz
-        Assert.InRange(Sariel.RingsTicks, 30, 60);
+        Assert.Equal(3, Sariel.TransitionTicksPerFrame);            // measured by T5: delay(40) = 3 VSyncs per frame
+        Assert.Equal(375, Sariel.TransitionTicks);                  // from the end of the scroll to the HUD and the rings (VSync 796)
+        Assert.InRange(Sariel.RingsTicks, 38, 46);                  // measured: VSync 796 to the first game tick at ~837
+        Assert.Equal(817, Sariel.EntranceTotal);                    // measured: 20 + 817 = 837
         Assert.Equal(Sariel.ScrollTicks + Sariel.TransitionTicks + Sariel.RingsTicks, Sariel.EntranceTotal);
-        Assert.Equal(0, Sariel.TransitionFrameAt(0));
-        Assert.Equal(129, Sariel.TransitionFrameAt(Sariel.TransitionTicks));
+        Assert.Equal(2, Sariel.TransitionFrameAt(0));                  // measured: frame f is shown from tick 400 - 6 + 3 f
+        Assert.Equal(127, Sariel.TransitionFrameAt(Sariel.TransitionTicks));
     }
 
     [Fact]
@@ -120,6 +122,7 @@ public class SarielDrawTests
             last = shown;
         }
         Assert.True(increases > 100, "the picture must come in over many ticks, not at once");
+        Assert.Equal(3, Sariel.TransitionTicksPerFrame);
         Assert.True(maxJump < 320 * 200 / 4, "no single tick may show a quarter of the picture or more");
         Assert.Equal(320 * 200, last);                              // sampled every second dot in each axis: all of them the new picture
 
@@ -159,7 +162,7 @@ public class SarielDrawTests
         var g = Session(new Art());
         var s = (Sariel)g.World.Boss!;
         var allowed = new HashSet<byte> { 0, 1, 2, 3, 3 ^ 2 };
-        for (int tick = 1; tick < Sariel.EntranceTotal; tick += 41)
+        for (int tick = 1; tick <= Sariel.ScrollTicks + Sariel.TransitionTicks; tick += 41)
         {
             RunTo(g, s, tick);
             var fb = Render(g);
@@ -167,6 +170,12 @@ public class SarielDrawTests
                 for (int x = 0; x < Framebuffer.Width; x += 3)
                     Assert.True(allowed.Contains(fb.GetPixel(x, y)), $"stray pixel {fb.GetPixel(x, y)} at ({x},{y}) in tick {tick}");
         }
+        // the HUD comes back with the rings (VSync 796 in the original)
+        RunTo(g, s, Sariel.ScrollTicks + Sariel.TransitionTicks + 3);
+        var hud = Render(g);
+        int other = 0;
+        for (int y = 0; y < 64; y++) for (int x = 0; x < Framebuffer.Width; x++) if (!allowed.Contains(hud.GetPixel(x, y))) other++;
+        Assert.True(other > 0);
     }
 
     // ---- the fight begins: the bar fills up and the shield and dress pop in ----
