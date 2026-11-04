@@ -23,10 +23,10 @@ const { parseScript, groupsFor } = require('./capture.js');
   await new Promise(r => setTimeout(r, 2500));
   fs.copyFileSync(path.join(work, 'th01.hdi'), path.join(work, 'run.hdi'));
   fs.writeFileSync(path.join(run, 'TRACE.COM'), assemble());
-  const pin2 = opt('--pin2', null) ? opt('--pin2').split(':').map(s => parseInt(s, 16)) : null, pin = opt('--pin', null) ? opt('--pin').split(':').map(s => parseInt(s, 16)) : null, fEpoch = Number(opt('--freeze-epoch', 3)), scriptFile = opt('--script', null), freeze = Number(opt('--freeze', 0));
+  const pin2 = opt('--pin2', null) ? opt('--pin2').split(':').map(s => parseInt(s, 16)) : null, pin = opt('--pin', null) ? opt('--pin').split(':').map(s => parseInt(s, 16)) : null, fEpoch = Number(opt('--freeze-epoch', 3)), scriptFile = opt('--script', null), freeze = Number(opt('--freeze', 0)), flist = (opt('--freeze-list', '') || '').split(',').filter(Boolean).map(Number);
   let inputs = null, cap = 1;
   if (scriptFile) { const sc = parseScript(fs.readFileSync(scriptFile, 'utf8')); cap = sc.ticks; inputs = Buffer.alloc(sc.ticks * 10); for (let t = 0; t < sc.ticks; t++) groupsFor(sc.at(t)).forEach((v, g) => { inputs[t * 10 + g] = v; }); }
-  const { cfg, logDelta } = buildCfg({ cap, ranges: [[0x90, 0x10]], gameSigOff: 0x1e4, gameSig: Buffer.from('826f8260', 'hex'), inputs, freeze: freeze ? freeze + 1 : 0, freezeEpoch: fEpoch, pin2: pin2 || undefined, pinOff: pin ? pin[0] : 0, pinVal: pin ? pin[1] : 0,
+  const { cfg, logDelta } = buildCfg({ cap, ranges: [[0x90, 0x10]], gameSigOff: 0x1e4, gameSig: Buffer.from('826f8260', 'hex'), inputs, freeze: flist.length ? flist[0] + 1 : freeze ? freeze + 1 : 0, holdExec: opt('--stage', null) !== null, freezeEpoch: fEpoch, pin2: pin2 || undefined, pinOff: pin ? pin[0] : 0, pinVal: pin ? pin[1] : 0,
     boot: { n01: push, n04a: 300, n04b: 312 }, logCap: nv, sched });
   fs.writeFileSync(path.join(run, 'CFG.BIN'), cfg);
   fs.writeFileSync(path.join(work, 'run.conf'),
@@ -37,12 +37,34 @@ const { parseScript, groupsFor } = require('./capture.js');
     await e.sleep(4000);
     const seg = (await e.mem(0, 0x200, 4)).readUInt16LE(2);
     const rd16 = (b, o) => b.readUInt16LE(o);
-    let h, t0 = Date.now(), nextDump = 0, firstVs0 = null;
+    let h, t0 = Date.now(), nextDump = 0, firstVs0 = null, stageDone = opt('--stage', null) === null;
+    const wantStage = Number(opt('--stage', 0)), wantRoute = Number(opt('--route', 0));
     for (;;) {
       await e.sleep(1000);
       h = await e.mem(seg, CFG.base, 0x100);
+      if (!stageDone && h[CFG.execSeen]) {   // OP is about to exec REIIDEN (stalled in the guest): patch the resident structure (stage_id/route) now
+        let hit = null;
+        const hits = []; for (let s2 = 0x0800; s2 < 0xa000; s2 += 0x0fff) { const m = await e.mem(s2, 0, 0xffff); let i = -1; while ((i = m.indexOf('ReiidenConfig', i + 1)) >= 0) hits.push([s2, i, m.subarray(i, i + 0x70).toString('hex')]); } hits.forEach(x => console.log('hit', x[0].toString(16) + ':' + x[1].toString(16), x[2])); hit = hits.length ? hits[hits.length - 1] : null;
+        if (!hit) throw new Error('resident structure not found');
+        const [rs, ro] = hit; const before = await e.mem(rs, ro, 0x60); console.log('resident at', rs.toString(16) + ':' + ro.toString(16), before.toString('hex'));
+        fs.writeFileSync(path.join(work, 'resident_before.bin'), before);
+        if (process.env.TH01_RES_STAGE_OFF) { const so = Number(process.env.TH01_RES_STAGE_OFF), ro2 = Number(process.env.TH01_RES_ROUTE_OFF); await e.m.exec(`SM ${rs.toString(16)}:${(ro + so).toString(16)} ${(wantStage & 255).toString(16)} ${(wantStage >> 8).toString(16)}`); await e.m.exec(`SM ${rs.toString(16)}:${(ro + ro2).toString(16)} ${wantRoute.toString(16)}`); console.log('patched', await e.mem(rs, ro, 0x60).then(x => x.toString('hex'))); }
+        await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.holdExec).toString(16)} 0`);
+        stageDone = true;
+      }
       if (h[CFG.started] && firstVs0 === null) firstVs0 = rd16(h, CFG.vs0);   // the epoch of the first REIIDEN run (it re-installs the VSync handler at its start; a later restart would overwrite the log)
       if (firstVs0 !== null && rd16(h, CFG.vs0) !== firstVs0) { console.log('WARNING: REIIDEN restarted before the log was read'); break; }
+      if (flist.length && h[CFG.frz]) {   // halted at flist[0]: dump the access page (and its text layer), then move on to the next VSync of the list
+        const N = flist.shift(), tag = `${vramPrefix}_${N}`, P = (await e.mem(seg, CFG.base + CFG.freeze, 2)).readUInt16LE(0) - 1;
+        for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${tag}_${n}.bin`, await e.mem(sg, 0, 0x7d00));
+        console.log('dumped', N, 'guest freeze word', P);
+        if (flist.length) await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} ${((flist[0] + 1) & 255).toString(16)} ${((flist[0] + 1) >> 8).toString(16)}`);
+        else await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} 0 0`);
+        await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.frz).toString(16)} 0`);
+        if (!flist.length) { console.log('list done'); return; }
+        continue;
+      }
+      if (flist.length) continue;
       const done = rd16(h, CFG.vs) - rd16(h, CFG.vs0); if (process.env.TH01_VERBOSE) console.log('poll', Date.now() - t0, 'done', done, 'vs0', rd16(h, CFG.vs0), 'tick', rd16(h, CFG.tick), 'started', h[CFG.started]);
       if (h[CFG.hooked] && vramPrefix && nextDump < vramAts.length && done >= vramAts[nextDump]) {       // optional full VRAM dumps (4 planes x 32000 bytes) at the given VSyncs (suffix _<vsync>; the screen must be static: dumps are host-timed)
         const tag = vramAts.length === 1 ? '' : '_' + vramAts[nextDump]; nextDump++; for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${vramPrefix}${tag}_${n}.bin`, await e.mem(sg, 0, 0x7d00));
