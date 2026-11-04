@@ -698,12 +698,12 @@ internal sealed partial class GameRenderer
         if (entering)
         {
             // Only pictures: the boss and her face are in BOSS8_A1; the seal syllables are put on top at the very end.
-            if (view.SealStep >= 0) DrawSealSyllables(fb, k, view.SealStep);
+            if (view.SealCount > 0) DrawSealSyllables(fb, k, view.SealStep, view.SealCount);
             return;
         }
         if (k.Phase >= 1) DrawHpBar(fb, k);
         // The seal syllables (colourkeyed pictures in the colour of palette entry 9) stay on the screen during the fight.
-        DrawSealSyllables(fb, k, -1);                      // -1: not in the entrance
+        DrawSealSyllables(fb, k, -1, SealPictures.Length);   // -1: not in the entrance
         // Slash images accumulate on the screen while the pattern runs (BOSS8.GRZ images 0..n).
         for (int n = 0; n <= k.SlashImage; n++) DrawColorKey(fb, SlashSheet, n);
         // Head and face: BOSS8_1.BOS frame = direction, BOSS8_E1.BOS frame = (expression - 1) * 3 + direction (closed, glare),
@@ -755,9 +755,9 @@ internal sealed partial class GameRenderer
     /// (0, 9, 10) one step at a time: 16 steps of 10 ticks at the end of the entrance, and again from frame 50 on in the seal
     /// phases 2, 4 and 6 (a step every 4 frames). Soft flashes keep only a light tint of the white.
     /// </summary>
-    void DrawSealSyllables(Framebuffer fb, Konngara k, int entranceStep)
+    void DrawSealSyllables(Framebuffer fb, Konngara k, int entranceStep, int count)
     {
-        foreach (string name in SealPictures) DrawColorKey(fb, name, 0);
+        for (int i = 0; i < count; i++) DrawColorKey(fb, SealPictures[i], 0);
         int step = entranceStep >= 0 ? entranceStep : k.SiddhamFlash ? k.SiddhamSteps : Konngara.SealSteps;
         step = Math.Min(step, Konngara.SealSteps);
         // original: red 15 -> 0, green 15 -> 9 and blue 15 -> 10, one level per step
