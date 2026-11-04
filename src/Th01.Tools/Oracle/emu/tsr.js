@@ -12,7 +12,7 @@ const CFG = {
   sig: 0x000, cap: 0x004, slotParas: 0x006, nin: 0x008, gsOff: 0x00a, gsVal: 0x00c, frOff: 0x010, frVal: 0x012,
   seedOff: 0x016, seedVal: 0x018, nRangeBytes: 0x01c, ranges: 0x020 /* 8 x (off,len,seg,0): seg 0 = the game's DS */, tick: 0x060, started: 0x062,
   seen7: 0x063, old18: 0x064, bufDelta: 0x06a, keepParas: 0x06c, startTick: 0x06e, pinOff: 0x070, pinVal: 0x072, n01: 0x074, n04a: 0x076, n04b: 0x078, pushed: 0x07a, cnt01: 0x07c, cnt04: 0x07e,
-  old21: 0x080, gameV: 0x084, vs: 0x088, vs0: 0x08a, vsPush: 0x08c, logDelta: 0x08e, logCap: 0x090, nSchedBytes: 0x092, hooked: 0x094, epoch: 0x0f9 /* number of VSync handlers captured so far (OP.EXE = 1, REIIDEN.EXE = 2) */, freezeEpoch: 0x0f8, execSeen: 0x0f2, frz: 0x0f1 /* 1 while the guest is halted at the freeze VSync; the host sets it to 0 to resume (after moving CFG.freeze to the next VSync it wants) */, holdExec: 0x0f3 /* 1 = stall the first INT 21h AH=4Bh issued after OP's VSync handler exists (OP -> REIIDEN) until the host clears it; execSeen = 1 while stalled */, pin2Off: 0x0fa, pin2Val: 0x0fc, pin2Tick: 0x0fe, pin3Off: 0x0f4, pin3Val: 0x0f6 /* second word written at the same tick as pin2 (overlaps sched entries 14-15) */, freeze: 0x096 /* VSync (relative to vs0) + 1 at which the guest halts (cli; jmp $) so VRAM can be dumped exactly there; 0 = never */,
+  old21: 0x080, gameV: 0x084, vs: 0x088, vs0: 0x08a, vsPush: 0x08c, logDelta: 0x08e, logCap: 0x090, nSchedBytes: 0x092, hooked: 0x094, epoch: 0x0f9 /* number of VSync handlers captured so far (OP.EXE = 1, REIIDEN.EXE = 2) */, freezeEpoch: 0x0f8, execSeen: 0x0f2, gameDs: 0x0ee /* data segment of the game, stored each time its key_sense runs (so the host can dump DS) */, frz: 0x0f1 /* 1 while the guest is halted at the freeze VSync; the host sets it to 0 to resume (after moving CFG.freeze to the next VSync it wants) */, holdExec: 0x0f3 /* 1 = stall the first INT 21h AH=4Bh issued after OP's VSync handler exists (OP -> REIIDEN) until the host clears it; execSeen = 1 while stalled */, pin2Off: 0x0fa, pin2Val: 0x0fc, pin2Tick: 0x0fe, pin3Off: 0x0f4, pin3Val: 0x0f6 /* second word written at the same tick as pin2 (overlaps sched entries 14-15) */, freeze: 0x096 /* VSync (relative to vs0) + 1 at which the guest halts (cli; jmp $) so VRAM can be dumped exactly there; 0 = never */,
   sched: 0x098 /* 16 x (start w, end w, group b, bits b), relative to vsPush */, table: 0x100,
 };
 const A = o => CFG.base + o; // absolute offset in the COM segment
@@ -102,7 +102,7 @@ function assemble() {
   csm([0x3b, 0x1e], CFG.n04b); rel(0x73, 'bchain');                       // bx >= n04b -> bchain
   b(0x5b, 0xb4, 0x02, 0xcf);                                              // pop bx ; ah=2 (K5_Z) ; iret
   L('bchain'); b(0x5b); near('chain');
-  L('gamechk');
+  L('gamechk'); csm([0x8c, 0x1e], CFG.gameDs);                                 // gameDs = ds
   b(0x3c, 0x07); rel(0x74, 'g7');
   b(0x3c, 0x00); rel(0x74, 'rst'); b(0x3c, 0x03); rel(0x74, 'rst'); near('inject');
   L('rst'); csm([0xc6, 0x06], CFG.seen7); b(0x00); near('inject');   // mov byte cs:[seen7],0

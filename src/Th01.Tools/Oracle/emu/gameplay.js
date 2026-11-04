@@ -57,6 +57,7 @@ const { parseScript, groupsFor } = require('./capture.js');
       if (flist.length && h[CFG.frz]) {   // halted at flist[0]: dump the access page (and its text layer), then move on to the next VSync of the list
         const N = flist.shift(), tag = `${vramPrefix}_${N}`, P = (await e.mem(seg, CFG.base + CFG.freeze, 2)).readUInt16LE(0) - 1;
         for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${tag}_${n}.bin`, await e.mem(sg, 0, 0x7d00));
+        if (process.env.TH01_DS) { const dsg = h.readUInt16LE(CFG.gameDs); fs.writeFileSync(`${tag}_DS.bin`, await e.mem(dsg, 0, 0xffff)); }
         console.log('dumped', N, 'guest freeze word', P);
         if (flist.length) await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} ${((flist[0] + 1) & 255).toString(16)} ${((flist[0] + 1) >> 8).toString(16)}`);
         else await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} 0 0`);
