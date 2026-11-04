@@ -67,13 +67,14 @@ ${gr}
         }
         if (process.env.TH01_DS) { const dsg = h.readUInt16LE(CFG.gameDs); fs.writeFileSync(`${tag}_DS.bin`, await e.mem(dsg, 0, 0xffff)); }
         console.log('dumped', N, 'at', actual, 'guest freeze word', P);
-        if (flist.length) await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} ${((flist[0] + 1) & 255).toString(16)} ${((flist[0] + 1) >> 8).toString(16)}`);
+        if (flist.length) await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} 0${((flist[0] + 1) & 255).toString(16)} 0${((flist[0] + 1) >> 8).toString(16)}`);
         else await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.freeze).toString(16)} 0 0`);
         await e.m.exec(`SM ${seg.toString(16)}:${(CFG.base + CFG.frz).toString(16)} 0`);
         if (!flist.length) { console.log('list done'); return; }
+        if (process.env.TH01_DIAG) for (let k = 0; k < 3; k++) { await e.sleep(1500); const d = await e.mem(seg, CFG.base, 0x100); console.log('diag', N, 'vs', rd16(d, CFG.vs) - rd16(d, CFG.vs0), 'freezeWord', rd16(d, CFG.freeze), 'frz', d[CFG.frz], 'epoch', d[CFG.epoch], 'fEpoch', d[CFG.freezeEpoch], 'hooked', d[CFG.hooked]); }
         continue;
       }
-      if (flist.length) { if (Date.now() - t0 > (Number(process.env.TH01_TIMEOUT) || 2400000)) { console.log('TIMEOUT waiting for a freeze'); return; } continue; }
+      if (flist.length) { if (Date.now() - t0 > (Number(process.env.TH01_TIMEOUT) || 2400000)) { console.log('TIMEOUT waiting for a freeze', 'vs', rd16(h, CFG.vs), 'vs0', rd16(h, CFG.vs0), 'epoch', h[CFG.epoch], 'frz', h[CFG.frz], 'freezeWord', rd16(h, CFG.freeze), 'tick', rd16(h, CFG.tick), 'hooked', h[CFG.hooked]); return; } continue; }
       const done = rd16(h, CFG.vs) - rd16(h, CFG.vs0); if (process.env.TH01_VERBOSE) console.log('poll', Date.now() - t0, 'done', done, 'vs0', rd16(h, CFG.vs0), 'tick', rd16(h, CFG.tick), 'started', h[CFG.started]);
       if (h[CFG.hooked] && vramPrefix && nextDump < vramAts.length && done >= vramAts[nextDump]) {       // optional full VRAM dumps (4 planes x 32000 bytes) at the given VSyncs (suffix _<vsync>; the screen must be static: dumps are host-timed)
         const tag = vramAts.length === 1 ? '' : '_' + vramAts[nextDump]; nextDump++; for (const [n, sg] of [['B', 0xa800], ['R', 0xb000], ['G', 0xb800], ['E', 0xe000]]) fs.writeFileSync(`${vramPrefix}${tag}_${n}.bin`, await e.mem(sg, 0, 0x7d00));
