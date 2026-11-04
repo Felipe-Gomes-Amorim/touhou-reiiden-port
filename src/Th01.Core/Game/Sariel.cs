@@ -28,19 +28,70 @@ public sealed class Sariel : Boss
     // special phases
     public const int PhaseForm1Defeated = 99, PhaseForm2 = 100, PhaseForm2Defeated = 101;
 
-    // ---- entrance length (estimated; see rules) ----
-    /// <summary>The scroll: one tick per line, from line 399 up to 0.</summary>
+    // ---- entrance length (derived from the original's code, not measured; see the audit) ----
+    /// <summary>The scroll: one tick per line (frame_delay(1)), from line 399 up to 0.</summary>
     public const int ScrollTicks = 400;
-    /// <summary>pagetrans_diagonal_8x8(40): (640 / 8) + (400 / 8) frames of 40 ms, about 2 ticks each (ASSUMPTION). TODO(T5)</summary>
-    public const int TransitionFrames = 640 / 8 + 400 / 8, TransitionTicksPerFrame = 2;
-    /// <summary>The entrance rings (the same helper as Kikuri; its length was not found). ASSUMPTION. TODO(T5)</summary>
-    public const int RingsTicks = Kikuri.RingsFrames;
-    public const int EntranceTotal = ScrollTicks + TransitionFrames * TransitionTicksPerFrame + RingsTicks;
+    /// <summary>
+    /// pagetrans_diagonal_8x8(40): (640 / 8) + (400 / 8) = 130 frames of delay(40) = 5200 ms = 293 ticks at 56.423 Hz. TODO(T5)
+    /// </summary>
+    public const int TransitionFrames = 640 / 8 + 400 / 8, TransitionTicks = 293;
+    /// <summary>The frame (0..129) of the diagonal page transition shown after the given number of its ticks (1-based).</summary>
+    public static int TransitionFrameAt(int tick) => Math.Clamp(tick * 1000 / 2257, 0, TransitionFrames - 1);
+
+    /// <summary>
+    /// The entrance rings: every 4th frame the radius base grows by 16 from 16 and the loop ends when every one of the 128
+    /// squares is off the screen; the loop waits one tick per two frames. Simulated here from the same formulas as the drawing.
+    /// </summary>
+    public static readonly int RingsFrames = ComputeRingsFrames();
+    public static readonly int RingsTicks = (RingsFrames + 1) / 2;
+    public static readonly int EntranceTotal = ScrollTicks + TransitionTicks + RingsTicks;
+
+    static int ComputeRingsFrames()
+    {
+        for (int frame = 4; ; frame += 4)
+        {
+            int radiusBase = 16 + 16 * (frame / 4);
+            bool anyOnScreen = false;
+            for (int i = 32; i < 5 * 32 && !anyOnScreen; i++)
+            {
+                int radius = radiusBase * (i / 32), angle = i % 32 * (0x100 / 32);
+                int left = AngleMath.PolarY(ScreenW / 2 - 16, radius, angle) & ~7;
+                int top = AngleMath.PolarX(ScreenH / 2 - 4 - 16, radius, angle);
+                anyOnScreen = !(left < 0 || top < 0 || left + 32 > ScreenW || top + 32 > ScreenH);
+            }
+            if (!anyOnScreen) return frame;
+        }
+    }
 
     // ---- state ----
     int _entranceFrame;
     public int PatternsDone, PatternsUntilNext;
     public bool InitialHpRendered;
+
+    /// <summary>Hit points drawn so far while the bar is still filling up (hud_hp_increment_render: one point per frame).</summary>
+    public int HpShown;
+    /// <summary>Drawing only: the shield and the dress appear on their first animation frame (10 and 15) and stay until the picture is replaced.</summary>
+    public bool ShieldShown, DressShown;
+    public int ShieldCel, DressCel;
+
+    void HpIncrement()
+    {
+        if (InitialHpRendered) return;
+        HpShown = Math.Min(Hp, PhaseFrame + 1);
+        if (PhaseFrame == Hp - 1) InitialHpRendered = true;
+    }
+
+    /// <summary>shield_render_both() and dress_render_both(): the cel changes on its frame multiple and is otherwise left on screen.</summary>
+    void ShieldAndDress()
+    {
+        if (PhaseFrame % 10 == 0) { ShieldShown = true; ShieldCel = PhaseFrame % 40 / 10; }
+        DressAnimation();
+    }
+
+    void DressAnimation()
+    {
+        if (PhaseFrame % 15 == 0) { DressShown = true; DressCel = PhaseFrame % 60 / 15; }
+    }
 
     public Sariel(GameWorld w) : base(w)
     {
@@ -120,6 +171,7 @@ public sealed class Sariel : Boss
             Top = ShieldTop;
             BirdsReset();
             _wandFrame = 0;
+            ShieldShown = DressShown = false;
             return;
         }
         switch (Phase)
@@ -142,6 +194,8 @@ public sealed class Sariel : Boss
     /// <summary>Which background image is shown (0..3); changes at the end of a transition.</summary>
     public int BackgroundId;
     int _gustId;
+    public int GustId => _gustId;
+    public int GustCalls => _gustCalls;
 
     /// <summary>pattern_next(): alternates when max is 1, otherwise cycles min..max; counts a finished pattern.</summary>
     void PatternNext(int ringMin, int ringMax)
@@ -152,8 +206,10 @@ public sealed class Sariel : Boss
 
     void FormOnePatternFrame(int phase, int ringMin, int ringMax, int nextPhase)
     {
+        if (phase == 1) HpIncrement();                       // hud_hp_increment_render(), before the frame counter moves
         PhaseFrame++;
         InvincibilityFrame++;
+        if (phase is 1 or 3 or 5 or 7) ShieldAndDress();
         if (phase == 5) ParticlesWavy();
         else if (phase == 3) ParticlesVertical(false);
         else if (phase == 7) ParticlesVertical(true);
@@ -683,8 +739,15 @@ public sealed class Sariel : Boss
     /// <summary>Where the aiming ray of the four-lasers pattern starts (drawing only; the lasers use the same origins).</summary>
     public int RayOriginX, RayOriginY;
 
+    /// <summary>The aiming ray of the four-lasers pattern: starts at the origin of the laser that was just fired and moves by this velocity each frame.</summary>
+    public int RayVelX, RayVelY, RayStartFrame;
+
     void FireAimedLaser(int slot, int originX, int originY, int targetLeft)
     {
+        int angle = AngleMath.Iatan2(Playfield.Bottom - originY, targetLeft - originX);
+        RayVelX = AngleMath.PolarX(0, 16, angle);
+        RayVelY = AngleMath.PolarY(0, 16, angle);
+        RayStartFrame = PhaseFrame;
         World.Lasers[slot].Spawn(originX, originY, targetLeft, Playfield.Bottom, _state, ColWhite, 50, 8);
         World.Sound.PlaySe(6);
     }
@@ -909,7 +972,7 @@ public sealed class Sariel : Boss
     // ---- form 1 defeated (phase 99): a blocking animation in the original ----
 
     /// <summary>Ticks of the diagonal page transition after the 200 frames of shaking (ASSUMPTION: 130 frames of about 2 ticks). TODO(T5)</summary>
-    public const int Form1DefeatShakeTicks = 200, Form1DefeatTransitionTicks = 260;
+    public const int Form1DefeatShakeTicks = 200, Form1DefeatTransitionFrames = 130, Form1DefeatTransitionTicks = 260;
     bool _form1DefeatStarted;
 
     /// <summary>The session must not run anything else while this is true: the original blocks inside this animation.</summary>
@@ -953,6 +1016,7 @@ public sealed class Sariel : Boss
         w.PlayerInvincible = false;
         Hp = HpForm2;
         InitialHpRendered = false;
+        ShieldShown = DressShown = false;
         _pulseR = _pulseG = _pulseB = 0;
         Array.Clear(_leafFlag);                              // pattern_swaying_leaves(frame, 999)
     }
@@ -1165,6 +1229,7 @@ public sealed class Sariel : Boss
 
     void Form2()
     {
+        HpIncrement();                                       // the second form's bar fills up too
         PhaseFrame++;
         InvincibilityFrame++;
         ParticlesHorizontal(PhaseFrame);
@@ -1243,6 +1308,8 @@ public sealed class Sariel : Boss
                 }
             }
         }
+        if (PhaseFrame == 0 && _gustId >= 3) ShieldShown = false;      // the new picture has no shield on it
+        DressAnimation();                                    // dress_render_both() after every call of the transition
         if (PhaseFrame == 0)
         {
             Phase = nextPhase;
@@ -1261,7 +1328,7 @@ public sealed class Sariel : Boss
         h.Add(_entranceFrame); h.Add(BackgroundId); h.Add(_state); h.Add(_wandFrame); h.Add(_vortWandDone); h.Add(_arcWandDone); h.Add(SnowflakeState); h.Add(SnowflakeLeft); h.Add(SnowflakeTop); h.Add(_snowVx); h.Add(_snowVy);
         h.Add(SnowStarLeft); h.Add(SnowStarTop); h.Add(SnowRadiusOuter1); h.Add(SnowRadiusOuter2); h.Add(SnowRadiusInner); h.Add(_ringsAngleA2); h.Add(_ringsInterval);
         for (int i = 0; i < ParticleCount; i++) { h.Add(ParticleAlive[i]); h.Add(ParticleLeft[i]); h.Add(ParticleTop[i]); h.Add(ParticleVy[i]); h.Add(ParticleAge[i]); }
-        h.Add(_laserTargetFirst); h.Add(_radialAngle); h.Add(RayOriginX); h.Add(RayOriginY);
+        h.Add(HpShown); h.Add(ShieldShown); h.Add(DressShown); h.Add(ShieldCel); h.Add(DressCel); h.Add(RayVelX); h.Add(RayVelY); h.Add(RayStartFrame); h.Add(_laserTargetFirst); h.Add(_radialAngle); h.Add(RayOriginX); h.Add(RayOriginY);
         for (int i = 0; i < ParticleCount; i++) { h.Add(WavyAlive[i]); h.Add(WavyLeft[i]); h.Add(WavyTop[i]); h.Add(WavyAge[i]); }
         h.Add(RaysTargetLeftX); h.Add(RaysTargetY);
         h.Add(_form1DefeatStarted); h.Add(_pulseR); h.Add(_pulseG); h.Add(_pulseB);

@@ -4,16 +4,19 @@ using Th01.Core.Input;
 
 namespace Th01.Core.Tests.Game;
 
-/// <summary>Drawing of Sariel's entrance, backgrounds, sprites and defeat. Drawing only.</summary>
+/// <summary>
+/// Drawing of Sariel: entrance, backgrounds, transformation, sprites, defeat. Every effect that is gradual in the original
+/// is checked tick by tick (not just at its two ends). Drawing only.
+/// </summary>
 public class SarielDrawTests
 {
-    // Each picture is one flat colour so the tests can tell which one is on screen.
+    // Each picture is one flat colour so the tests can tell which one is on screen. Palette entry 2 differs per picture.
     sealed class Art : IGameArt
     {
         static readonly Dictionary<string, byte> Pictures = new()
         {
             ["BOSS6_L.GRP"] = 1, ["BOSS6_H.GRP"] = 2, ["BOSS6_A1.GRP"] = 3, ["BOSS6_A2.GRP"] = 4, ["BOSS6_A3.GRP"] = 5,
-            ["BOSS6_A4.GRP"] = 6, ["BOSS6_A.GRP"] = 8, ["BOSS6_A5.GRP"] = 9, ["BOSS6_A6.GRP"] = 10,
+            ["BOSS6_A4.GRP"] = 6, ["BOSS6_A5.GRP"] = 9, ["BOSS6_A6.GRP"] = 11,
         };
         public int FrameCount(string sheet) => 0;
         public bool TryGetBackground(out ArtFrame art) { art = default; return false; }
@@ -23,7 +26,10 @@ public class SarielDrawTests
             if (!Pictures.TryGetValue(sheet, out byte c)) return false;
             var px = new byte[Framebuffer.Width * Framebuffer.Height];
             Array.Fill(px, c);
-            art = new ArtFrame(Framebuffer.Width, Framebuffer.Height, px, Array.Empty<byte>(), Array.Empty<byte>());
+            var pal = new byte[48];
+            pal[2 * 3] = (byte)(sheet == "BOSS6_A5.GRP" ? 0 : 15);         // entry 2: red in the pictures, blue in the dark one
+            pal[2 * 3 + 2] = (byte)(sheet == "BOSS6_A5.GRP" ? 15 : 0);
+            art = new ArtFrame(Framebuffer.Width, Framebuffer.Height, px, Array.Empty<byte>(), pal);
             return true;
         }
     }
@@ -55,66 +61,274 @@ public class SarielDrawTests
     static void ToPlaying(GameSession g)
     {
         while (g.Phase == SessionPhase.BossEntrance) g.Step(GameButtons.None);
-        g.Step(GameButtons.None); g.Step(GameButtons.None);
+    }
+
+    static int Count(Framebuffer fb, byte color, int step = 1)
+    {
+        int n = 0;
+        for (int y = 0; y < Framebuffer.Height; y += step)
+            for (int x = 0; x < Framebuffer.Width; x += step)
+                if (fb.GetPixel(x, y) == color) n++;
+        return n;
+    }
+
+    // ---- the entrance: Sariel appears ----
+
+    [Fact]
+    public void The_entrance_lengths_come_from_the_original_code()
+    {
+        Assert.Equal(400, Sariel.ScrollTicks);
+        Assert.Equal(130, Sariel.TransitionFrames);
+        Assert.Equal(293, Sariel.TransitionTicks);                  // 130 frames of delay(40): 5200 ms at 56.423 Hz
+        Assert.InRange(Sariel.RingsTicks, 30, 60);
+        Assert.Equal(Sariel.ScrollTicks + Sariel.TransitionTicks + Sariel.RingsTicks, Sariel.EntranceTotal);
+        Assert.Equal(0, Sariel.TransitionFrameAt(0));
+        Assert.Equal(129, Sariel.TransitionFrameAt(Sariel.TransitionTicks));
     }
 
     [Fact]
-    public void The_entrance_shows_only_pictures_scrolling_then_a_diagonal_wipe_then_rings_and_no_hud()
+    public void The_scroll_brings_in_the_high_picture_one_row_per_tick_while_the_view_follows()
     {
         var g = Session(new Art());
         var s = (Sariel)g.World.Boss!;
-        RunTo(g, s, 100);
-        var scroll = Render(g);
-        Assert.Equal(300, Sariel.ScrollTicks - 100);
-        Assert.Equal(300, scroll.ScrollY);                         // line 400 - tick
-        RunTo(g, s, Sariel.ScrollTicks + 60);
-        var wipe = Render(g);
-        Assert.Equal(3, wipe.GetPixel(0, 0));                      // the first diagonal is already the new picture
-        Assert.Equal(2, wipe.GetPixel(639, 399));                  // the far corner is still the old one
-        RunTo(g, s, Sariel.EntranceTotal - 80);
-        var rings = Render(g);
-        int ringPixels = 0;
-        for (int y = 0; y < Framebuffer.Height; y++) for (int x = 0; x < Framebuffer.Width; x++) if (rings.GetPixel(x, y) == (3 ^ 2)) ringPixels++;
-        Assert.True(ringPixels > 1000);
+        int Rows(Framebuffer fb) { int n = 0; for (int y = 0; y < Framebuffer.Height; y++) if (fb.GetPixel(10, y) == 2) n++; return n; }
+        int previousScroll = -1;
+        for (int tick = 1; tick <= 60; tick++)
+        {
+            RunTo(g, s, tick);
+            var fb = Render(g);
+            Assert.Equal(tick, Rows(fb));                           // exactly one more row of the high picture per tick
+            Assert.Equal(Framebuffer.Height - tick, fb.ScrollY);    // and the view moves up one line per tick
+            Assert.NotEqual(previousScroll, fb.ScrollY);
+            previousScroll = fb.ScrollY;
+        }
+    }
+
+    [Fact]
+    public void The_diagonal_transition_dithers_the_new_picture_in_frame_by_frame_with_two_waves()
+    {
+        var g = Session(new Art());
+        var s = (Sariel)g.World.Boss!;
+        int last = -1, increases = 0, maxJump = 0;
+        for (int t = 1; t <= Sariel.TransitionTicks; t++)
+        {
+            RunTo(g, s, Sariel.ScrollTicks + t);
+            int shown = Count(Render(g), 3, 2);
+            Assert.True(shown >= last, $"the new picture went away at tick {t}");
+            if (shown > last) increases++;
+            if (last >= 0) maxJump = Math.Max(maxJump, shown - last);
+            last = shown;
+        }
+        Assert.True(increases > 100, "the picture must come in over many ticks, not at once");
+        Assert.True(maxJump < 320 * 200 / 4, "no single tick may show a quarter of the picture or more");
+        Assert.Equal(320 * 200, last);                              // sampled every second dot in each axis: all of them the new picture
+
+        // the dither: after the first wave reached a square it shows every other dot of the new picture (mask 1: even dots)
         var g2 = Session(new Art());
         var s2 = (Sariel)g2.World.Boss!;
+        RunTo(g2, s2, Sariel.ScrollTicks + 14);                     // frame 6: squares with column + row <= 6 are half new
+        var fb2 = Render(g2);
+        Assert.Equal(3, fb2.GetPixel(0, 0));                        // (0 + 0) even: the new picture
+        Assert.Equal(2, fb2.GetPixel(1, 0));                        // (1 + 0) odd: still the old one
+        Assert.Equal(2, fb2.GetPixel(300, 300));                    // far from both corners: untouched
+    }
+
+    [Fact]
+    public void The_rings_grow_every_two_ticks_until_every_square_has_left_the_screen()
+    {
+        var g = Session(new Art());
+        var s = (Sariel)g.World.Boss!;
+        int start = Sariel.ScrollTicks + Sariel.TransitionTicks;
+        RunTo(g, s, start + 6);
+        var a = Render(g);
+        RunTo(g, s, start + 20);
+        var b = Render(g);
+        int changed = 0;
+        for (int y = 0; y < Framebuffer.Height; y += 2) for (int x = 0; x < Framebuffer.Width; x += 2) if (a.GetPixel(x, y) != b.GetPixel(x, y)) changed++;
+        Assert.True(changed > 500, $"the rings must have moved outwards (changed={changed}, a!=3: {Count(a, 3, 2)}, b!=3: {Count(b, 3, 2)}, tick={s.EntranceTick}, phase={g.Phase}, total={Sariel.EntranceTotal}, start={start})");
+        RunTo(g, s, Sariel.EntranceTotal - 1);
+        var late = Render(g);
+        int ringPixels = 0;
+        for (int y = 0; y < Framebuffer.Height; y++) for (int x = 0; x < Framebuffer.Width; x++) if (late.GetPixel(x, y) != 3) ringPixels++;
+        Assert.True(ringPixels < 8000, "by the end only a few squares of the rings are left on the screen");
+    }
+
+    [Fact]
+    public void The_entrance_shows_only_pictures_and_rings_never_the_hud()
+    {
+        var g = Session(new Art());
+        var s = (Sariel)g.World.Boss!;
         var allowed = new HashSet<byte> { 0, 1, 2, 3, 3 ^ 2 };
         for (int tick = 1; tick < Sariel.EntranceTotal; tick += 41)
         {
-            RunTo(g2, s2, tick);
-            var fb = Render(g2);
+            RunTo(g, s, tick);
+            var fb = Render(g);
             for (int y = 0; y < Framebuffer.Height; y += 3)
                 for (int x = 0; x < Framebuffer.Width; x += 3)
                     Assert.True(allowed.Contains(fb.GetPixel(x, y)), $"stray pixel {fb.GetPixel(x, y)} at ({x},{y}) in tick {tick}");
         }
     }
 
+    // ---- the fight begins: the bar fills up and the shield and dress pop in ----
+
+    static int HpPoints(Framebuffer fb)
+    {
+        int n = 0;
+        for (int p = 0; p < 20; p++) if (fb.GetPixel(128 + p * 8 + 2, 52) is 7 or 10) n++;
+        return n;
+    }
+
     [Fact]
-    public void The_first_form_shows_the_current_background_and_wipes_to_the_next_one_in_the_transition_phases()
+    public void The_hp_bar_fills_up_one_point_per_tick_at_the_start_of_each_form()
     {
         var g = Session(new Art());
         var s = (Sariel)g.World.Boss!;
         ToPlaying(g);
-        Assert.Equal(3, Render(g).GetPixel(10, 100));              // BOSS6_A1
-        s.Phase = 2; s.PhaseFrame = 30;
-        Assert.Equal(3, Render(g).GetPixel(10, 100));              // still waiting
-        s.Phase = 6; s.BackgroundId = 2;                           // A3 -> A4
-        s.PhaseFrame = 0;
-        int guard = 0;
-        bool sawBoth = false;
-        while (s.Phase == 6 && guard++ < 500)
+        g.Step(GameButtons.None);                                   // phase 0 -> 1
+        int previous = 0;
+        for (int tick = 1; tick <= 18; tick++)
         {
             g.Step(GameButtons.None);
-            if (s.TransitionProgress is > 0.3 and < 0.4)
+            int points = HpPoints(Render(g));
+            Assert.Equal(tick, points);
+            previous = points;
+        }
+        Assert.Equal(18, previous);
+        g.Step(GameButtons.None);
+        Assert.Equal(18, HpPoints(Render(g)));
+
+        s.Phase = Sariel.PhaseForm2; s.Hp = 6; s.PatternCur = 0; s.PhaseFrame = 0; s.InitialHpRendered = false;
+        for (int tick = 1; tick <= 6; tick++)
+        {
+            g.Step(GameButtons.None);
+            Assert.Equal(tick, HpPoints(Render(g)));
+        }
+    }
+
+    [Fact]
+    public void The_shield_and_the_dress_pop_in_on_their_first_animation_frames_and_the_shield_leaves_with_the_picture()
+    {
+        var g = Session(null);
+        var s = (Sariel)g.World.Boss!;
+        ToPlaying(g);
+        g.Step(GameButtons.None);
+        bool ShieldBox() => Render(g).GetPixel(Sariel.ShieldLeft + 5, Sariel.ShieldTop + 5) != 0;
+        bool DressBox() => Render(g).GetPixel(Sariel.DressLeft + 5, Sariel.DressTop + 5) != 0;
+        for (int f = 1; f < 10; f++) { g.Step(GameButtons.None); Assert.False(ShieldBox(), $"shield at frame {f}"); }
+        g.Step(GameButtons.None);                                   // frame 10
+        Assert.True(ShieldBox());
+        for (int f = 11; f < 15; f++) g.Step(GameButtons.None);
+        Assert.False(DressBox());
+        g.Step(GameButtons.None);                                   // frame 15
+        Assert.True(DressBox());
+        // the picture is replaced at the end of a transition: the shield is gone until its next first frame
+        s.Phase = 2; s.PhaseFrame = 0;
+        int guard = 0;
+        while (s.Phase == 2 && guard++ < 500) g.Step(GameButtons.None);
+        Assert.Equal(3, s.Phase);
+        Assert.False(s.ShieldShown);
+        Assert.True(s.DressShown);                                  // dress_render_both() ran in the same call
+    }
+
+    // ---- the background transitions: gusts, then the new picture at once ----
+
+    [Fact]
+    public void A_background_transition_sweeps_gusts_of_streaks_and_swaps_the_picture_only_at_the_end()
+    {
+        var g = Session(new Art());
+        var s = (Sariel)g.World.Boss!;
+        ToPlaying(g);
+        g.Step(GameButtons.None);
+        s.Phase = 2; s.BackgroundId = 0; s.PhaseFrame = 0;
+        int guard = 0, streakTicks = 0;
+        var seen = new HashSet<int>();
+        while (s.Phase == 2 && guard++ < 500)
+        {
+            g.Step(GameButtons.None);
+            if (s.Phase != 2) break;
+            var fb = Render(g);
+            Assert.Equal(3, fb.GetPixel(300, 330));                 // the old picture (index 3) stays under the streaks
+            if (s.PhaseFrame >= 50 && s.GustId < 3)
             {
-                var fb = Render(g);
-                sawBoth |= fb.GetPixel(10, 100) == 6 && fb.GetPixel(600, 100) == 5;   // new picture on the left, old on the right
+                seen.Add(s.GustCalls + 100 * s.GustId);
+                if (fb.GetPixel(300, 330) == 3 && Count(fb, 3, 2) < 320 * 200) streakTicks++;
             }
         }
-        Assert.True(sawBoth);
-        Assert.Equal(3, s.BackgroundId);
-        Assert.Equal(6, Render(g).GetPixel(10, 100));
+        Assert.Equal(1, s.BackgroundId);                            // the picture changed exactly once, at the end
+        Assert.True(streakTicks > 50);                              // the gust paints over the picture while it moves
+        Assert.True(seen.Count > 50);                               // calls moved along 3 gusts of 20
     }
+
+    // ---- the transformation: form 1 falls and form 2 appears ----
+
+    [Fact]
+    public void The_first_form_falls_shaking_its_own_picture_then_dithers_into_the_dark_one_and_form_2_appears_at_once()
+    {
+        var g = Session(new Art());
+        var s = (Sariel)g.World.Boss!;
+        ToPlaying(g);
+        g.Step(GameButtons.None);
+        s.Phase = 5; s.BackgroundId = 0; s.Hp = 0;
+        g.Step(GameButtons.None);
+        Assert.Equal(Sariel.PhaseForm1Defeated, s.Phase);
+        g.Step(GameButtons.None);
+        // 200 frames of shaking the current picture
+        var shakeLines = new HashSet<int>();
+        for (int f = 1; f < Sariel.Form1DefeatShakeTicks; f++)
+        {
+            g.Step(GameButtons.None);
+            var fb = Render(g);
+            shakeLines.Add(fb.ScrollY);
+            Assert.Equal(3, fb.GetPixel(300, 300));                 // the first form's own picture, not the dark one
+        }
+        Assert.Contains(16, shakeLines); Assert.Contains(386, shakeLines);
+        // then the dithered transition to the dark picture (9), gradual, with the palette ramping
+        int last = -1, increases = 0, redFirst = -1, redLast = -1;
+        for (int t = 0; t < Sariel.Form1DefeatTransitionTicks - 2; t++)
+        {
+            g.Step(GameButtons.None);
+            if (s.Phase != Sariel.PhaseForm1Defeated) break;
+            var fb = Render(g);
+            int shown = Count(fb, 9, 2);
+            Assert.True(shown >= last);
+            if (shown > last) increases++;
+            last = shown;
+            fb.GetPalette4(2, out int r, out _, out _);
+            if (redFirst < 0) redFirst = r;
+            Assert.True(r <= (redLast < 0 ? redFirst : redLast));   // entry 2 fades from red towards the dark picture's blue, never back
+            redLast = r;
+        }
+        Assert.True(increases > 50);
+        Assert.True(redLast < redFirst);
+        // form 2 appears all at once
+        int guard = 0;
+        while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 1000) g.Step(GameButtons.None);
+        Assert.Equal(Sariel.PhaseForm2, s.Phase);
+        Assert.Equal(11, Render(g).GetPixel(300, 300));
+    }
+
+    [Fact]
+    public void Soft_flashes_never_strobe_during_the_transformation()
+    {
+        var g = Session(new Art(), soft: true);
+        var s = (Sariel)g.World.Boss!;
+        ToPlaying(g);
+        g.Step(GameButtons.None);
+        s.Phase = 5; s.Hp = 0;
+        g.Step(GameButtons.None); g.Step(GameButtons.None);
+        int prev = -1, flips = 0;
+        for (int f = 1; f < Sariel.Form1DefeatShakeTicks; f++)
+        {
+            g.Step(GameButtons.None);
+            var fb = Render(g);
+            fb.GetPalette4(15, out int r, out _, out _);
+            if (prev >= 0 && r != prev) flips++;
+            prev = r;
+        }
+        Assert.Equal(0, flips);                                     // palette entry 15 is not flashed in the soft mode
+    }
+
+    // ---- sprites, fallbacks and the final defeat ----
 
     [Fact]
     public void The_second_form_uses_the_last_picture_and_the_defeat_shakes_and_fades()
@@ -122,12 +336,13 @@ public class SarielDrawTests
         var g = Session(new Art());
         var s = (Sariel)g.World.Boss!;
         ToPlaying(g);
+        g.Step(GameButtons.None);
         s.Phase = Sariel.PhaseForm2; s.Hp = 6; s.PatternCur = 0; s.PhaseFrame = 1;
-        Assert.Equal(10, Render(g).GetPixel(100, 100));
+        Assert.Equal(11, Render(g).GetPixel(100, 100));
         s.Hp = 0;
         g.Step(GameButtons.None); g.Step(GameButtons.None);
         Assert.Equal(SessionPhase.BossDefeat, g.Phase);
-        Assert.NotEqual(0, Render(g).ScrollY);                     // shaking
+        Assert.NotEqual(0, Render(g).ScrollY);                      // shaking
         static int Brightness(Framebuffer f)
         {
             int sum = 0;
@@ -135,9 +350,17 @@ public class SarielDrawTests
             return sum;
         }
         int before = Brightness(Render(g));
-        int guard = 0;
-        while (g.DefeatElapsed < 2 * 210 && guard++ < 9000) g.Step(GameButtons.None);
-        Assert.True(Brightness(Render(g)) < before);                // the palette has faded towards black
+        int guard = 0, previous = before, drops = 0;
+        while (g.DefeatElapsed < 2 * 215 && guard++ < 9000)
+        {
+            g.Step(GameButtons.None);
+            int now = Brightness(Render(g));
+            Assert.True(now <= previous);
+            if (now < previous) drops++;
+            previous = now;
+        }
+        Assert.True(previous < before);                             // the palette has faded towards black
+        Assert.True(drops > 5);                                     // step by step, not in one go
     }
 
     [Fact]
@@ -146,7 +369,8 @@ public class SarielDrawTests
         var g = Session(null);
         var s = (Sariel)g.World.Boss!;
         ToPlaying(g);
-        s.Phase = 1; s.PatternCur = 2; s.PhaseFrame = 10;
+        g.Step(GameButtons.None);
+        s.Phase = 1; s.PatternCur = 2; s.PhaseFrame = 10; s.ShieldShown = true;
         var fb = Render(g);
         Assert.NotEqual(0, fb.GetPixel(Sariel.ShieldLeft + 5, Sariel.ShieldTop + 5));     // the shield box
         s.WandStage = 2;
@@ -155,6 +379,20 @@ public class SarielDrawTests
         s.BirdAlive[0] = true; s.BirdHatch[0] = 0; s.BirdLeft[0] = 100 << 4; s.BirdTop[0] = 150 << 4;
         fb = Render(g);
         Assert.Equal(15, fb.GetPixel(116, 166));                                          // the bird square in colour 15
+    }
+
+    [Fact]
+    public void The_dotted_shapes_are_plotted_dot_by_dot_like_the_original()
+    {
+        var g = Session(null);
+        var s = (Sariel)g.World.Boss!;
+        ToPlaying(g);
+        g.Step(GameButtons.None);
+        s.Phase = Sariel.PhaseForm2; s.Hp = 6; s.PatternCur = 1; s.PhaseFrame = 60; s.InitialHpRendered = true;
+        var fb = Render(g);
+        int ring = 0;
+        for (int y = 100; y < Framebuffer.Height; y++) for (int x = 0; x < Framebuffer.Width; x++) if (fb.GetPixel(x, y) == 7) ring++;
+        Assert.InRange(ring, 100, 260);                             // at most one dot per angle: 256, not a solid line
     }
 
     [Fact]
