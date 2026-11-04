@@ -58,7 +58,8 @@ internal sealed partial class GameRenderer
         if (w.Boss is Sariel sarielBackdrop) DrawSarielBackdrop(fb, sarielBackdrop);
         if (w.Boss is Kikuri { Phase: 0 } kikuriEntrance && _s.Phase == SessionPhase.BossEntrance) DrawKikuriEntranceBackdrop(fb, kikuriEntrance);
         // Konngara's blocking entrance shows full-screen pictures only: no HUD, player or Orb until the fight starts.
-        bool coverEntrance = w.Boss is Konngara { Phase: 0 } or Sariel { Phase: 0 } && _s.Phase == SessionPhase.BossEntrance;
+        // (Sariel's HUD comes back with the entrance rings: measured at VSync 796, 41 ticks before the game ticks)
+        bool coverEntrance = w.Boss is Konngara { Phase: 0 } or Sariel { Phase: 0, EntranceTick: <= Sariel.ScrollTicks + Sariel.TransitionTicks } && _s.Phase == SessionPhase.BossEntrance;
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
         if (!coverEntrance)
         {

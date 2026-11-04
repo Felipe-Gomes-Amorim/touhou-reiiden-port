@@ -29,14 +29,19 @@ public sealed class Sariel : Boss
     public const int PhaseForm1Defeated = 99, PhaseForm2 = 100, PhaseForm2Defeated = 101;
 
     // ---- entrance length (derived from the original's code, not measured; see the audit) ----
-    /// <summary>The scroll: one tick per line (frame_delay(1)), from line 399 up to 0.</summary>
+    /// <summary>The scroll: one tick per line (frame_delay(1)), from line 399 up to 0. Measured by T5 (MEASURED-GAMEPLAY.md section 7): VSync 20-422.</summary>
     public const int ScrollTicks = 400;
     /// <summary>
-    /// pagetrans_diagonal_8x8(40): (640 / 8) + (400 / 8) = 130 frames of delay(40) = 5200 ms = 293 ticks at 56.423 Hz. TODO(T5)
+    /// pagetrans_diagonal_8x8(40): 130 frames. T5's measurement of the dissolve fits the two-wave model exactly (17 samples,
+    /// the final count 40690 included) with one frame every 3 ticks (delay(40) waits for 3 VSyncs of 17.7 ms), frame f shown from
+    /// tick 400 - 6 + 3 f. The wipe goes on after the Sariel region is complete (frame 94) for about 100 more ticks, which is the
+    /// "pause" before the HUD: the HUD and the rings start at tick 776 here (measured VSync 796), 41 ticks before the game ticks.
     /// </summary>
-    public const int TransitionFrames = 640 / 8 + 400 / 8, TransitionTicks = 293;
-    /// <summary>The frame (0..129) of the diagonal page transition shown after the given number of its ticks (1-based).</summary>
-    public static int TransitionFrameAt(int tick) => Math.Clamp(tick * 1000 / 2257, 0, TransitionFrames - 1);
+    public const int TransitionFrames = 640 / 8 + 400 / 8, TransitionTicksPerFrame = 3, TransitionLead = 6;
+    /// <summary>Ticks from the end of the scroll to the start of the rings (measured: the HUD appears at VSync 796).</summary>
+    public const int TransitionTicks = 375;
+    /// <summary>The frame (0..129) of the diagonal page transition shown at the given tick after the scroll (1-based).</summary>
+    public static int TransitionFrameAt(int tickAfterScroll) => Math.Clamp((tickAfterScroll + TransitionLead) / TransitionTicksPerFrame, 0, TransitionFrames - 1);
 
     /// <summary>
     /// The entrance rings: every 4th frame the radius base grows by 16 from 16 and the loop ends when every one of the 128
