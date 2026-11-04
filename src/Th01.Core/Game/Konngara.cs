@@ -64,35 +64,82 @@ public sealed class Konngara : Boss
 
     // ---- entrance length (estimated; see rules) ----
     /// <summary>The first-line-on-screen of each tick of the decelerating scroll loop of konngara_load_and_entrance().</summary>
-    static readonly int[] ScrollLines = BuildScrollLines();
-    static readonly int ScrollTicks = ScrollLines.Length;
     // lengths of the later parts of the entrance, in ticks: wait, shake below, pan up (13 steps of 32 lines), shake, wait, seal syllables
     // Fitted to T5's measurement of the original (MEASURED-GAMEPLAY.md section 9, VSync from the start of REIIDEN, the scroll
     // starting at 14): the 7 GRZ images load for about 9 ticks before the 40-tick wait; the pan (Konngara appears) is 499-511;
     // the four seal pictures are drawn 579-630 and the palette fade runs 630-780; the first game tick is at 781.
-    public const int GrzLoadTicks = 9, WaitTicks = 40, ShakeBelowTicks = 32, PanTicks = 13, ShakeTicks = 32, WaitSealTicks = 30;
+    public const int GrzLoadTicks = 8, WaitTicks = 40, ShakeBelowTicks = 28, PanTicks = 13, ShakeTicks = 32, WaitSealTicks = 30;
     public const int SealDrawTicks = 58, SealFadeTicks = 150, SealSteps = 16;
     /// <summary>The tick, within the drawing of the seal pictures, at which each of the four appears (measured: first 579-585, the rest 606-629).</summary>
     public static readonly int[] SealAppearTicks = { 6, 33, 44, 56 };
+
+    // The decelerating scroll, from T5's measurement (MEASURED-GAMEPLAY.md sections 11 and 11b; VSync from the start of REIIDEN,
+    // entrance tick = VSync - 14): lines per tick at a few VSyncs. 24-422 scrolls; 170-200 was not measured (interpolated, and its
+    // speed is chosen so that the picture ends exactly on line 0, as the original does).
+    // ref: th01/main/boss/b20j.cpp konngara_load_and_entrance (the loop shape; the numbers are measured)
+    static readonly (int Vsync, double Speed)[] ScrollKnots =
+    {
+        (24, 32), (31, 31.4), (36, 29.6), (41, 28.4), (46, 26.8), (51, 25.6), (56, 24.4), (61, 23.2), (66, 22), (71, 20.8), (76, 19.8),
+        (81, 19), (86, 18), (91, 17), (96, 16.2), (101, 15.4), (106, 14.8), (111, 14), (116, 13.6), (140, 12.5), (170, 11),
+        (200, double.NaN),                                                // unmeasured: filled in below
+        (209, 5), (218, 5), (224, 4), (242, 4), (248, 3.3), (254, 3), (278, 3), (284, 2), (326, 2), (332, 1.2), (338, 1), (422, 1),
+    };
+    const int ScrollFirstVsync = 24, ScrollLastVsync = 422, EntranceOriginVsync = 14;
+    /// <summary>The first-line-on-screen of each tick of the scroll.</summary>
+    static readonly int[] ScrollLines = BuildScrollLines();
+    static readonly int ScrollTicks = ScrollLines.Length;
     public static readonly int EntranceTotal = ScrollTicks + GrzLoadTicks + WaitTicks + ShakeBelowTicks + PanTicks + ShakeTicks + WaitSealTicks + SealDrawTicks + SealFadeTicks;
 
-    // the decelerating scroll loop: one tick per iteration but the last
     static int[] BuildScrollLines()
     {
-        var lines = new List<int>();
-        int quarters = 32, inQuarter = 0, line = 0;
-        while (true)
+        int length = ScrollLastVsync - EntranceOriginVsync;                  // entrance ticks 1..length
+        double best = 0; int bestDelta = int.MaxValue;
+        for (double g = 3; g <= 9; g += 0.05)
         {
-            int shown = line;
-            line += quarters;
-            if (inQuarter == 0 && line > 100) { inQuarter++; quarters--; }
-            if (inQuarter == 1 && line > 200) { inQuarter++; quarters--; }
-            if (inQuarter == 2 && line > 300) { inQuarter++; quarters--; }
-            if (inQuarter == 3 && line > 400) { inQuarter = 0; quarters--; line -= 400; }
-            if (quarters <= 0) break;
-            lines.Add(shown);
+            int delta = Delta(Speeds(length, g));
+            if (Math.Abs(delta) < Math.Abs(bestDelta)) { bestDelta = delta; best = g; }
         }
-        return lines.ToArray();
+        var speeds = Speeds(length, best);
+        // distribute the remaining correction over the unmeasured stretch, one line per tick
+        for (int i = ScrollGapFirst - EntranceOriginVsync; bestDelta != 0 && i < length; i++)
+        {
+            speeds[i] += Math.Sign(bestDelta) * -1; bestDelta -= Math.Sign(bestDelta);
+        }
+        var lines = new int[length];
+        int run = 0;
+        for (int i = 0; i < length; i++) { lines[i] = ((run % 400) + 400) % 400; run += speeds[i]; }
+        return lines;
+    }
+
+    const int ScrollGapFirst = 172;
+    // how far the total is from a multiple of 400 (the smaller signed distance)
+    static int Delta(int[] speeds) { int d = 0; foreach (int v in speeds) d += v; int r = d % 400; return r <= 200 ? r : r - 400; }
+
+    static int[] Speeds(int length, double gap)
+    {
+        var speeds = new int[length];
+        double carry = 0;
+        for (int i = 0; i < length; i++)
+        {
+            int vsync = EntranceOriginVsync + 1 + i;
+            double v = vsync < ScrollFirstVsync ? 0 : SpeedAt(vsync, gap);
+            carry += v; int whole = (int)carry; speeds[i] = whole; carry -= whole;
+        }
+        return speeds;
+    }
+
+    static double SpeedAt(int vsync, double gap)
+    {
+        for (int k = 1; k < ScrollKnots.Length; k++)
+        {
+            var (v1, s1) = ScrollKnots[k];
+            if (vsync > v1) continue;
+            var (v0, s0) = ScrollKnots[k - 1];
+            if (double.IsNaN(s0)) s0 = gap;
+            if (double.IsNaN(s1)) s1 = gap;
+            return s0 + (s1 - s0) * (vsync - v0) / (v1 - v0);
+        }
+        return 1;
     }
 
     /// <summary>Ticks run so far of the blocking entrance (drawing only).</summary>
