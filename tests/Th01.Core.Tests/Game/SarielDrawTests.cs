@@ -271,7 +271,7 @@ public class SarielDrawTests
     // ---- the transformation: form 1 falls and form 2 appears ----
 
     [Fact]
-    public void The_first_form_falls_shaking_its_own_picture_then_dithers_into_the_dark_one_and_form_2_appears_at_once()
+    public void The_first_form_falls_shaking_its_own_picture_then_swaps_to_form_2_at_once()
     {
         var g = Session(new Art());
         var s = (Sariel)g.World.Boss!;
@@ -291,24 +291,14 @@ public class SarielDrawTests
             Assert.Equal(3, fb.GetPixel(300, 300));                 // the first form's own picture, not the dark one
         }
         Assert.Contains(16, shakeLines); Assert.Contains(386, shakeLines);
-        // then the dithered transition to the dark picture (9), gradual, with the palette ramping
-        int last = -1, increases = 0, redFirst = -1, redLast = -1;
-        for (int t = 0; t < Sariel.Form1DefeatTransitionTicks - 2; t++)
+        // 10 more ticks with the old picture (the page transition runs unseen), then form 2 appears at once
+        for (int t = 0; t < Sariel.Form1DefeatSwapTicks - 1; t++)
         {
             g.Step(GameButtons.None);
-            if (s.Phase != Sariel.PhaseForm1Defeated) break;
-            var fb = Render(g);
-            int shown = Count(fb, 9, 2);
-            Assert.True(shown >= last);
-            if (shown > last) increases++;
-            last = shown;
-            fb.GetPalette4(2, out int r, out _, out _);
-            if (redFirst < 0) redFirst = r;
-            Assert.True(r <= (redLast < 0 ? redFirst : redLast));   // entry 2 fades from red towards the dark picture's blue, never back
-            redLast = r;
+            Assert.Equal(3, Render(g).GetPixel(300, 300));
         }
-        Assert.True(increases > 50);
-        Assert.True(redLast < redFirst);
+        g.Step(GameButtons.None); g.Step(GameButtons.None);
+        Assert.Equal(11, Render(g).GetPixel(300, 300));
         // form 2 appears all at once
         int guard = 0;
         while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 1000) g.Step(GameButtons.None);

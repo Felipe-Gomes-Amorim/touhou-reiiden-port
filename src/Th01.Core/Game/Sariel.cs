@@ -976,19 +976,25 @@ public sealed class Sariel : Boss
 
     // ---- form 1 defeated (phase 99): a blocking animation in the original ----
 
-    /// <summary>Ticks of the diagonal page transition after the 200 frames of shaking (ASSUMPTION: 130 frames of about 2 ticks). TODO(T5)</summary>
-    public const int Form1DefeatShakeTicks = 200, Form1DefeatTransitionFrames = 130, Form1DefeatTransitionTicks = 260;
+    /// <summary>
+    /// Measured by T5 (MEASURED-GAMEPLAY.md section 10, forced transformation, ticks from the start of REIIDEN): the blocking animation
+    /// starts at 902; the hardware-scroll shake runs 908-1104; the picture swaps at once at 1115 (so the 130-frame page transition
+    /// took only about 10 ticks: delay(0) per frame, closer to "130 frames in ~10 ticks" than to 130 or 260 ticks); the form 2
+    /// scene recomposes for about 75 more ticks (HUD complete about 1190). The game ticks resume after that (not measured exactly).
+    /// </summary>
+    public const int Form1DefeatShakeTicks = 203, Form1DefeatShakeStart = 7, Form1DefeatSwapTicks = 10, Form1DefeatRecomposeTicks = 75;
+    public const int Form1DefeatTransitionTicks = Form1DefeatSwapTicks + Form1DefeatRecomposeTicks;
     bool _form1DefeatStarted;
 
     /// <summary>The session must not run anything else while this is true: the original blocks inside this animation.</summary>
     public override bool BlockingTransition => Phase == PhaseForm1Defeated;
 
     /// <summary>Scroll line of the shake (drawing only): alternates every frame during the first 200.</summary>
-    public int Form1DefeatShakeLine => Phase == PhaseForm1Defeated && PhaseFrame is >= 1 and < Form1DefeatShakeTicks
+    public int Form1DefeatShakeLine => Phase == PhaseForm1Defeated && PhaseFrame is >= Form1DefeatShakeStart and < Form1DefeatShakeTicks
         ? (PhaseFrame % 2 == 0 ? ScreenH + 16 : ScreenH - 14) % ScreenH : 0;
 
-    /// <summary>True on the even frames of the shake, when the original flashes palette entry 15 to white.</summary>
-    public bool Form1DefeatFlash => Phase == PhaseForm1Defeated && PhaseFrame is >= 1 and < Form1DefeatShakeTicks && PhaseFrame % 2 == 0;
+    /// <summary>True on the "down" ticks of the shake, when the original flashes palette entry 15 to white (black on the "up" ticks).</summary>
+    public bool Form1DefeatFlash => Phase == PhaseForm1Defeated && PhaseFrame is >= Form1DefeatShakeStart and < Form1DefeatShakeTicks && PhaseFrame % 2 == 1;
 
     void Form1Defeated()
     {

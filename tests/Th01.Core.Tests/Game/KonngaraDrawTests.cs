@@ -69,7 +69,7 @@ public class KonngaraDrawTests
         var k = (Konngara)Session(null).World.Boss!;
         int total = Konngara.EntranceTotal;
         Assert.Equal(0, k.ViewAt(1).ScrollLine);
-        Assert.True(k.ViewAt(1).PaletteSteps == 1 && k.ViewAt(9).PaletteSteps == 2);          // one fade step every 8 ticks
+        Assert.True(k.ViewAt(5).PaletteSteps == 0 && k.ViewAt(13).PaletteSteps == 1 && k.ViewAt(125).PaletteSteps == 15);   // black at tick 5, one level every 8 ticks (T5 section 11)
         for (int t = 1; t <= total; t++) Assert.InRange(k.ViewAt(t).ScrollLine, 0, 416);
         var last = k.ViewAt(total);
         Assert.Equal((0, 16, 15, Konngara.SealSteps, true, 4), (last.ScrollLine, last.PanLine, last.PaletteSteps, last.SealStep, last.Revealed, last.SealCount));

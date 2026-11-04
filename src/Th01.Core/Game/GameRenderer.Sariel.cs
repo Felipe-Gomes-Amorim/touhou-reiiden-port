@@ -91,32 +91,26 @@ internal sealed partial class GameRenderer
         }
         if (s.Phase == Sariel.PhaseForm1Defeated)
         {
-            bool shaking = s.PhaseFrame <= Sariel.Form1DefeatShakeTicks;
-            bool cur = Picture(SarielBg(s.BackgroundId), out f1);
-            if (shaking)
+            // measured: the hardware shake (alternating every tick, palette entry 15 white on the "down" ticks and black on the
+            // "up" ones), the old picture for ~10 more ticks, then the form 2 scene appears at once
+            if (s.PhaseFrame < Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks)
             {
-                if (cur) { ComposePictures(fb, f1, null, (x, y) => false); if (f1.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(f1); }
-                if (_s.Visuals.ScreenShake && s.Form1DefeatShakeLine != 0) fb.ScrollY = s.Form1DefeatShakeLine;
+                if (Picture(SarielBg(s.BackgroundId), out f1))
+                {
+                    ComposePictures(fb, f1, null, (x, y) => false);
+                    if (f1.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(f1);
+                }
+                if (s.PhaseFrame >= Sariel.Form1DefeatShakeStart && s.PhaseFrame < Sariel.Form1DefeatShakeTicks)
+                {
+                    if (_s.Visuals.ScreenShake && s.Form1DefeatShakeLine != 0) fb.ScrollY = s.Form1DefeatShakeLine;
+                    if (!_s.Visuals.SoftFlashes) { int v = s.Form1DefeatFlash ? 15 : 0; fb.SetPalette4(15, v, v, v); }
+                }
                 return;
             }
-            // frames 201 on: the dithered transition to the dark picture, the palette ramping to its own one level every 8 frames
-            bool dark = Picture(SarielBg(4), out f2);
-            int frame = Math.Clamp((s.PhaseFrame - Sariel.Form1DefeatShakeTicks) / (Sariel.Form1DefeatTransitionTicks / Sariel.Form1DefeatTransitionFrames), 0, Sariel.TransitionFrames - 1);
-            ComposePictures(fb, cur ? f1 : null, dark ? f2 : null, DiagonalPageTransition(frame));
-            if (cur && f1.Palette.Length == 3 * Framebuffer.ColorCount)
+            if (Picture(SarielBg(5), out f2))
             {
-                fb.ApplyPalette(f1);
-                if (dark && f2.Palette.Length == 3 * Framebuffer.ColorCount)
-                {
-                    int steps = frame / 8 + 1;                                         // 17 steps over the 130 frames
-                    for (int c = 0; c < Framebuffer.ColorCount; c++)
-                    {
-                        fb.GetPalette4(c, out int r, out int g, out int b);
-                        int tr = f2.Palette.Span[c * 3], tg = f2.Palette.Span[c * 3 + 1], tb = f2.Palette.Span[c * 3 + 2];
-                        if (c == 15) tr = tg = tb = 0;                                 // grp_palette[0xF] is zeroed before the call
-                        fb.SetPalette4(c, r + Math.Clamp(tr - r, -steps, steps), g + Math.Clamp(tg - g, -steps, steps), b + Math.Clamp(tb - b, -steps, steps));
-                    }
-                }
+                ComposePictures(fb, f2, null, (x, y) => false);
+                if (f2.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(f2);
             }
             return;
         }
@@ -176,7 +170,7 @@ internal sealed partial class GameRenderer
             DrawHpBar(fb, s, s.InitialHpRendered || s.Phase is not (1 or Sariel.PhaseForm2) ? s.Hp : s.HpShown);
         if (s.Phase is Sariel.PhaseForm2Defeated) return;
         bool shaking99 = s.Phase == Sariel.PhaseForm1Defeated;
-        bool pictureSprites = s.Phase is >= 1 and <= 8 || shaking99 && s.PhaseFrame <= Sariel.Form1DefeatShakeTicks;
+        bool pictureSprites = s.Phase is >= 1 and <= 8 || shaking99 && s.PhaseFrame < Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks;
         if (!pictureSprites && s.Phase != Sariel.PhaseForm2) return;
 
         // the wand, shield and dress (animated sprites on top of the background picture)
