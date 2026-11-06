@@ -5,11 +5,14 @@ public enum ChannelKind { Fm, Ssg, Drum }
 /// <summary>
 /// One note of a decoded track. Times are in ticks (192 per whole note, 48 per quarter).
 /// Semitone = octave * 12 + note, where the original byte is 0xON (octave, note 0..B), after the track's transposition.
-/// Pan: bit 0 = left, bit 1 = right (3 = both).
+/// Pan: bit 0 = left, bit 1 = right (3 = both). EnvelopePreset: index into the song's SSG envelope presets (-1 = none).
+/// SpanTicks: ticks from this note's start to the start of the next note of the same channel (0 = unknown, the last note); the
+/// release of an envelope can ring on through that time.
 /// </summary>
 public sealed record NoteEvent(
     int StartTick, int DurationTicks, int Semitone, int Volume, int Voice, int Detune,
-    bool Tone = true, bool Noise = false, int NoisePeriod = 0, int SweepDelta = 0, int DrumId = 0, int Pan = 3);
+    bool Tone = true, bool Noise = false, int NoisePeriod = 0, int SweepDelta = 0, int DrumId = 0, int Pan = 3,
+    int EnvelopePreset = -1, int SpanTicks = 0);
 
 /// <summary>Tempo byte (command E9) that takes effect at a tick.</summary>
 public readonly record struct TempoChange(int Tick, int Tempo);

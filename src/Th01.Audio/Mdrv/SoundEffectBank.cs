@@ -31,7 +31,7 @@ public sealed class SoundEffectBank
                 int start = BitConverter.ToUInt16(mde, ptrAt);
                 int end = e.Offset + e.Length;
                 if (start < e.Offset + parts * 2 || start >= end) continue;
-                streams.Add(TrackDecoder.Decode(mde, start, end - start, i * 4 + p, ChannelKind.Ssg));
+                streams.Add(TrackDecoder.Decode(mde, start, end - start, i * 4 + p, ChannelKind.Ssg, songSsg: false));
             }
             list.Add(new SoundEffect(i, streams));
         }

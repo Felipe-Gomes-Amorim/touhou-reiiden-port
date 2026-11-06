@@ -158,17 +158,24 @@ public static class NoteSynth
         }
     }
 
-    /// <summary>SSG-like voice: square wave and/or noise with a short release. Optional pitch sweep (F-number units per tick).</summary>
+    /// <summary>
+    /// SSG-like voice: square wave and/or noise with a short release. Optional pitch sweep (F-number units per tick).
+    /// With <paramref name="tickGains"/> the loudness follows a software envelope instead (one gain per tick, each tick lasting
+    /// <paramref name="framesPerTick"/> frames, already including the channel volume; the gate and release are then part of it).
+    /// </summary>
     public static void Ssg(StereoBuffer buf, int startFrame, double freq, int gateFrames, double gain, bool tone, bool noise,
-                           int noisePeriod, int sweepDelta = 0, double secondsPerTick = 0.02, int semitone = 0)
+                           int noisePeriod, int sweepDelta = 0, double secondsPerTick = 0.02, int semitone = 0,
+                           double[]? tickGains = null, double framesPerTick = 0)
     {
+        bool enveloped = tickGains is { Length: > 0 } && framesPerTick > 0;
+        int total = enveloped ? (int)(tickGains!.Length * framesPerTick) : gateFrames + SampleRate / 100;
         double phase = 0;
         uint lfsr = 1;
         double noisePhase = 0, noiseStep = 250000.0 / Math.Max(1, noisePeriod + 1) / SampleRate;
         double noiseVal = 1;
         int release = SampleRate / 100;
         double fnum0 = 617.0 * Math.Pow(2, (semitone % 12) / 12.0);
-        for (int n = 0; n < gateFrames + release; n++)
+        for (int n = 0; n < total; n++)
         {
             double f = freq;
             if (sweepDelta != 0)
@@ -190,7 +197,8 @@ public static class NoteSynth
             if (noise) v += noiseVal;
             if (tone && noise) v *= 0.5;
             double env = n < 40 ? n / 40.0 : 1;
-            if (n >= gateFrames) env *= 1 - (n - gateFrames) / (double)release;
+            if (enveloped) env *= tickGains![Math.Min(tickGains.Length - 1, (int)(n / framesPerTick))];
+            else if (n >= gateFrames) env *= 1 - (n - gateFrames) / (double)release;
             float s = (float)(v * env * gain);
             buf.Add(startFrame + n, s, s);
         }

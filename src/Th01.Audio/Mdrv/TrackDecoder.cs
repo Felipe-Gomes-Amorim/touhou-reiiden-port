@@ -9,7 +9,8 @@ namespace Th01.Audio.Mdrv;
 ///   E4 n .. E5         repeat n times      F6 n lo hi .. F7 x lo hi  same with 16-bit offsets      F9 lo hi  last-pass exit of F6
 ///   E6 n  detune (signed)   E7 n  transposition in semitones (signed; not for the drum track)
 ///   EA n  gate Q: a note sounds n/8 of its length (8 = full)
-///   E9 n  tempo        EB n  voice (FM) / SSG: bit0 noise, bit1 tone / drum id     EC n  volume (drum track: 2 or 7 bytes)
+///   E9 n  tempo        EB n  voice (FM) / drum id / SSG: top two bits choose the mix (00 tone+noise, 40 noise, 80 tone, C0 none), the
+///                      low six bits the envelope preset (none when the top bits are C0)     EC n  volume (drum track: 2 or 7 bytes)
 ///   EF n  noise period F1 n  pan: bit 0 = left, bit 1 = right (every song sets 3 = both sides; the pan stored in a voice is not used)
 ///   F4 n / F5 n  volume up / down by n (relative to the current volume)     F2 n l lo hi  note with a pitch sweep
 ///   ED, E8, FB, FC, FD  four parameters each, low-frequency oscillators (ignored; ED and E8 are off - first parameter 0 - in almost every song)
@@ -41,15 +42,20 @@ public sealed class TrackDecoder
     bool _tone = true, _noise, _tie, _loopEnd;
     NoteEvent? _last;
 
-    TrackDecoder(byte[] data, int start, int end, ChannelKind kind)
+    readonly bool _songSsg;
+    int _preset = -1;
+
+    TrackDecoder(byte[] data, int start, int end, ChannelKind kind, bool songSsg)
     {
-        _d = data; _pos = start; _end = Math.Min(end, data.Length); _kind = kind;
+        _d = data; _pos = start; _end = Math.Min(end, data.Length); _kind = kind; _songSsg = songSsg;
         _volume = kind == ChannelKind.Fm ? 0x60 : 0x0C;
     }
 
-    public static DecodedTrack Decode(byte[] data, int start, int length, int trackId, ChannelKind kind)
+    /// <param name="songSsg">True for the SSG tracks of a song (EB chooses mix and envelope preset as described above). Sound effects
+    /// pass false and keep the older reading of EB (bit 0 noise, bit 1 tone), which has not been checked against the driver.</param>
+    public static DecodedTrack Decode(byte[] data, int start, int length, int trackId, ChannelKind kind, bool songSsg = true)
     {
-        var t = new TrackDecoder(data, start, start + length, kind);
+        var t = new TrackDecoder(data, start, start + length, kind, songSsg);
         t.Run();
         return new DecodedTrack
         {
@@ -139,7 +145,14 @@ public sealed class TrackDecoder
                 case 0xEB:
                     if (_kind == ChannelKind.Fm) _voice = p0;
                     else if (_kind == ChannelKind.Drum) _drum = p0;
-                    else { _noise = (p0 & 1) != 0; _tone = (p0 & 2) != 0 || !_noise; }
+                    else if (!_songSsg) { _noise = (p0 & 1) != 0; _tone = (p0 & 2) != 0 || !_noise; }
+                    else
+                    {
+                        int mix = p0 & 0xC0;
+                        _tone = mix is 0x00 or 0x80;
+                        _noise = mix is 0x00 or 0x40;
+                        _preset = mix == 0xC0 ? -1 : p0 & 0x3F;
+                    }
                     break;
                 case 0xEC: if (_kind != ChannelKind.Drum) _volume = p0; break;
                 case 0xEF: _noisePeriod = p0; break;
@@ -185,6 +198,7 @@ public sealed class TrackDecoder
         }
         else
         {
+            CloseLast();
             _last = Make(semitone, len, 0);
             _notes.Add(_last);
         }
@@ -192,16 +206,23 @@ public sealed class TrackDecoder
         _tick += len;
     }
 
+    // A new note on the channel ends the previous one, however long its envelope would ring.
+    void CloseLast()
+    {
+        if (_notes.Count > 0) _notes[^1] = _notes[^1] with { SpanTicks = _tick - _notes[^1].StartTick };
+    }
+
     void Sweep(int note, int len, int delta)
     {
         int semitone = Math.Min(note >> 4, 8) * 12 + Math.Min(note & 0xF, 11);
         // A sweep on an FM channel is not transposed; on an SSG channel it is.
         var ev = Make(_kind == ChannelKind.Ssg ? Transposed(semitone) : semitone, len, delta);
+        CloseLast();
         _notes.Add(ev);
         _last = ev;
         _tick += len;
     }
 
     NoteEvent Make(int semitone, int len, int sweep) =>
-        new(_tick, Math.Max(1, len * _quantize / 8), semitone, _volume, _voice, _detune, _tone, _noise, _noisePeriod, sweep, _drum, _pan);
+        new(_tick, Math.Max(1, len * _quantize / 8), semitone, _volume, _voice, _detune, _tone, _noise, _noisePeriod, sweep, _drum, _pan, _preset);
 }

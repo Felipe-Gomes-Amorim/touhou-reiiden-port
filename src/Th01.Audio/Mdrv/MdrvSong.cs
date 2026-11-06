@@ -10,10 +10,12 @@ public sealed class MdrvSong
     public IReadOnlyList<FmVoice> Voices { get; }
     public IReadOnlyList<TempoChange> Tempos { get; }
     public string Comment { get; }
+    /// <summary>The SSG envelope presets stored after the voices (6 bytes each); songs have none or a handful.</summary>
+    public IReadOnlyList<SsgEnvelopePreset> SsgPresets { get; }
 
-    MdrvSong(List<DecodedTrack> tracks, List<FmVoice> voices, List<TempoChange> tempos, string comment)
+    MdrvSong(List<DecodedTrack> tracks, List<FmVoice> voices, List<TempoChange> tempos, string comment, List<SsgEnvelopePreset> presets)
     {
-        Tracks = tracks; Voices = voices; Tempos = tempos; Comment = comment;
+        Tracks = tracks; Voices = voices; Tempos = tempos; Comment = comment; SsgPresets = presets;
     }
 
     public static ChannelKind KindOf(int trackId) => trackId switch
@@ -39,7 +41,11 @@ public sealed class MdrvSong
         // The header text is Shift-JIS (the music titles are Japanese); invalid bytes fall back to a lossy Latin-1 view.
         string raw = TextCodec.TryDecode(file.Text.Span, out string sjis) ? sjis : System.Text.Encoding.Latin1.GetString(file.Text.Span);
         string comment = raw.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        return new MdrvSong(tracks, voices, tempos, comment);
+        var presets = new List<SsgEnvelopePreset>();
+        var trailer = file.Trailer.Span;   // after the voices: the SSG envelope presets
+        for (int at = 0; at + SsgEnvelopePreset.Size <= trailer.Length; at += SsgEnvelopePreset.Size)
+            presets.Add(SsgEnvelopePreset.Parse(trailer.Slice(at, SsgEnvelopePreset.Size)));
+        return new MdrvSong(tracks, voices, tempos, comment, presets);
     }
 
     public int TotalTicks => Tracks.Count == 0 ? 0 : Tracks.Max(t => t.TotalTicks);

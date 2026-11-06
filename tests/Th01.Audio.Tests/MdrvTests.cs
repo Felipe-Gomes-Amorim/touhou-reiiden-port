@@ -145,6 +145,98 @@ public class MdrvTests
     }
 
     [Fact]
+    public void SsgVoiceByte_Chooses_Mix_And_Envelope_Preset()
+    {
+        var t = Decode(ChannelKind.Ssg,
+            0xEB, 0x81, 0x40, 0x0C,    // tone only, preset 1
+            0xEB, 0x42, 0x40, 0x0C,    // noise only, preset 2
+            0xEB, 0x00, 0x40, 0x0C,    // tone and noise, preset 0
+            0xEB, 0xC3, 0x40, 0x0C,    // top bits set: nothing sounds, no envelope
+            0xFF);
+        Assert.Equal([(true, false, 1), (false, true, 2), (true, true, 0), (false, false, -1)],
+            t.Notes.Select(n => (n.Tone, n.Noise, n.EnvelopePreset)));
+    }
+
+    [Fact]
+    public void SoundEffects_Keep_The_Older_Reading_Of_The_Voice_Byte()
+    {
+        byte[] bytes = [0xEB, 0x01, 0x40, 0x0C, 0xEB, 0x02, 0x40, 0x0C, 0xFF];
+        var t = TrackDecoder.Decode(bytes, 0, bytes.Length, 0, ChannelKind.Ssg, songSsg: false);
+        Assert.Equal([(false, true, -1), (true, false, -1)], t.Notes.Select(n => (n.Tone, n.Noise, n.EnvelopePreset)));
+    }
+
+    [Fact]
+    public void Note_Span_Reaches_The_Next_Note_Through_Rests()
+    {
+        var t = Decode(ChannelKind.Ssg, 0x40, 0x0C, 0x90, 0x0C, 0x42, 0x0C, 0xFF);
+        Assert.Equal([24, 0], t.Notes.Select(n => n.SpanTicks));
+    }
+
+    [Fact]
+    public void Envelope_Attack_Decay_Sustain_And_Release()
+    {
+        var p = new SsgEnvelopePreset(Initial: 0, Attack: 100, Decay: 16, Sustain: 128, SustainRate: 0, Release: 20);
+        var l = SsgEnvelope.Levels(p, gateTicks: 20, totalTicks: 30);
+        Assert.Equal([100, 200, 255], l.Take(3));                       // attack: 300 is past full level
+        Assert.Equal(239, l[3]);                                        // decay: 16 per tick ...
+        Assert.Equal(128, l[10]);                                       // ... until the sustain level
+        Assert.All(l.Skip(10).Take(10), v => Assert.Equal(128, v));     // no sustain fade: it holds
+        Assert.Equal([108, 88, 68, 48, 28, 8, 0], l.Skip(20).Take(7));  // release from the key-off tick
+        Assert.All(l.Skip(27), v => Assert.Equal(0, v));
+    }
+
+    [Fact]
+    public void Envelope_Sustain_Fades_And_Instant_Presets_Hold_Full_Level()
+    {
+        var fade = SsgEnvelope.Levels(new SsgEnvelopePreset(255, 255, 255, 255, 5, 5), 1000, 60);
+        Assert.Equal(255, fade[0]);
+        Assert.Equal(255, fade[1]);                    // each stage that is already at its target costs one tick
+        Assert.Equal(250, fade[2]);                    // then the sustain fades 5 per tick
+        Assert.NotEqual(0, fade[51]);
+        Assert.Equal(0, fade[52]);                     // 255 / 5 = 51 steps
+        var organ = SsgEnvelope.Levels(new SsgEnvelopePreset(255, 255, 255, 255, 0, 255), 10, 14);
+        Assert.All(organ.Take(10), v => Assert.Equal(255, v));
+        Assert.All(organ.Skip(10), v => Assert.Equal(0, v));   // release of 255 per tick = cut
+        var stuck = SsgEnvelope.Levels(new SsgEnvelopePreset(255, 255, 255, 255, 0, 0), 5, 20);
+        Assert.Equal(255, stuck[19]);                  // a release rate of 0 never gets anywhere
+    }
+
+    [Fact]
+    public void Envelope_Output_Level_Is_Volume_Times_Envelope()
+    {
+        Assert.Equal(13, SsgEnvelope.OutputLevel(13, 255));
+        Assert.Equal(15, SsgEnvelope.OutputLevel(15, 255));
+        Assert.Equal(0, SsgEnvelope.OutputLevel(15, 0));
+        Assert.Equal(8, SsgEnvelope.OutputLevel(15, 128));
+        Assert.Equal(15, SsgEnvelope.OutputLevel(200, 255));   // never above the chip's top level
+    }
+
+    [Fact]
+    public void Ssg_Note_Follows_Tick_Gains()
+    {
+        var buf = new StereoBuffer(NoteSynth.SampleRate);
+        double[] gains = [1.0, 1.0, 0.0, 0.0];
+        NoteSynth.Ssg(buf, 0, 440, 0, 1.0, tone: true, noise: false, noisePeriod: 0, tickGains: gains, framesPerTick: 1000);
+        double Peak(int from, int to) { double m = 0; for (int i = from; i < to; i++) m = Math.Max(m, Math.Abs(buf.Left[i])); return m; }
+        Assert.True(Peak(100, 1900) > 0.5);
+        Assert.Equal(0, Peak(2000, 4000));
+        Assert.Equal(0, Peak(4000, 8000));   // the note ends with the envelope
+    }
+
+    [SkippableFact]
+    public void RealSongs_Have_Presets_For_Every_Envelope_They_Select()
+    {
+        string? folder = GameDataConfig.Resolve();
+        Skip.If(folder is null || !Directory.Exists(folder), $"Game data not configured. Set {GameDataConfig.EnvVar}.");
+        foreach (string file in Directory.GetFiles(folder!, "*.MDT"))
+        {
+            var song = MdrvSong.Load(File.ReadAllBytes(file));
+            foreach (var n in song.Tracks.Where(t => t.Kind == ChannelKind.Ssg).SelectMany(t => t.Notes))
+                if (n.EnvelopePreset >= 0) Assert.True(n.EnvelopePreset < song.SsgPresets.Count, $"{Path.GetFileName(file)} preset {n.EnvelopePreset}");
+        }
+    }
+
+    [Fact]
     public void Ssg_Mixer_Flags_And_Sweep()
     {
         var t = Decode(ChannelKind.Ssg, 0xEB, 0x01, 0xEF, 0x14, 0x40, 0x04, 0xEB, 0x02, 0xF2, 0x10, 0x06, 0xD5, 0xFE, 0xFF);

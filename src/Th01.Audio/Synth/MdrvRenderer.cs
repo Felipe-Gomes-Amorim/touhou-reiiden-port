@@ -8,6 +8,7 @@ public static class MdrvRenderer
     // Gains at the loudest channel volume; chosen so that the usual volumes of the songs keep the level they had before the
     // volume curves followed the driver (FM volume 0x7A, SSG volume 13).
     const double FmGain = 0.34, SsgGain = 0.12, DrumGain = 0.3;
+    const int MaxEnvelopeTicks = 1200;   // an envelope that never dies out is cut after about 20 s
 
     /// <summary>Plays the tracks once from the start (loops are not followed) for at most <paramref name="maxSeconds"/>.</summary>
     public static StereoBuffer RenderSong(MdrvSong song, double maxSeconds = 600)
@@ -78,8 +79,24 @@ public static class MdrvRenderer
                     NoteSynth.Fm(buf, start, song.Voices[n.Voice], NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, FmGain * NoteSynth.FmVolumeGain(n.Volume), n.Pan);
                 break;
             case ChannelKind.Ssg:
-                NoteSynth.Ssg(buf, start, NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, SsgGain * NoteSynth.SsgVolumeGain(n.Volume), n.Tone, n.Noise, n.NoisePeriod);
+            {
+                double freq = NoteSynth.Frequency(n.Semitone, n.Detune * 4.0);
+                if (n.EnvelopePreset >= 0 && n.EnvelopePreset < song.SsgPresets.Count)
+                {
+                    // The envelope runs once per tick and may ring on until the next note of the channel starts.
+                    int total = Math.Clamp(n.SpanTicks > 0 ? n.SpanTicks : n.DurationTicks + 96, 1, MaxEnvelopeTicks);
+                    var levels = SsgEnvelope.Levels(song.SsgPresets[n.EnvelopePreset], n.DurationTicks, total);
+                    int last = levels.Length;
+                    while (last > 1 && NoteSynth.SsgVolumeGain(SsgEnvelope.OutputLevel(n.Volume, levels[last - 1])) == 0) last--;   // trailing silence
+                    var gains = new double[last];
+                    for (int t = 0; t < last; t++) gains[t] = NoteSynth.SsgVolumeGain(SsgEnvelope.OutputLevel(n.Volume, levels[t]));
+                    double fpt = (song.TickToSeconds(n.StartTick + 1) - song.TickToSeconds(n.StartTick)) * NoteSynth.SampleRate;
+                    NoteSynth.Ssg(buf, start, freq, gate, SsgGain, n.Tone, n.Noise, n.NoisePeriod, tickGains: gains, framesPerTick: fpt);
+                }
+                else
+                    NoteSynth.Ssg(buf, start, freq, gate, SsgGain * NoteSynth.SsgVolumeGain(n.Volume), n.Tone, n.Noise, n.NoisePeriod);
                 break;
+            }
             default:
                 NoteSynth.Drum(buf, start, n.DrumId, DrumGain);
                 break;
