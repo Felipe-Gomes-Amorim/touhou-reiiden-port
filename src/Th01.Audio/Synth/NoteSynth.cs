@@ -51,6 +51,18 @@ public static class NoteSynth
 
     static double DbToGain(double db) => Math.Pow(10, -db / 20);
 
+    /// <summary>
+    /// Output gain of an FM channel volume (0..127): the driver attenuates the output operators by (127 - volume) steps of the
+    /// chip's total level, 0.75 dB each, so 127 is the loudest and every 4 steps is 3 dB.
+    /// </summary>
+    public static double FmVolumeGain(int volume) => DbToGain((127 - Math.Clamp(volume, 0, 127)) * 0.75);
+
+    /// <summary>
+    /// Output gain of an SSG channel volume (0..15): the chip's 16 levels are about 3 dB apart (a hardware property, not read
+    /// from the game's files) and level 0 is silent.
+    /// </summary>
+    public static double SsgVolumeGain(int volume) => volume <= 0 ? 0 : DbToGain((15 - Math.Min(volume, 15)) * 3.0);
+
     sealed class Env
     {
         enum Stage { Attack, Decay, Sustain, Release, Off }

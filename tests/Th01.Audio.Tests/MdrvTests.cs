@@ -238,6 +238,19 @@ public class MdrvTests
     }
 
     [Fact]
+    public void Volume_Curves_Follow_The_Chip_Steps()
+    {
+        Assert.Equal(1.0, NoteSynth.FmVolumeGain(127), 9);
+        Assert.Equal(Math.Pow(10, -3 / 20.0), NoteSynth.FmVolumeGain(123), 9);      // 4 steps of 0.75 dB
+        Assert.Equal(NoteSynth.FmVolumeGain(127), NoteSynth.FmVolumeGain(200), 9);  // out of range is clamped
+        Assert.True(NoteSynth.FmVolumeGain(0) < 1e-4);
+        Assert.Equal(1.0, NoteSynth.SsgVolumeGain(15), 9);
+        Assert.Equal(Math.Pow(10, -3 / 20.0), NoteSynth.SsgVolumeGain(14), 9);      // 3 dB per level
+        Assert.Equal(0.0, NoteSynth.SsgVolumeGain(0));
+        for (int v = 1; v < 127; v++) Assert.True(NoteSynth.FmVolumeGain(v) < NoteSynth.FmVolumeGain(v + 1));
+    }
+
+    [Fact]
     public void Tempo_Map_Accumulates_Segments()
     {
         var map = new[] { new TempoChange(0, 60), new TempoChange(96, 120) };

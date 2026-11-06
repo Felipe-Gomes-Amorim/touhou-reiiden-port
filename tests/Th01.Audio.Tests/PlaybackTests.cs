@@ -213,9 +213,15 @@ public class PlaybackTests
         sink.PlayBgm("NOPE.MDT");
         sink.PlayBgm("T.MDT");
         Assert.True(WaitFor(() => sink.Mixer.MusicPlaying));
-        var buf = new short[2048];
-        sink.Mixer.Mix(buf);
-        Assert.Contains(buf, s => s != 0);
+        var buf = new short[8192];
+        bool heard = false;
+        for (int i = 0; i < 60 && !heard; i++)   // the song is rendered in the background: wait until its audio reaches the mixer
+        {
+            sink.Mixer.Mix(buf);
+            heard = buf.Any(s => s != 0);
+            if (!heard) Thread.Sleep(50);
+        }
+        Assert.True(heard);
         sink.StopBgm();
         Assert.False(sink.Mixer.MusicPlaying);
     }

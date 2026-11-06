@@ -5,7 +5,9 @@ namespace Th01.Audio.Synth;
 /// <summary>Renders a decoded .MDT song or a .MDE effect to PCM, offline (no real-time playback yet).</summary>
 public static class MdrvRenderer
 {
-    const double FmGain = 0.22, SsgGain = 0.07, DrumGain = 0.3;
+    // Gains at the loudest channel volume; chosen so that the usual volumes of the songs keep the level they had before the
+    // volume curves followed the driver (FM volume 0x7A, SSG volume 13).
+    const double FmGain = 0.34, SsgGain = 0.12, DrumGain = 0.3;
 
     /// <summary>Plays the tracks once from the start (loops are not followed) for at most <paramref name="maxSeconds"/>.</summary>
     public static StereoBuffer RenderSong(MdrvSong song, double maxSeconds = 600)
@@ -73,10 +75,10 @@ public static class MdrvRenderer
         {
             case ChannelKind.Fm:
                 if (n.Voice < song.Voices.Count && !song.Voices[n.Voice].IsEmpty)
-                    NoteSynth.Fm(buf, start, song.Voices[n.Voice], NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, FmGain * n.Volume / 127.0, n.Pan);
+                    NoteSynth.Fm(buf, start, song.Voices[n.Voice], NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, FmGain * NoteSynth.FmVolumeGain(n.Volume), n.Pan);
                 break;
             case ChannelKind.Ssg:
-                NoteSynth.Ssg(buf, start, NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, SsgGain * Math.Min(n.Volume, 15) / 15.0, n.Tone, n.Noise, n.NoisePeriod);
+                NoteSynth.Ssg(buf, start, NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, SsgGain * NoteSynth.SsgVolumeGain(n.Volume), n.Tone, n.Noise, n.NoisePeriod);
                 break;
             default:
                 NoteSynth.Drum(buf, start, n.DrumId, DrumGain);
@@ -101,7 +103,7 @@ public static class MdrvRenderer
             {
                 int start = (int)(n.StartTick * EffectSecondsPerTick * NoteSynth.SampleRate);
                 int gate = Math.Max(1, (int)(n.DurationTicks * EffectSecondsPerTick * NoteSynth.SampleRate));
-                NoteSynth.Ssg(buf, start, NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, 0.25 * Math.Min(n.Volume, 15) / 15.0,
+                NoteSynth.Ssg(buf, start, NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, 0.55 * NoteSynth.SsgVolumeGain(n.Volume),
                     n.Tone, n.Noise, n.NoisePeriod, n.SweepDelta, EffectSecondsPerTick, n.Semitone);
             }
         }
