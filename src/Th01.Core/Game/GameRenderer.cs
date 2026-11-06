@@ -71,7 +71,7 @@ internal sealed partial class GameRenderer
         // Sariel's final defeat: the HUD disappears when the shake starts (measured VSync 1225), the form 2 scene stays behind
         bool hudGone = _s.Phase == SessionPhase.BossDefeat && w.Boss is Sariel && _s.DefeatElapsed >= Sariel.DefeatShakeStart;
         // ... and when form 1 falls, the form 2 scene stays without HUD until the end of the animation, when it returns whole (measured 1115-1189)
-        hudGone |= w.Boss is Sariel { Phase: Sariel.PhaseForm1Defeated } hf && hf.PhaseFrame >= Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks;
+        hudGone |= w.Boss is Sariel { Phase: Sariel.PhaseForm1Defeated } hf && hf.PhaseFrame >= Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatDitherTicks;
         if (!coverEntrance && !hudGone)
         {
             DrawMono(fb, HudMask, 0, 0, 0, ColRed);

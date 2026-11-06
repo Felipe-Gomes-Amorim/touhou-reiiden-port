@@ -271,7 +271,7 @@ public class SarielDrawTests
     // ---- the transformation: form 1 falls and form 2 appears ----
 
     [Fact]
-    public void The_first_form_falls_shaking_its_own_picture_then_swaps_to_form_2_at_once()
+    public void The_first_form_falls_shaking_its_own_picture_then_dissolves_to_A5_and_shows_A6_at_once()
     {
         var g = Session(new Art());
         var s = (Sariel)g.World.Boss!;
@@ -291,14 +291,25 @@ public class SarielDrawTests
             Assert.Equal(3, fb.GetPixel(300, 300));                 // the first form's own picture, not the dark one
         }
         Assert.Contains(16, shakeLines); Assert.Contains(386, shakeLines);
-        // 10 more ticks with the old picture (the page transition runs unseen), then form 2 appears at once
-        for (int t = 0; t < Sariel.Form1DefeatSwapTicks - 1; t++)
+        // the fast diagonal dissolve to BOSS6_A5 (colour 9 here), gradual, with the palette ramping; then A5 held; then A6 at once
+        int last = -1, increases = 0;
+        for (int t = 0; t < Sariel.Form1DefeatDitherTicks; t++)
         {
             g.Step(GameButtons.None);
-            Assert.Equal(3, Render(g).GetPixel(300, 300));
+            var fb = Render(g);
+            int shown = Count(fb, 9, 2);
+            Assert.True(shown >= last);
+            if (shown > last) increases++;
+            last = shown;
+        }
+        Assert.True(increases >= Sariel.Form1DefeatDitherTicks - 1, "the dissolve must be visible over several ticks, not one");
+        for (int t = Sariel.Form1DefeatDitherTicks; t < Sariel.Form1DefeatSwapTicks - 1; t++)
+        {
+            g.Step(GameButtons.None);
+            Assert.Equal(9, Render(g).GetPixel(300, 300));          // A5 held
         }
         g.Step(GameButtons.None); g.Step(GameButtons.None);
-        Assert.Equal(11, Render(g).GetPixel(300, 300));
+        Assert.Equal(11, Render(g).GetPixel(300, 300));             // A6 at once
         // form 2 appears all at once
         int guard = 0;
         while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 1000) g.Step(GameButtons.None);
@@ -328,7 +339,7 @@ public class SarielDrawTests
     }
 
     [Fact]
-    public void Soft_flashes_never_strobe_during_the_transformation()
+    public void Soft_mode_replaces_the_strobe_with_one_slow_grey_pulse()
     {
         var g = Session(new Art(), soft: true);
         var s = (Sariel)g.World.Boss!;
@@ -336,16 +347,45 @@ public class SarielDrawTests
         g.Step(GameButtons.None);
         s.Phase = 5; s.Hp = 0;
         g.Step(GameButtons.None); g.Step(GameButtons.None);
-        int prev = -1, flips = 0;
+        int prev = -1, turns = 0, dir = 0, maxLevel = 0, maxStep = 0;
         for (int f = 1; f < Sariel.Form1DefeatShakeTicks; f++)
         {
             g.Step(GameButtons.None);
             var fb = Render(g);
-            fb.GetPalette4(15, out int r, out _, out _);
-            if (prev >= 0 && r != prev) flips++;
+            fb.GetPalette4(15, out int r, out int gg, out int b);
+            Assert.False(r == 15 && gg == 15 && b == 15);              // never pure white
+            maxLevel = Math.Max(maxLevel, Math.Max(r, Math.Max(gg, b)));
+            if (prev >= 0 && r != prev)
+            {
+                int d = Math.Sign(r - prev);
+                if (dir != 0 && d != dir) turns++;
+                dir = d; maxStep = Math.Max(maxStep, Math.Abs(r - prev));
+            }
             prev = r;
         }
-        Assert.Equal(0, flips);                                     // palette entry 15 is not flashed in the soft mode
+        Assert.True(maxLevel <= 9);                                    // mid grey at most
+        Assert.True(turns <= 1);                                       // up and down once: a single pulse, not an alternation
+        Assert.True(maxStep <= 1);                                     // one level a tick
+    }
+
+    [Fact]
+    public void The_original_mode_strobes_palette_entry_15_between_white_and_black_every_tick()
+    {
+        var g = Session(new Art(), soft: false);
+        var s = (Sariel)g.World.Boss!;
+        ToPlaying(g);
+        g.Step(GameButtons.None);
+        s.Phase = 5; s.Hp = 0;
+        g.Step(GameButtons.None); g.Step(GameButtons.None);
+        var levels = new List<int>();
+        for (int f = 1; f < Sariel.Form1DefeatShakeTicks; f++)
+        {
+            g.Step(GameButtons.None);
+            Render(g).GetPalette4(15, out int r, out _, out _);
+            if (f > Sariel.Form1DefeatShakeStart + 2) levels.Add(r);
+        }
+        Assert.Contains(15, levels); Assert.Contains(0, levels);
+        Assert.True(levels.Zip(levels.Skip(1), (a, b) => a != b).All(x => x));   // alternates every tick
     }
 
     // ---- sprites, fallbacks and the final defeat ----

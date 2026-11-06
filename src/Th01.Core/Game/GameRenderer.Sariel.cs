@@ -91,19 +91,44 @@ internal sealed partial class GameRenderer
         }
         if (s.Phase == Sariel.PhaseForm1Defeated)
         {
-            // measured: the hardware shake (alternating every tick, palette entry 15 white on the "down" ticks and black on the
-            // "up" ones), the old picture for ~10 more ticks, then the form 2 scene appears at once
-            if (s.PhaseFrame < Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks)
+            // b20m.cpp phase 99 and pgtrans.cpp: the hardware shake (every tick; the original also flashes palette entry 15 white/black),
+            // then a fast diagonal dissolve to BOSS6_A5 with the palette ramping to its own, A5 held, BOSS6_A6 at once at tick 223.
+            int pf = s.PhaseFrame, dissolveEnd = Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatDitherTicks, a6At = Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks;
+            bool cur = Picture(SarielBg(s.BackgroundId), out f1);
+            if (pf < Sariel.Form1DefeatShakeTicks)
             {
-                if (Picture(SarielBg(s.BackgroundId), out f1))
+                if (cur)
                 {
                     ComposePictures(fb, f1, null, (x, y) => false);
                     if (f1.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(f1);
                 }
-                if (s.PhaseFrame >= Sariel.Form1DefeatShakeStart && s.PhaseFrame < Sariel.Form1DefeatShakeTicks)
+                if (pf >= Sariel.Form1DefeatShakeStart)
                 {
                     if (_s.Visuals.ScreenShake && s.Form1DefeatShakeLine != 0) fb.ScrollY = s.Form1DefeatShakeLine;
                     if (!_s.Visuals.SoftFlashes) { int v = s.Form1DefeatFlash ? 15 : 0; fb.SetPalette4(15, v, v, v); }
+                    else SoftStrobe(fb, pf - Sariel.Form1DefeatShakeStart);
+                }
+                return;
+            }
+            bool a5 = Picture(SarielBg(4), out f2);
+            if (pf < a6At)
+            {
+                int frame = pf < dissolveEnd ? (pf - Sariel.Form1DefeatShakeTicks + 1) * Sariel.TransitionFrames / Sariel.Form1DefeatDitherTicks - 1 : Sariel.TransitionFrames - 1;
+                ComposePictures(fb, cur ? f1 : null, a5 ? f2 : null, DiagonalPageTransition(Math.Clamp(frame, 0, Sariel.TransitionFrames - 1)));
+                if (cur && f1.Palette.Length == 3 * Framebuffer.ColorCount)
+                {
+                    fb.ApplyPalette(f1);
+                    if (a5 && f2.Palette.Length == 3 * Framebuffer.ColorCount)
+                    {
+                        int steps = Math.Clamp(frame, 0, Sariel.TransitionFrames - 1) / 8 + 1;       // the ramp of pagetrans_diagonal_8x8_with_palette: a level per 8 frames
+                        for (int c = 0; c < Framebuffer.ColorCount; c++)
+                        {
+                            fb.GetPalette4(c, out int r, out int g, out int b);
+                            int tr = f2.Palette.Span[c * 3], tg = f2.Palette.Span[c * 3 + 1], tb = f2.Palette.Span[c * 3 + 2];
+                            if (c == 15) tr = tg = tb = 0;                                         // grp_palette[0xF] is zeroed before the call
+                            fb.SetPalette4(c, r + Math.Clamp(tr - r, -steps, steps), g + Math.Clamp(tg - g, -steps, steps), b + Math.Clamp(tb - b, -steps, steps));
+                        }
+                    }
                 }
                 return;
             }
@@ -114,7 +139,7 @@ internal sealed partial class GameRenderer
                 {
                     fb.ApplyPalette(f2);
                     // measured (T5 section 14): palette entry 2 comes in 3 levels too bright and drops one level every 5 ticks (15 > 12)
-                    int extra = 3 - (s.PhaseFrame - Sariel.Form1DefeatShakeTicks - Sariel.Form1DefeatSwapTicks) / 5;
+                    int extra = 3 - (pf - a6At + 10) / 5;
                     if (extra > 0)
                     {
                         fb.GetPalette4(2, out int r2, out int g2, out int b2);
@@ -180,7 +205,7 @@ internal sealed partial class GameRenderer
             DrawHpBar(fb, s, s.InitialHpRendered || s.Phase is not (1 or Sariel.PhaseForm2) ? s.Hp : s.HpShown);
         if (s.Phase is Sariel.PhaseForm2Defeated) return;
         bool shaking99 = s.Phase == Sariel.PhaseForm1Defeated;
-        bool pictureSprites = s.Phase is >= 1 and <= 8 || shaking99 && s.PhaseFrame < Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks;
+        bool pictureSprites = s.Phase is >= 1 and <= 8 || shaking99 && s.PhaseFrame < Sariel.Form1DefeatShakeTicks;
         if (!pictureSprites && s.Phase != Sariel.PhaseForm2) return;
 
         // the wand, shield and dress (animated sprites on top of the background picture)
@@ -300,6 +325,20 @@ internal sealed partial class GameRenderer
                 if (!DrawMono(fb, sheet, 0, x, y, ColWhite)) fb.FillRect(x, y, 8, 8, ColWhite);
             }
         }
+    }
+
+    /// <summary>
+    /// The soft-mode replacement of the white/black strobe of palette entry 15 during the form 1 shake: one slow pulse of about half a
+    /// second (28 ticks) towards a mid grey, never white nor black, instead of alternating every tick (even at half the original rate it
+    /// would be 14 flashes a second, far above the 3 a second limit).
+    /// </summary>
+    void SoftStrobe(Framebuffer fb, int i)
+    {
+        const int PulseTicks = 28, Peak = 8;
+        if (i >= PulseTicks) return;
+        int w = i < PulseTicks / 2 ? i * Peak / (PulseTicks / 2) : (PulseTicks - 1 - i) * Peak / (PulseTicks / 2 - 1);
+        fb.GetPalette4(15, out int r, out int g, out int b);
+        fb.SetPalette4(15, r + (Peak - r) * w / Peak, g + (Peak - g) * w / Peak, b + (Peak - b) * w / Peak);
     }
 
     /// <summary>

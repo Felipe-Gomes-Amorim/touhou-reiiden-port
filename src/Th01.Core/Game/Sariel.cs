@@ -987,7 +987,12 @@ public sealed class Sariel : Boss
     /// took only about 10 ticks: delay(0) per frame, closer to "130 frames in ~10 ticks" than to 130 or 260 ticks); the form 2
     /// scene recomposes for about 75 more ticks (HUD complete about 1190). The game ticks resume after that (not measured exactly).
     /// </summary>
-    public const int Form1DefeatShakeTicks = 203, Form1DefeatShakeStart = 7, Form1DefeatSwapTicks = 10, Form1DefeatRecomposeTicks = 75;
+    public const int Form1DefeatShakeTicks = 203, Form1DefeatShakeStart = 7, Form1DefeatRecomposeTicks = 65;
+    /// <summary>
+    /// After the shake: the diagonal page transition to BOSS6_A5 (130 frames of delay(0); measured to fit in under 10 ticks: 8 here), the
+    /// A5 scene held until BOSS6_A6 (the glyphs) is drawn at once at 1125 (tick 223), the HUD back whole at 1190 (tick 288).
+    /// </summary>
+    public const int Form1DefeatDitherTicks = 8, Form1DefeatSwapTicks = 20;
     public const int Form1DefeatTransitionTicks = Form1DefeatSwapTicks + Form1DefeatRecomposeTicks;
     bool _form1DefeatStarted;
 
