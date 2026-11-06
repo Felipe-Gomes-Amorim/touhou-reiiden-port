@@ -57,9 +57,91 @@ public class MdrvTests
     {
         var t = Decode(ChannelKind.Fm, 0xE9, 0x50, 0xEB, 0x03, 0xEC, 0x70, 0xE6, 0x02, 0xE7, 0x02, 0x40, 0x0C, 0xF3, 0x00, 0x00);
         var n = Assert.Single(t.Notes);
-        Assert.Equal((3, 0x70, 2, 10), (n.Voice, n.Volume, n.Detune, n.DurationTicks));
+        Assert.Equal((3, 0x70, 2, 12), (n.Voice, n.Volume, n.Detune, n.DurationTicks));
+        Assert.Equal(4 * 12 + 2, n.Semitone);   // E7 02 transposes up two semitones
         Assert.Equal(new TempoChange(0, 0x50), Assert.Single(t.Tempos));
         Assert.True(t.Loops);
+    }
+
+    [SkippableFact]
+    public void RealSongs_Transposed_Notes_Stay_In_Range_And_Only_Lfo_Commands_Are_Left_Ignored()
+    {
+        string? folder = GameDataConfig.Resolve();
+        Skip.If(folder is null || !Directory.Exists(folder), $"Game data not configured. Set {GameDataConfig.EnvVar}.");
+        int songs = 0;
+        foreach (string file in Directory.GetFiles(folder!, "*.MDT"))
+        {
+            var song = MdrvSong.Load(File.ReadAllBytes(file));
+            songs++;
+            foreach (var t in song.Tracks)
+            {
+                if (t.Kind != ChannelKind.Drum)
+                    Assert.All(t.Notes, n => Assert.InRange(n.Semitone, 0, 8 * 12 + 11));   // octaves 0..8
+                Assert.All(t.Ignored.Keys, op => Assert.Contains(op, new[] { 0xED, 0xE8, 0xFC }));
+            }
+        }
+        Skip.If(songs == 0, "No .MDT files found.");
+    }
+
+    [Fact]
+    public void Transposition_Moves_Pitch_Across_Octaves_And_Not_The_Length()
+    {
+        var up = Decode(ChannelKind.Fm, 0xE7, 0x03, 0x4A, 0x0C, 0xFF);        // note 0xA + 3 = octave 5, note 1
+        Assert.Equal(5 * 12 + 1, up.Notes[0].Semitone);
+        Assert.Equal(12, up.Notes[0].DurationTicks);
+        var down = Decode(ChannelKind.Fm, 0xE7, 0xFE, 0x41, 0x0C, 0xFF);      // 0xFE = -2: octave 4, note 1 -> octave 3, note B
+        Assert.Equal(3 * 12 + 11, down.Notes[0].Semitone);
+        var low = Decode(ChannelKind.Fm, 0xE7, 0xF0, 0x01, 0x0C, 0xFF);       // never below zero
+        Assert.Equal(0, low.Notes[0].Semitone);
+    }
+
+    [Fact]
+    public void Transposition_Applies_To_Ssg_But_Not_To_The_Drum_Track()
+    {
+        var ssg = Decode(ChannelKind.Ssg, 0xE7, 0x02, 0x40, 0x0C, 0xFF);
+        Assert.Equal(50, ssg.Notes[0].Semitone);
+        var drum = Decode(ChannelKind.Drum, 0xE7, 0x02, 0x40, 0x0C, 0xFF);
+        Assert.Equal(48, drum.Notes[0].Semitone);
+    }
+
+    [Fact]
+    public void Tied_Notes_Of_A_Transposed_Track_Still_Merge()
+    {
+        var t = Decode(ChannelKind.Fm, 0xE7, 0x02, 0x50, 0x18, 0x91, 0x50, 0x18, 0xFF);
+        Assert.Single(t.Notes);
+        Assert.Equal(48, t.Notes[0].DurationTicks);
+    }
+
+    [Fact]
+    public void Relative_Volume_Changes_And_Is_Clamped()
+    {
+        var fm = Decode(ChannelKind.Fm, 0xEC, 0x70, 0xF4, 0x08, 0x40, 0x0C, 0xF5, 0x20, 0x40, 0x0C, 0xF4, 0xFF, 0x40, 0x0C, 0xF5, 0xFF, 0x40, 0x0C, 0xFF);
+        Assert.Equal([0x78, 0x58, 127, 0], fm.Notes.Select(n => n.Volume));
+        var ssg = Decode(ChannelKind.Ssg, 0xEC, 0x0A, 0xF4, 0x03, 0x40, 0x0C, 0xF4, 0x09, 0x40, 0x0C, 0xF5, 0x10, 0x40, 0x0C, 0xFF);
+        Assert.Equal([13, 15, 0], ssg.Notes.Select(n => n.Volume));
+        Assert.DoesNotContain(0xF4, fm.Ignored.Keys);
+        Assert.DoesNotContain(0xF5, fm.Ignored.Keys);
+    }
+
+    [Fact]
+    public void Pan_Command_Reaches_The_Notes_And_Defaults_To_Both_Sides()
+    {
+        var t = Decode(ChannelKind.Fm, 0x40, 0x0C, 0xF1, 0x01, 0x40, 0x0C, 0xF1, 0x02, 0x40, 0x0C, 0xF1, 0x03, 0x40, 0x0C, 0xFF);
+        Assert.Equal([3, 1, 2, 3], t.Notes.Select(n => n.Pan));
+        Assert.DoesNotContain(0xF1, t.Ignored.Keys);
+    }
+
+    [Fact]
+    public void Fm_Note_Pan_Comes_From_The_Track_Not_From_The_Voice()
+    {
+        byte[] rec = new byte[32];
+        rec[4] = 0x80 | 7;                         // the voice says "left only", algorithm 7
+        for (int i = 0; i < 4; i++) { rec[6 + i] = 1; rec[14 + i] = 0x1F; rec[26 + i] = 0x0F; }
+        var voice = FmVoice.Parse(rec);
+        var buf = new StereoBuffer(NoteSynth.SampleRate);
+        NoteSynth.Fm(buf, 0, voice, 440, NoteSynth.SampleRate / 2, 1.0, pan: 2);   // track says right only
+        Assert.True(buf.Right.Max(Math.Abs) > 0.01f);
+        Assert.Equal(0f, buf.Left.Max(Math.Abs));
     }
 
     [Fact]

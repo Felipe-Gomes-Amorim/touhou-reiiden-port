@@ -7,10 +7,13 @@ namespace Th01.Audio.Mdrv;
 ///   00..8F nn   note (high nibble = octave, low nibble = 0..B) + length       90 nn  rest       91  tie with the next note
 ///   E0 n .. E1 .. E2   repeat n times; E1 is skipped on the last pass      E3  last-pass exit of an E4 loop (no parameters; unused here)
 ///   E4 n .. E5         repeat n times      F6 n lo hi .. F7 x lo hi  same with 16-bit offsets      F9 lo hi  last-pass exit of F6
-///   E6 n  detune       E7 n  gate cut (ticks)     EA n  gate Q: a note sounds n/8 of its length (8 = full)
+///   E6 n  detune (signed)   E7 n  transposition in semitones (signed; not for the drum track)
+///   EA n  gate Q: a note sounds n/8 of its length (8 = full)
 ///   E9 n  tempo        EB n  voice (FM) / SSG: bit0 noise, bit1 tone / drum id     EC n  volume (drum track: 2 or 7 bytes)
-///   EF n  noise period F1 n  pan (always 3 = both sides, ignored)     F2 n l lo hi  note with a pitch sweep
-///   ED, E8, FB, FC, FD  four parameters each, low-frequency oscillators (ignored)       EE (2), F0, F4, F5, F8 (1)  ignored
+///   EF n  noise period F1 n  pan: bit 0 = left, bit 1 = right (every song sets 3 = both sides; the pan stored in a voice is not used)
+///   F4 n / F5 n  volume up / down by n (relative to the current volume)     F2 n l lo hi  note with a pitch sweep
+///   ED, E8, FB, FC, FD  four parameters each, low-frequency oscillators (ignored; ED and E8 are off - first parameter 0 - in almost every song)
+///   EE (2), F0, F8 (1)  not used by any of the game's music, ignored
 ///   FA lo hi  call the pattern at that absolute file offset (it ends with FF; drum phrases live in the title area)
 ///   F3 lo hi  end of the track, jump to (address of F3) + 2 + signed offset (the loop point)      FF  end of the stream
 /// ASSUMPTION: the meaning of the commands marked "ignored" is not known to this port; they are skipped by length and counted
@@ -34,7 +37,7 @@ public sealed class TrackDecoder
     readonly Dictionary<int, int> _tickAt = [];
     int _loopTarget = -1;
     int _quantize = 8;
-    int _pos, _tick, _voice, _volume, _detune, _gateCut, _noisePeriod, _drum;
+    int _pos, _tick, _voice, _volume, _detune, _transpose, _pan = 3, _noisePeriod, _drum;
     bool _tone = true, _noise, _tie, _loopEnd;
     NoteEvent? _last;
 
@@ -127,7 +130,10 @@ public sealed class TrackDecoder
                     if (top.Left > 1) { _loops.Push((top.Start, top.Left - 1, top.Volta)); _pos = top.Start; }
                     break;
                 case 0xE6: _detune = (sbyte)p0; break;
-                case 0xE7: _gateCut = p0; break;
+                case 0xE7: _transpose = (sbyte)p0; break;
+                case 0xF1: _pan = p0 & 3; break;
+                case 0xF4: AdjustVolume(p0); break;
+                case 0xF5: AdjustVolume(-p0); break;
                 case 0xEA: _quantize = Math.Clamp(p0, 1, 8); break;
                 case 0xE9: _tempos.Add(new TempoChange(_tick, p0)); break;
                 case 0xEB:
@@ -158,13 +164,23 @@ public sealed class TrackDecoder
         }
     }
 
+    // Relative volume: FM runs 0..127, SSG 0..15 (the drum track has its own levels).
+    void AdjustVolume(int delta)
+    {
+        if (_kind == ChannelKind.Drum) return;
+        _volume = Math.Clamp(_volume + delta, 0, _kind == ChannelKind.Fm ? 127 : 15);
+    }
+
+    // The transposition moves every pitched note; the drum track plays instruments, not pitches.
+    int Transposed(int semitone) => _kind == ChannelKind.Drum ? semitone : Math.Max(0, semitone + _transpose);
+
     void Note(int op, int len)
     {
-        int semitone = (op >> 4) * 12 + Math.Min(op & 0xF, 11);
+        int semitone = Transposed((op >> 4) * 12 + Math.Min(op & 0xF, 11));
         if (_tie && _last is { } prev && prev.Semitone == semitone && prev.SweepDelta == 0)
         {
             // Same pitch tied: extend the previous note instead of starting a new one.
-            _last = prev with { DurationTicks = _tick + Math.Max(1, len * _quantize / 8 - _gateCut) - prev.StartTick };
+            _last = prev with { DurationTicks = _tick + Math.Max(1, len * _quantize / 8) - prev.StartTick };
             _notes[^1] = _last;
         }
         else
@@ -178,12 +194,14 @@ public sealed class TrackDecoder
 
     void Sweep(int note, int len, int delta)
     {
-        var ev = Make(Math.Min(note >> 4, 8) * 12 + Math.Min(note & 0xF, 11), len, delta);
+        int semitone = Math.Min(note >> 4, 8) * 12 + Math.Min(note & 0xF, 11);
+        // A sweep on an FM channel is not transposed; on an SSG channel it is.
+        var ev = Make(_kind == ChannelKind.Ssg ? Transposed(semitone) : semitone, len, delta);
         _notes.Add(ev);
         _last = ev;
         _tick += len;
     }
 
     NoteEvent Make(int semitone, int len, int sweep) =>
-        new(_tick, Math.Max(1, len * _quantize / 8 - _gateCut), semitone, _volume, _voice, _detune, _tone, _noise, _noisePeriod, sweep, _drum);
+        new(_tick, Math.Max(1, len * _quantize / 8), semitone, _volume, _voice, _detune, _tone, _noise, _noisePeriod, sweep, _drum, _pan);
 }

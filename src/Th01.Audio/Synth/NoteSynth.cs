@@ -97,8 +97,11 @@ public static class NoteSynth
         public bool Done => _stage == Stage.Off;
     }
 
-    /// <summary>Renders an FM note. <paramref name="gateFrames"/> = key-on length, then the release tail is added.</summary>
-    public static void Fm(StereoBuffer buf, int startFrame, FmVoice voice, double freq, int gateFrames, double gain)
+    /// <summary>
+    /// Renders an FM note. <paramref name="gateFrames"/> = key-on length, then the release tail is added. <paramref name="pan"/>:
+    /// bit 0 = left, bit 1 = right; the pan stored in the voice is not used (the driver takes it from the track's pan command).
+    /// </summary>
+    public static void Fm(StereoBuffer buf, int startFrame, FmVoice voice, double freq, int gateFrames, double gain, int pan = 3)
     {
         var ops = voice.Operators;
         var env = new Env[4];
@@ -114,7 +117,7 @@ public static class NoteSynth
         double fbScale = voice.Feedback == 0 ? 0 : Math.PI * Math.Pow(2, voice.Feedback - 7);
         var e4 = new double[4];
         double s1a = 0, s1b = 0;
-        float gl = voice.Left ? 1 : 0, gr = voice.Right ? 1 : 0;
+        float gl = (pan & 1) != 0 ? 1 : 0, gr = (pan & 2) != 0 ? 1 : 0;
         int maxFrames = gateFrames + SampleRate;
         for (int n = 0; n < maxFrames; n++)
         {

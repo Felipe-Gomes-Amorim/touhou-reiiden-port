@@ -73,7 +73,7 @@ public static class MdrvRenderer
         {
             case ChannelKind.Fm:
                 if (n.Voice < song.Voices.Count && !song.Voices[n.Voice].IsEmpty)
-                    NoteSynth.Fm(buf, start, song.Voices[n.Voice], NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, FmGain * n.Volume / 127.0);
+                    NoteSynth.Fm(buf, start, song.Voices[n.Voice], NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, FmGain * n.Volume / 127.0, n.Pan);
                 break;
             case ChannelKind.Ssg:
                 NoteSynth.Ssg(buf, start, NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, SsgGain * Math.Min(n.Volume, 15) / 15.0, n.Tone, n.Noise, n.NoisePeriod);
