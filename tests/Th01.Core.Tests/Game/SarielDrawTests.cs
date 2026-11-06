@@ -291,25 +291,32 @@ public class SarielDrawTests
             Assert.Equal(3, fb.GetPixel(300, 300));                 // the first form's own picture, not the dark one
         }
         Assert.Contains(16, shakeLines); Assert.Contains(386, shakeLines);
-        // the fast diagonal dissolve to BOSS6_A5 (colour 9 here), gradual, with the palette ramping; then A5 held; then A6 at once
+        // the first wave (towards BOSS6_A5, colour 9 here) over 69 ticks from frame 208, gradual; a pause; the second wave (towards A6, colour 11)
+        while (s.PhaseFrame < Sariel.Form1DefeatWave1Start - 1) g.Step(GameButtons.None);
         int last = -1, increases = 0;
-        for (int t = 0; t < Sariel.Form1DefeatDitherTicks; t++)
+        while (s.PhaseFrame < Sariel.Form1DefeatWave1Start + Sariel.Form1DefeatWave1Ticks - 1)
         {
             g.Step(GameButtons.None);
-            var fb = Render(g);
-            int shown = Count(fb, 9, 2);
+            int shown = Count(Render(g), 9, 2);
             Assert.True(shown >= last);
             if (shown > last) increases++;
             last = shown;
         }
-        Assert.True(increases >= Sariel.Form1DefeatDitherTicks - 1, "the dissolve must be visible over several ticks, not one");
-        for (int t = Sariel.Form1DefeatDitherTicks; t < Sariel.Form1DefeatSwapTicks - 1; t++)
+        Assert.True(increases > 40, "wave 1 must come in over many ticks, not at once");
+        for (int i = 0; i < 3; i++) { g.Step(GameButtons.None); Assert.Equal(9, Render(g).GetPixel(300, 300)); }   // the pause of 4 ticks: A5 held
+        int last2 = -1, inc2 = 0;
+        while (s.Phase == Sariel.PhaseForm1Defeated) g.Step(GameButtons.None);
+        // the game ticks resume at frame 283 while wave 2 still runs over the first ticks of form 2
+        Assert.Equal(Sariel.PhaseForm2, s.Phase);
+        for (int t = 0; t < Sariel.Form2Wave2EndTick + 2; t++)
         {
+            int shown = Count(Render(g), 11, 2);
+            Assert.True(shown >= last2);
+            if (shown > last2) inc2++;
+            last2 = shown;
             g.Step(GameButtons.None);
-            Assert.Equal(9, Render(g).GetPixel(300, 300));          // A5 held
         }
-        g.Step(GameButtons.None); g.Step(GameButtons.None);
-        Assert.Equal(11, Render(g).GetPixel(300, 300));             // A6 at once
+        Assert.True(inc2 > 15, "wave 2 must come in over many ticks");
         // form 2 appears all at once
         int guard = 0;
         while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 1000) g.Step(GameButtons.None);
@@ -327,15 +334,14 @@ public class SarielDrawTests
         s.Phase = 5; s.BackgroundId = 0; s.Hp = 0;
         g.Step(GameButtons.None);
         int guard = 0;
-        while (s.Phase == Sariel.PhaseForm1Defeated && s.PhaseFrame < Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks + 20 && guard++ < 2000) g.Step(GameButtons.None);
-        Assert.Equal(Sariel.PhaseForm1Defeated, s.Phase);
-        var bare = Render(g);
-        for (int y = 0; y < 60; y += 4) for (int x = 0; x < Framebuffer.Width; x += 4) Assert.Equal(11, bare.GetPixel(x, y));   // form 2 picture only
+        int Other(Framebuffer f) { int n = 0; for (int y = 0; y < 60; y++) for (int x = 0; x < Framebuffer.Width; x++) { int c = f.GetPixel(x, y); if (c != 9 && c != 11) n++; } return n; }
+        while (s.Phase == Sariel.PhaseForm1Defeated && s.PhaseFrame < Sariel.Form1DefeatWave1Start + Sariel.Form1DefeatWave1Ticks + 1 && guard++ < 2000) g.Step(GameButtons.None);
+        Assert.Equal(0, Other(Render(g)));                           // the dissolve has covered the HUD: only the scene pictures are left up there
         while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 4000) g.Step(GameButtons.None);
         Assert.Equal(Sariel.PhaseForm2, s.Phase);
-        int other = 0; var back = Render(g);
-        for (int y = 0; y < 60; y++) for (int x = 0; x < Framebuffer.Width; x++) if (back.GetPixel(x, y) != 11) other++;
-        Assert.True(other > 0);                                      // the HUD is back all at once
+        Assert.Equal(0, Other(Render(g)));                           // still no HUD when the game ticks resume
+        while (s.Form2Ticks < Sariel.Form2HudReturnTick + 1 && guard++ < 4100) g.Step(GameButtons.None);
+        Assert.True(Other(Render(g)) > 0);                           // the HUD is back all at once (1190)
     }
 
     [Fact]

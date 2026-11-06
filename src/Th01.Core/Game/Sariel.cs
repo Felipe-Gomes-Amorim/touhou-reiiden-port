@@ -195,7 +195,7 @@ public sealed class Sariel : Boss
             case 6: BgTransitionFrame(3, 7, () => Irand() % 5 + 2); break;
             case 8: BgTransitionFrame(0, 1, () => Irand() % 6 + 1); break;
             case PhaseForm1Defeated: Form1Defeated(); break;
-            case PhaseForm2: Form2(); break;
+            case PhaseForm2: Form2Ticks++; Form2(); break;
         }
     }
 
@@ -982,18 +982,18 @@ public sealed class Sariel : Boss
     // ---- form 1 defeated (phase 99): a blocking animation in the original ----
 
     /// <summary>
-    /// Measured by T5 (MEASURED-GAMEPLAY.md section 10, forced transformation, ticks from the start of REIIDEN): the blocking animation
-    /// starts at 902; the hardware-scroll shake runs 908-1104; the picture swaps at once at 1115 (so the 130-frame page transition
-    /// took only about 10 ticks: delay(0) per frame, closer to "130 frames in ~10 ticks" than to 130 or 260 ticks); the form 2
-    /// scene recomposes for about 75 more ticks (HUD complete about 1190). The game ticks resume after that (not measured exactly).
+    /// Measured by T5 (MEASURED-GAMEPLAY.md sections 10 and 15; PhaseFrame 0 = VSync 902, PhaseFrame = VSync - 901): the hardware-scroll
+    /// shake runs 908-1110 (frames 7-209); the scene of form 2 then comes in by a dissolution of two waves on the shown page: wave 1
+    /// 1109-1177 (frames 208-276, 69 ticks, towards BOSS6_A5), a pause of 4 ticks, wave 2 1182-1220 (frames 281-319, 39 ticks, towards
+    /// BOSS6_A6). The game ticks resume at 1184 (frame 283: the blocking animation ends here, the second wave goes on drawn over the
+    /// first ticks of form 2) and the HUD is complete at 1190 (6 ticks later). What each wave draws is not measured yet.
     /// </summary>
-    public const int Form1DefeatShakeTicks = 203, Form1DefeatShakeStart = 7, Form1DefeatRecomposeTicks = 65;
-    /// <summary>
-    /// After the shake: the diagonal page transition to BOSS6_A5 (130 frames of delay(0); measured to fit in under 10 ticks: 8 here), the
-    /// A5 scene held until BOSS6_A6 (the glyphs) is drawn at once at 1125 (tick 223), the HUD back whole at 1190 (tick 288).
-    /// </summary>
-    public const int Form1DefeatDitherTicks = 8, Form1DefeatSwapTicks = 20;
-    public const int Form1DefeatTransitionTicks = Form1DefeatSwapTicks + Form1DefeatRecomposeTicks;
+    public const int Form1DefeatShakeTicks = 210, Form1DefeatShakeStart = 7;
+    public const int Form1DefeatWave1Start = 208, Form1DefeatWave1Ticks = 69, Form1DefeatWave2Start = 281, Form1DefeatWave2Ticks = 39;
+    public const int Form1DefeatTransitionTicks = 283 - Form1DefeatShakeTicks;
+    /// <summary>Ticks of form 2 (drawing only): the second wave still runs for the first ticks and the HUD returns after 6.</summary>
+    public const int Form2HudReturnTick = 6, Form2Wave2EndTick = Form1DefeatWave2Start + Form1DefeatWave2Ticks - 283;
+    public int Form2Ticks { get; private set; } = 1000;      // 1000: not coming from the transformation
     bool _form1DefeatStarted;
 
     /// <summary>The session must not run anything else while this is true: the original blocks inside this animation.</summary>
@@ -1029,6 +1029,7 @@ public sealed class Sariel : Boss
         // frames 201 on: the diagonal page transition, then the second form starts
         if (PhaseFrame < Form1DefeatShakeTicks + Form1DefeatTransitionTicks) return;
         PhaseFrame = 0;
+        Form2Ticks = 0;
         InvincibilityFrame = 0;
         PatternCur = 0;
         PatternsDone = 0;                                    // pulse_fade_direction shares this slot
