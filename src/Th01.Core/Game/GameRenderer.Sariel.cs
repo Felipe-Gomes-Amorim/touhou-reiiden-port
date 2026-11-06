@@ -110,7 +110,17 @@ internal sealed partial class GameRenderer
             if (Picture(SarielBg(5), out f2))
             {
                 ComposePictures(fb, f2, null, (x, y) => false);
-                if (f2.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(f2);
+                if (f2.Palette.Length == 3 * Framebuffer.ColorCount)
+                {
+                    fb.ApplyPalette(f2);
+                    // measured (T5 section 14): palette entry 2 comes in 3 levels too bright and drops one level every 5 ticks (15 > 12)
+                    int extra = 3 - (s.PhaseFrame - Sariel.Form1DefeatShakeTicks - Sariel.Form1DefeatSwapTicks) / 5;
+                    if (extra > 0)
+                    {
+                        fb.GetPalette4(2, out int r2, out int g2, out int b2);
+                        fb.SetPalette4(2, Math.Min(15, r2 + extra), Math.Min(15, g2 + extra), Math.Min(15, b2 + extra));
+                    }
+                }
             }
             return;
         }

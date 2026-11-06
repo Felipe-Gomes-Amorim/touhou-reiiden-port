@@ -307,6 +307,27 @@ public class SarielDrawTests
     }
 
     [Fact]
+    public void Form_2_recomposes_without_the_HUD_which_returns_whole_at_the_end()
+    {
+        var g = Session(new Art());
+        var s = (Sariel)g.World.Boss!;
+        ToPlaying(g);
+        g.Step(GameButtons.None);
+        s.Phase = 5; s.BackgroundId = 0; s.Hp = 0;
+        g.Step(GameButtons.None);
+        int guard = 0;
+        while (s.Phase == Sariel.PhaseForm1Defeated && s.PhaseFrame < Sariel.Form1DefeatShakeTicks + Sariel.Form1DefeatSwapTicks + 20 && guard++ < 2000) g.Step(GameButtons.None);
+        Assert.Equal(Sariel.PhaseForm1Defeated, s.Phase);
+        var bare = Render(g);
+        for (int y = 0; y < 60; y += 4) for (int x = 0; x < Framebuffer.Width; x += 4) Assert.Equal(11, bare.GetPixel(x, y));   // form 2 picture only
+        while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 4000) g.Step(GameButtons.None);
+        Assert.Equal(Sariel.PhaseForm2, s.Phase);
+        int other = 0; var back = Render(g);
+        for (int y = 0; y < 60; y++) for (int x = 0; x < Framebuffer.Width; x++) if (back.GetPixel(x, y) != 11) other++;
+        Assert.True(other > 0);                                      // the HUD is back all at once
+    }
+
+    [Fact]
     public void Soft_flashes_never_strobe_during_the_transformation()
     {
         var g = Session(new Art(), soft: true);
