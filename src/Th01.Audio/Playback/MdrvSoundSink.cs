@@ -13,8 +13,15 @@ namespace Th01.Audio.Playback;
 /// </summary>
 public sealed class MdrvSoundSink : ISoundSink, IDisposable
 {
-    /// <summary>Length of <see cref="FadeOutBgm"/>.</summary>
-    public const double FadeSeconds = 1.5;
+    /// <summary>
+    /// The driver's fade-out lowers the music by one attenuation step (0.75 dB) every <see cref="FadeTicksPerStep"/> timer ticks
+    /// and stops the song after <see cref="FadeSteps"/> steps, so it lasts FadeSteps * FadeTicksPerStep ticks of the playing
+    /// song's tempo (3.4 to 4.9 s for the game's music) and falls by about 95 dB.
+    /// </summary>
+    public const int FadeSteps = 127, FadeTicksPerStep = 2;
+    public const double FadeStepDb = 0.75;
+    /// <summary>Length of <see cref="FadeOutBgm"/> for a song with the given seconds per tick.</summary>
+    public static double FadeSeconds(double secondsPerTick) => FadeSteps * FadeTicksPerStep * secondsPerTick;
     /// <summary>Track change while music plays: the old track fades out this long, the new one fades in (crossfade).</summary>
     public const double CrossfadeOutSeconds = 1.0, CrossfadeInSeconds = 0.4;
 
@@ -25,6 +32,7 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
     string? _current;
     int _request;
     bool _disposed;
+    double _secondsPerTick = TempoMap.SecondsPerTick(TempoMap.DefaultTempo);   // of the current track, for the fade
 
     public AudioMixer Mixer { get; } = new();
 
@@ -77,6 +85,7 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
                 lock (_lock)
                 {
                     if (_disposed || request != _request) { cts.Cancel(); return; }   // another request came in meanwhile
+                    _secondsPerTick = TempoMap.SecondsPerTick(song.Tempos.Count > 0 ? song.Tempos[0].Tempo : TempoMap.DefaultTempo);
                     bool crossfade = Mixer.MusicPlaying;
                     Mixer.PlayMusic(rendering, crossfade ? CrossfadeOutSeconds : 0, crossfade ? CrossfadeInSeconds : 0);
                 }
@@ -97,8 +106,9 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
     public void FadeOutBgm()
     {
         // The render is not cancelled: the part already rendered has to last through the fade.
-        lock (_lock) { _request++; _current = null; _cancel = null; }
-        Mixer.FadeOutMusic(FadeSeconds);
+        double seconds;
+        lock (_lock) { _request++; _current = null; _cancel = null; seconds = FadeSeconds(_secondsPerTick); }
+        Mixer.FadeOutMusic(seconds, FadeSteps * FadeStepDb);
     }
 
     // Caller holds _lock: forget the current track and stop its background render.

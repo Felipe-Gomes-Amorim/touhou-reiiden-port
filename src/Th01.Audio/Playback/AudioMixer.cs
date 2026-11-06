@@ -25,6 +25,9 @@ public sealed class AudioMixer
         public readonly LoopedPcm Pcm = pcm;
         public int Pos;
         public float Volume = volume, Step = step;
+        /// <summary>A fade by a constant number of decibels per frame (<see cref="Factor"/> per frame) that ends after <see cref="FramesLeft"/> frames.</summary>
+        public float Factor = 1f;
+        public long FramesLeft;
     }
 
     const int MaxFading = 3;
@@ -60,12 +63,20 @@ public sealed class AudioMixer
     }
 
     /// <summary>Fades the current music out over <paramref name="seconds"/> and stops it.</summary>
-    public void FadeOutMusic(double seconds)
+    /// <param name="decibels">0 for a linear ramp to silence; otherwise the volume falls by this many decibels, evenly over the time
+    /// (the driver's fade lowers the level in equal attenuation steps), and the music stops at the end.</param>
+    public void FadeOutMusic(double seconds, double decibels = 0)
     {
         lock (_lock)
         {
             if (_music is not { } m) return;
-            m.Step = Ramp(-m.Volume, seconds);
+            if (decibels > 0)
+            {
+                long frames = Math.Max(1, (long)(seconds * SampleRate));
+                m.Factor = (float)Math.Pow(10, -decibels / 20 / frames);
+                m.FramesLeft = frames;
+            }
+            else m.Step = Ramp(-m.Volume, seconds);
             _fading.Add(m);
             _music = null;
             while (_fading.Count > MaxFading) _fading.RemoveAt(0);
@@ -125,7 +136,12 @@ public sealed class AudioMixer
         l += m.Pcm[st.Pos * 2] * st.Volume * gain;
         r += m.Pcm[st.Pos * 2 + 1] * st.Volume * gain;
         st.Pos++;
-        if (st.Step != 0)
+        if (st.Factor != 1f)
+        {
+            st.Volume *= st.Factor;
+            if (--st.FramesLeft <= 0) return false;
+        }
+        else if (st.Step != 0)
         {
             st.Volume += st.Step;
             if (st.Step < 0 && st.Volume <= 0) return false;
