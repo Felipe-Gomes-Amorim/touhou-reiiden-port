@@ -344,6 +344,8 @@ public class SarielDrawTests
         for (int i = 0; i < 8; i++) g.Step(GameButtons.None);
         var shakes = new HashSet<int>(); for (int i = 0; i < 8; i++) { g.Step(GameButtons.None); shakes.Add(Render(g).ScrollY); }
         Assert.Contains(16, shakes); Assert.Contains(386, shakes);   // shaking, period of 4 ticks
+        var hudless = Render(g);
+        for (int y = 0; y < 60; y += 4) for (int x = 0; x < Framebuffer.Width; x += 4) Assert.Equal(11, hudless.GetPixel(x, y));   // the HUD is gone: only the form 2 picture is left up there
         static int Brightness(Framebuffer f)
         {
             int sum = 0;

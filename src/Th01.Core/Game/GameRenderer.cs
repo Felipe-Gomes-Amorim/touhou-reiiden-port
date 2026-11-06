@@ -68,7 +68,9 @@ internal sealed partial class GameRenderer
         // (Sariel's HUD comes back with the entrance rings: measured at VSync 796, 41 ticks before the game ticks)
         bool coverEntrance = w.Boss is Konngara { Phase: 0 } or Sariel { Phase: 0, EntranceTick: <= Sariel.ScrollTicks + Sariel.TransitionTicks } && _s.Phase == SessionPhase.BossEntrance;
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
-        if (!coverEntrance)
+        // Sariel's final defeat: the HUD disappears when the shake starts (measured VSync 1225), the form 2 scene stays behind
+        bool hudGone = _s.Phase == SessionPhase.BossDefeat && w.Boss is Sariel && _s.DefeatElapsed >= Sariel.DefeatShakeStart;
+        if (!coverEntrance && !hudGone)
         {
             DrawMono(fb, HudMask, 0, 0, 0, ColRed);
             fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed); // the bar under the HUD text is red like the mask
@@ -93,7 +95,7 @@ internal sealed partial class GameRenderer
         if (!coverEntrance)
         {
             DrawPlayer(fb, w);
-            DrawHud(fb, w);
+            if (!hudGone) DrawHud(fb, w);
         }
         if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame, _s.Visuals);
         else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb
