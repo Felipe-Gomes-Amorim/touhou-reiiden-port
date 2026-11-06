@@ -184,9 +184,17 @@ public sealed class Konngara : Boss
         return new(0, 16, 15, Math.Min(SealSteps, t * SealSteps / SealFadeTicks), true, SealAppearTicks.Length);
     }
 
-    /// <summary>Defeat: nine "kuji" images, a 64-tick shake and the final scroll fade, plus the white-out (estimate).</summary>
-    public const int KujiCount = 9, KujiTicks = 10, DefeatShakeTicks = 64, FinalScrollTicks = 270;
-    public const int DefeatSequenceTicks = KujiCount * KujiTicks + DefeatShakeTicks + FinalScrollTicks;
+    /// <summary>
+    /// Defeat, as measured by T5 (MEASURED-GAMEPLAY.md section 13; tick 0 = the first kuji, VSync 1262): nine kuji of 10 ticks (0-89), the
+    /// last one held 4 more ticks, the fade to black one level every 4 ticks (94-149), a black gap, the stage picture at 155-160, the
+    /// palette fading in from 162 (one level per 8 ticks) while the picture scrolls 32 lines a tick from 166 to 426, fading out again
+    /// from 318 (one level per 8 ticks), the video memory erased at 427 and a black screen until the end at 548.
+    /// </summary>
+    public const int KujiCount = 9, KujiTicks = 10, KujiHoldTicks = 4, DefeatShakeTicks = 56, FinalScrollTicks = 398;
+    public const int DefeatSequenceTicks = KujiCount * KujiTicks + KujiHoldTicks + DefeatShakeTicks + FinalScrollTicks;
+    public const int DefeatPictureAppears = 155, DefeatFadeInStart = 162, DefeatScrollStart = 166, DefeatScrollEnd = 426, DefeatFadeOutStart = 318, DefeatBlankAt = 427;
+    /// <summary>The kuji ticks on which the background (palette entry 0) is lit in the original mode: 12 on, 8 off, four times.</summary>
+    public static bool KujiBackgroundLit(int tick) => tick is >= 10 and < 82 && (tick - 10) % 20 < 12;
 
     // ---- state ----
     int _entranceFrame;

@@ -12,46 +12,43 @@ internal sealed partial class GameRenderer
     const int KujiFirstImage = 7;
 
     /// <summary>
-    /// Draws the whole screen of the defeat sequence at the given tick of it. The original flips the background colour
-    /// (palette entry 0) between black and white every 10 ticks; with soft flashes it is a slow fade between black and a dark grey.
+    /// Draws the whole screen of the defeat sequence at the given tick of it (see Konngara.DefeatSequenceTicks for the measured timeline).
+    /// The background (palette entry 0) blinks four times during the kuji in the original mode; with soft flashes it stays black.
+    /// ASSUMPTIONS: the lit colour is white (T5 could not read R); the 56-tick fade also shakes as the b20j.cpp loop does (not measured
+    /// either way); the stage picture is BOSS7_D1; the scroll of ~128 lines per 4 ticks is read as 32 lines a tick, in the direction
+    /// of the picture (the measurement may alias).
     /// </summary>
     void DrawKonngaraDefeat(Framebuffer fb, int tick)
     {
         fb.Clear(0);
-        int kujiEnd = Konngara.KujiCount * Konngara.KujiTicks, shakeEnd = kujiEnd + Konngara.DefeatShakeTicks;
-        if (tick < kujiEnd)
+        int kujiEnd = Konngara.KujiCount * Konngara.KujiTicks, fadeStart = kujiEnd + Konngara.KujiHoldTicks, fadeEnd = fadeStart + Konngara.DefeatShakeTicks;
+        if (tick < fadeEnd)
         {
-            int k = tick / Konngara.KujiTicks, inK = tick % Konngara.KujiTicks;
-            int target = k % 2 == 1 ? 1 : 0, previous = k == 0 ? 0 : 1 - target;     // 1 = the light background
-            int level;
-            if (!_s.Visuals.SoftFlashes) level = target * PaletteMax;
-            else level = SoftDefeatCeilingKuji * (previous * 9 + (target - previous) * Math.Min(inK + 1, 9)) / 9;   // dark grey at most, a level every ~3 ticks
+            int k = Math.Min(tick / Konngara.KujiTicks, Konngara.KujiCount - 1);
+            int level = !_s.Visuals.SoftFlashes && tick < kujiEnd && Konngara.KujiBackgroundLit(tick) ? PaletteMax : 0;
             fb.SetPalette4(0, level, level, level);
-            int image = KujiFirstImage + k;
-            fb.Clear(0);
-            DrawColorKey(fb, SlashSheet, image);
+            DrawColorKey(fb, SlashSheet, KujiFirstImage + k);
+            if (tick >= fadeStart)
+            {
+                int f = tick - fadeStart + 1;
+                if (_s.Visuals.ScreenShake) fb.ScrollY = (Framebuffer.Height + 8 + f % 2 * 16) % Framebuffer.Height;
+                int steps = f / 4;                                                    // z_palette_black_out_step every 4 ticks
+                MapPalette(fb, c => Math.Max(0, c - steps));
+            }
             return;
         }
-        if (tick < shakeEnd)
-        {
-            int f = tick - kujiEnd + 1;
-            DrawColorKey(fb, SlashSheet, KujiFirstImage + Konngara.KujiCount - 1);
-            if (_s.Visuals.ScreenShake) fb.ScrollY = (Framebuffer.Height + 8 + f % 2 * 16) % Framebuffer.Height;
-            int steps = f / 4;                                                        // z_palette_black_out_step every 4 frames
-            MapPalette(fb, c => Math.Max(0, c - steps));
-            return;
-        }
-        // the final scroll: the first picture moves 32 lines a tick, the palette comes in for 150 ticks, then goes out
-        int sf = tick - shakeEnd;
+        if (tick < Konngara.DefeatPictureAppears || tick >= Konngara.DefeatBlankAt) { fb.SetPalette4(0, 0, 0, 0); return; }   // black gap and the erased end
+        // the stage picture, its palette coming in and then going out again, the scroll running from tick 166 to 426
         if (Picture(ScrollPicture, out var pic))
         {
             for (int y = 0; y < Framebuffer.Height; y++)
                 for (int x = 0; x < Framebuffer.Width; x++) fb.SetPixel(x, y, pic.Pixels.Span[y * pic.Width + x]);
             if (pic.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(pic);
         }
-        int line = sf * 32 % Framebuffer.Height;
-        fb.ScrollY = line;
-        int level2 = sf < 150 ? sf / 8 + 1 : Math.Max(0, PaletteMax - (sf - 150) / 8);
+        int sf = tick - Konngara.DefeatScrollStart;
+        if (sf >= 0 && tick <= Konngara.DefeatScrollEnd && _s.Visuals.ScreenShake) fb.ScrollY = sf * 32 % Framebuffer.Height;
+        int level2 = tick < Konngara.DefeatFadeInStart ? 0 : Math.Min((tick - Konngara.DefeatFadeInStart) / 8 + 1, PaletteMax);
+        if (tick >= Konngara.DefeatFadeOutStart) level2 = Math.Min(level2, Math.Max(0, PaletteMax - (tick - Konngara.DefeatFadeOutStart) / 8));
         MapPalette(fb, c => Math.Min(c, level2));
     }
 

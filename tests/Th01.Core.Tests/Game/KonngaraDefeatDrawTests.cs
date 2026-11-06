@@ -68,54 +68,64 @@ public class KonngaraDefeatDrawTests
     }
 
     [Fact]
-    public void The_original_flips_the_background_between_black_and_white_every_10_ticks()
+    public void The_original_blinks_the_background_four_times_during_the_kuji_as_measured()
     {
         var (g, k) = Defeated(soft: false);
-        var seen = new List<int>();
         for (int kuji = 0; kuji < Konngara.KujiCount; kuji++)
         {
             RunToSequence(g, k, kuji * Konngara.KujiTicks + 5);
             var fb = Render(g);
-            seen.Add(Level0(fb));
             Assert.Equal(kuji + 2, fb.GetPixel(300, 105));         // that kuji image (frame 7 + kuji, colour frame - 5)
             Assert.Equal(0, fb.GetPixel(300, 300));                // nothing else on the screen: no HUD, no stage
         }
-        Assert.Equal(new[] { 0, 15, 0, 15, 0, 15, 0, 15, 0 }, seen);
+        // lit at 10, 30, 50, 70 (12 ticks) and off at 22, 42, 62, 82 (T5: VSync 1272/1292/1312/1332 on, 1284/1304/1324/1344 off)
+        var lit = new List<int>();
+        (g, k) = Defeated(soft: false);
+        for (int tick = 0; tick < 90; tick++) { RunToSequence(g, k, tick); if (Level0(Render(g)) == 15) lit.Add(tick); }
+        Assert.Equal(48, lit.Count);
+        Assert.Equal(new[] { 10, 30, 50, 70 }, new[] { lit[0], lit[12], lit[24], lit[36] });
+        Assert.DoesNotContain(22, lit); Assert.DoesNotContain(82, lit);
     }
 
     [Fact]
-    public void The_soft_mode_never_reaches_white_and_changes_slowly()
+    public void The_soft_mode_never_blinks_the_background()
     {
         var (g, k) = Defeated(soft: true);
-        int prev = -1, maxLevel = 0, maxStep = 0;
         for (int tick = 0; tick < Konngara.KujiCount * Konngara.KujiTicks; tick++)
         {
             RunToSequence(g, k, tick);
-            int level = Level0(Render(g));
-            maxLevel = Math.Max(maxLevel, level);
-            if (prev >= 0) maxStep = Math.Max(maxStep, Math.Abs(level - prev));
-            prev = level;
+            Assert.Equal(0, Level0(Render(g)));
         }
-        Assert.True(maxLevel <= 4);
-        Assert.True(maxStep <= 1);                                 // at most one level per tick, never a jump to white
     }
 
     [Fact]
-    public void The_shake_fades_the_palette_and_respects_the_screen_shake_option_then_the_picture_scrolls()
+    public void The_defeat_follows_the_measured_timeline()
     {
         var (g, k) = Defeated(soft: false);
-        int shakeStart = Konngara.KujiCount * Konngara.KujiTicks;
-        RunToSequence(g, k, shakeStart + 9);
-        var fb = Render(g);
-        Assert.NotEqual(0, fb.ScrollY);
-        Assert.Equal(2 * 0 + 9 + 1 - 1, 9);
-        RunToSequence(g, k, shakeStart + Konngara.DefeatShakeTicks + 3);
-        fb = Render(g);
-        Assert.Equal(3, fb.GetPixel(100, 300));                    // the scroll picture
-        Assert.Equal(3 * 32 % 400, fb.ScrollY);
+        int fadeStart = Konngara.KujiCount * Konngara.KujiTicks + Konngara.KujiHoldTicks;
+        Assert.Equal(548, Konngara.DefeatSequenceTicks);
+        // the fade to black with the shake (ScreenShake option respected)
+        RunToSequence(g, k, fadeStart + 9);
+        Assert.NotEqual(0, Render(g).ScrollY);
         var (g2, k2) = Defeated(soft: false, shake: false);
-        RunToSequence(g2, k2, shakeStart + 9);
+        RunToSequence(g2, k2, fadeStart + 9);
         Assert.Equal(0, Render(g2).ScrollY);
+        // black gap, then the stage picture with the palette coming in, scrolling 32 lines a tick
+        RunToSequence(g, k, 152);
+        var fb = Render(g);
+        Assert.Equal(0, fb.GetPixel(100, 300));
+        RunToSequence(g, k, 160);
+        Assert.Equal(3, Render(g).GetPixel(100, 300));             // the picture is there (palette still black)
+        RunToSequence(g, k, Konngara.DefeatScrollStart + 3);
+        fb = Render(g);
+        Assert.Equal(3 * 32 % 400, fb.ScrollY);
+        int Bright(Framebuffer f) { int sum = 0; for (int c = 0; c < Framebuffer.ColorCount; c++) { f.GetPalette4(c, out int r, out int gg, out int b); sum += r + gg + b; } return sum; }
+        RunToSequence(g, k, 250); int fullIn = Bright(Render(g));
+        RunToSequence(g, k, 280); Assert.True(Bright(Render(g)) >= fullIn);
+        RunToSequence(g, k, 400); Assert.True(Bright(Render(g)) < fullIn);          // fading out again from 318
+        RunToSequence(g, k, Konngara.DefeatBlankAt + 2);
+        fb = Render(g);
+        Assert.Equal(0, Bright(fb) - Bright(fb) + fb.GetPixel(100, 300));          // the erased screen
     }
 
     [Fact]
