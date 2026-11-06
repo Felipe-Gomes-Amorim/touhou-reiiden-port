@@ -35,10 +35,17 @@ public class StageTests
     }
 
     /// <summary>Presses and releases Shot, which closes the stage bonus box.</summary>
+    /// <summary>The route menu reads the keys every 5 ticks: this steps one read (with the given keys) and the 4 ticks after it.</summary>
+    internal static void RoutePoll(GameSession g, GameButtons keys)
+    {
+        g.Step(keys);
+        for (int i = 1; i < GameSession.RoutePollTicks; i++) g.Step(GameButtons.None);
+    }
+
     internal static void Dismiss(GameSession g)
     {
         // The box opens first (24 ticks) and takes no input meanwhile; after a boss the results picture slides in instead.
-        int wait = g.World.Boss == null ? GameSession.BonusBoxTicks : TotleTimeline.InputAt;
+        int wait = g.World.Boss == null ? GameSession.BonusBoxTicks : TotleTimeline.InputAt(g.Bonus!.Value);
         for (int i = 0; i < wait; i++) g.Step(None);
         g.Step(GameButtons.Shot);
         g.Step(None);

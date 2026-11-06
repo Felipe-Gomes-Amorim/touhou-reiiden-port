@@ -97,6 +97,8 @@ public class DefeatRenderTests
         Defeat(g);
         while (g.Phase == SessionPhase.BossDefeat) g.Step(GameButtons.None);
         Assert.Equal(SessionPhase.RouteSelect, g.Phase);
+        Assert.Equal(0, Render(g).GetPixel(128 + 4, 250 + 4));         // the cursor comes last, 23 ticks into the drawing
+        for (int i = 0; i < GameSession.RouteMenuDrawTicks; i++) g.Step(GameButtons.None);
         var fb = Render(g);
         Assert.Equal(15, C(fb.Palette[1], 16));                       // Makai selected: white
         Assert.Equal(9, C(fb.Palette[3], 16));                        // Jigoku: dim
@@ -104,8 +106,7 @@ public class DefeatRenderTests
         Assert.NotEqual(0, fb.GetPixel(128 + 4, 250 + 4));             // cursor next to Makai
         Assert.Equal(0, fb.GetPixel(128 + 4, 300 + 4));
         for (int i = 0; i < GameSession.RouteSelectDelayTicks; i++) g.Step(GameButtons.None);
-        g.Step(GameButtons.Down);
-        g.Step(GameButtons.None);
+        StageTests.RoutePoll(g, GameButtons.Down);                    // the keys are read every 5 ticks
         fb = Render(g);
         Assert.Equal(9, C(fb.Palette[1], 16));
         Assert.Equal(15, C(fb.Palette[3], 16));
@@ -116,6 +117,37 @@ public class DefeatRenderTests
         Assert.Equal(SessionOutcome.Cleared, g.Outcome);
         Assert.Equal(1, g.CarryOver!.RouteChosen);
     }
+
+    [Fact]
+    public void Route_menu_reads_keys_every_5_ticks_keeps_a_short_tap_and_does_not_repeat_when_held()
+    {
+        var g = Started();
+        Defeat(g);
+        while (g.Phase == SessionPhase.BossDefeat) g.Step(GameButtons.None);
+        for (int i = 0; i < GameSession.RouteMenuDrawTicks + GameSession.RouteSelectDelayTicks; i++) g.Step(GameButtons.None);
+        StageTests.RoutePoll(g, GameButtons.None);                     // the first read
+        g.Step(GameButtons.None);                                      // between two reads: nothing is looked at...
+        g.Step(GameButtons.Down);                                      // ...a tap here...
+        g.Step(GameButtons.None);
+        Assert.Equal(0, g.World.RouteChosen);                          // is not acted on yet
+        g.Step(GameButtons.None); g.Step(GameButtons.None);
+        Assert.Equal(0, g.World.RouteChosen);
+        g.Step(GameButtons.None);                                      // the next read
+        Assert.Equal(1, g.World.RouteChosen);                          // the tap was kept until then, which acts at once
+        for (int i = 0; i < 25; i++) g.Step(GameButtons.Down);         // holding the key does not repeat
+        Assert.Equal(1, g.World.RouteChosen);
+    }
+
+    [Fact]
+    public void The_boss_fade_after_the_white_lines_lasts_the_measured_238_ticks()
+    {
+        var g = Started();
+        Defeat(g);
+        while (g.Phase == SessionPhase.BossDefeat) g.Step(GameButtons.None);
+        int lines = Math.Max(g.DefeatStartY + 1, 400 - g.DefeatStartY);
+        Assert.InRange(g.DefeatTotal - lines, 236, 242);
+    }
+
 
     [Fact]
     public void The_hit_flash_lights_the_boss_colours_on_frames_2_and_3_of_every_4_and_never_changes_state()
