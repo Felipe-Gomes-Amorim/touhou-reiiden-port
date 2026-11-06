@@ -138,6 +138,30 @@ public class PlaybackTests
     }
 
     [Fact]
+    public void Mixer_Decibel_Fade_Falls_Evenly_In_Decibels_And_Ends_The_Music()
+    {
+        var m = new AudioMixer();
+        m.PlayMusic(Pcm(100000, 0, true, 10000));
+        m.FadeOutMusic(1.0, 60);   // 60 dB over one second
+        var buf = new short[2 * AudioMixer.SampleRate * 12 / 10];
+        m.Mix(buf);
+        double At(double sec) => Math.Abs((int)buf[2 * (int)(sec * AudioMixer.SampleRate)]);
+        double start = At(0.0), half = At(0.5), late = At(0.75);
+        Assert.InRange(20 * Math.Log10(half / start), -31, -29);      // half the time = half the decibels
+        Assert.InRange(20 * Math.Log10(late / start), -46, -44);
+        Assert.False(m.MusicPlaying);
+        Assert.Equal(0, buf[^1]);
+    }
+
+    [Fact]
+    public void Driver_Fade_Lasts_127_Steps_Of_Two_Ticks_Of_The_Songs_Tempo()
+    {
+        Assert.Equal(254 * TempoMap.SecondsPerTick(0x48), MdrvSoundSink.FadeSeconds(TempoMap.SecondsPerTick(0x48)), 9);
+        Assert.InRange(MdrvSoundSink.FadeSeconds(TempoMap.SecondsPerTick(0x48)), 4.3, 4.5);
+        Assert.Equal(95.25, MdrvSoundSink.FadeSteps * MdrvSoundSink.FadeStepDb, 6);
+    }
+
+    [Fact]
     public void Mixer_Crossfades_The_Old_Track_Into_The_New_One()
     {
         var m = new AudioMixer();
