@@ -25,9 +25,10 @@ public sealed class AudioMixer
         public readonly LoopedPcm Pcm = pcm;
         public int Pos;
         public float Volume = volume, Step = step;
-        /// <summary>A fade by a constant number of decibels per frame (<see cref="Factor"/> per frame) that ends after <see cref="FramesLeft"/> frames.</summary>
-        public float Factor = 1f;
-        public long FramesLeft;
+        /// <summary>A fade along a curve in decibels (see <see cref="FadeOutMusic"/>): total length, frames left, and the segment in use.</summary>
+        public (double Fraction, double Db)[]? Curve;
+        public long TotalFrames, FramesLeft;
+        public int Segment;
     }
 
     const int MaxFading = 3;
@@ -63,18 +64,18 @@ public sealed class AudioMixer
     }
 
     /// <summary>Fades the current music out over <paramref name="seconds"/> and stops it.</summary>
-    /// <param name="decibels">0 for a linear ramp to silence; otherwise the volume falls by this many decibels, evenly over the time
-    /// (the driver's fade lowers the level in equal attenuation steps), and the music stops at the end.</param>
-    public void FadeOutMusic(double seconds, double decibels = 0)
+    /// <param name="curve">Null for a linear ramp to silence; otherwise points (fraction of the time 0..1, attenuation in decibels) joined
+    /// by straight lines in decibels, starting at fraction 0 and ending at fraction 1, where the music stops.</param>
+    public void FadeOutMusic(double seconds, (double Fraction, double Db)[]? curve = null)
     {
         lock (_lock)
         {
             if (_music is not { } m) return;
-            if (decibels > 0)
+            if (curve is { Length: >= 2 })
             {
-                long frames = Math.Max(1, (long)(seconds * SampleRate));
-                m.Factor = (float)Math.Pow(10, -decibels / 20 / frames);
-                m.FramesLeft = frames;
+                m.Curve = curve;
+                m.TotalFrames = m.FramesLeft = Math.Max(1, (long)(seconds * SampleRate));
+                m.Segment = 0;
             }
             else m.Step = Ramp(-m.Volume, seconds);
             _fading.Add(m);
@@ -136,10 +137,15 @@ public sealed class AudioMixer
         l += m.Pcm[st.Pos * 2] * st.Volume * gain;
         r += m.Pcm[st.Pos * 2 + 1] * st.Volume * gain;
         st.Pos++;
-        if (st.Factor != 1f)
+        if (st.Curve is { } curve)
         {
-            st.Volume *= st.Factor;
             if (--st.FramesLeft <= 0) return false;
+            double at = 1.0 - st.FramesLeft / (double)st.TotalFrames;
+            while (st.Segment < curve.Length - 2 && at > curve[st.Segment + 1].Fraction) st.Segment++;
+            var (f0, d0) = curve[st.Segment];
+            var (f1, d1) = curve[st.Segment + 1];
+            double db = f1 > f0 ? d0 + (d1 - d0) * Math.Clamp((at - f0) / (f1 - f0), 0, 1) : d1;
+            st.Volume = (float)Math.Pow(10, -db / 20);
         }
         else if (st.Step != 0)
         {

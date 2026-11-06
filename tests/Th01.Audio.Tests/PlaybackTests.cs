@@ -138,27 +138,32 @@ public class PlaybackTests
     }
 
     [Fact]
-    public void Mixer_Decibel_Fade_Falls_Evenly_In_Decibels_And_Ends_The_Music()
+    public void Mixer_Curve_Fade_Follows_The_Points_In_Decibels_And_Ends_The_Music()
     {
         var m = new AudioMixer();
         m.PlayMusic(Pcm(100000, 0, true, 10000));
-        m.FadeOutMusic(1.0, 60);   // 60 dB over one second
+        m.FadeOutMusic(1.0, [(0, 0), (0.5, 20), (1, 80)]);
         var buf = new short[2 * AudioMixer.SampleRate * 12 / 10];
         m.Mix(buf);
-        double At(double sec) => Math.Abs((int)buf[2 * (int)(sec * AudioMixer.SampleRate)]);
-        double start = At(0.0), half = At(0.5), late = At(0.75);
-        Assert.InRange(20 * Math.Log10(half / start), -31, -29);      // half the time = half the decibels
-        Assert.InRange(20 * Math.Log10(late / start), -46, -44);
+        double Db(double sec) => 20 * Math.Log10(Math.Abs((int)buf[2 * (int)(sec * AudioMixer.SampleRate)]) / (double)Math.Abs((int)buf[0]));
+        Assert.InRange(Db(0.25), -10.5, -9.5);     // half way to the first point
+        Assert.InRange(Db(0.5), -20.5, -19.5);
+        Assert.InRange(Db(0.75), -50.5, -49.5);    // slope changes at the point
         Assert.False(m.MusicPlaying);
         Assert.Equal(0, buf[^1]);
     }
 
     [Fact]
-    public void Driver_Fade_Lasts_127_Steps_Of_Two_Ticks_Of_The_Songs_Tempo()
+    public void Measured_Fade_Scales_With_The_Songs_Tick_And_Is_Monotonic()
     {
-        Assert.Equal(254 * TempoMap.SecondsPerTick(0x48), MdrvSoundSink.FadeSeconds(TempoMap.SecondsPerTick(0x48)), 9);
-        Assert.InRange(MdrvSoundSink.FadeSeconds(TempoMap.SecondsPerTick(0x48)), 4.3, 4.5);
-        Assert.Equal(95.25, MdrvSoundSink.FadeSteps * MdrvSoundSink.FadeStepDb, 6);
+        double tick = TempoMap.SecondsPerTick(0x5B);   // the song of the measurement
+        Assert.InRange(MdrvSoundSink.FadeSeconds(tick), 5.8, 5.95);
+        Assert.Equal(2 * MdrvSoundSink.FadeSeconds(tick), MdrvSoundSink.FadeSeconds(2 * tick), 9);
+        var c = MdrvSoundSink.FadeCurve;
+        Assert.Equal((0.0, 0.0), c[0]);
+        Assert.Equal(1.0, c[^1].Fraction);
+        for (int i = 1; i < c.Length; i++) { Assert.True(c[i].Fraction > c[i - 1].Fraction); Assert.True(c[i].Db > c[i - 1].Db); }
+        Assert.InRange(c[3].Db, 20, 28);           // about 24 dB in the first 0.9 s
     }
 
     [Fact]

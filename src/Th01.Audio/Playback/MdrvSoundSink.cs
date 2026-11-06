@@ -14,14 +14,19 @@ namespace Th01.Audio.Playback;
 public sealed class MdrvSoundSink : ISoundSink, IDisposable
 {
     /// <summary>
-    /// The driver's fade-out lowers the music by one attenuation step (0.75 dB) every <see cref="FadeTicksPerStep"/> timer ticks
-    /// and stops the song after <see cref="FadeSteps"/> steps, so it lasts FadeSteps * FadeTicksPerStep ticks of the playing
-    /// song's tempo (3.4 to 4.9 s for the game's music) and falls by about 95 dB.
+    /// Fade-out of the music, measured in the original (a boss defeat over a song at 13.56 ms per tick): it starts at once, drops
+    /// about 24 dB in the first 0.9 s, then about 10 dB per second, and the song stops 5.87 s (<see cref="FadeTicks"/> ticks) after the
+    /// start. The time scales with the playing song's tick. APPROXIMATION of the driver, whose own fade routine (one attenuation
+    /// step of 0.75 dB every second tick, stopping at step 127 = 254 ticks) does not reproduce this length or shape.
     /// </summary>
-    public const int FadeSteps = 127, FadeTicksPerStep = 2;
-    public const double FadeStepDb = 0.75;
+    public const double FadeTicks = 433;
+    public static readonly (double Fraction, double Db)[] FadeCurve =
+    [
+        (0, 0), (0.1 / 5.87, 4.3), (0.5 / 5.87, 11.7), (0.9 / 5.87, 23.9), (1.9 / 5.87, 33.6), (2.9 / 5.87, 42.5),
+        (3.9 / 5.87, 51.9), (4.9 / 5.87, 62.7), (1, 76),
+    ];
     /// <summary>Length of <see cref="FadeOutBgm"/> for a song with the given seconds per tick.</summary>
-    public static double FadeSeconds(double secondsPerTick) => FadeSteps * FadeTicksPerStep * secondsPerTick;
+    public static double FadeSeconds(double secondsPerTick) => FadeTicks * secondsPerTick;
     /// <summary>Track change while music plays: the old track fades out this long, the new one fades in (crossfade).</summary>
     public const double CrossfadeOutSeconds = 1.0, CrossfadeInSeconds = 0.4;
 
@@ -108,7 +113,7 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
         // The render is not cancelled: the part already rendered has to last through the fade.
         double seconds;
         lock (_lock) { _request++; _current = null; _cancel = null; seconds = FadeSeconds(_secondsPerTick); }
-        Mixer.FadeOutMusic(seconds, FadeSteps * FadeStepDb);
+        Mixer.FadeOutMusic(seconds, FadeCurve);
     }
 
     // Caller holds _lock: forget the current track and stop its background render.
