@@ -982,17 +982,36 @@ public sealed class Sariel : Boss
     // ---- form 1 defeated (phase 99): a blocking animation in the original ----
 
     /// <summary>
-    /// Measured by T5 (MEASURED-GAMEPLAY.md sections 10 and 15; PhaseFrame 0 = VSync 902, PhaseFrame = VSync - 901): the hardware-scroll
-    /// shake runs 908-1110 (frames 7-209); the scene of form 2 then comes in by a dissolution of two waves on the shown page: wave 1
-    /// 1109-1177 (frames 208-276, 69 ticks, towards BOSS6_A5), a pause of 4 ticks, wave 2 1182-1220 (frames 281-319, 39 ticks, towards
-    /// BOSS6_A6). The game ticks resume at 1184 (frame 283: the blocking animation ends here, the second wave goes on drawn over the
-    /// first ticks of form 2) and the HUD is complete at 1190 (6 ticks later). What each wave draws is not measured yet.
+    /// Measured by T5 (MEASURED-GAMEPLAY.md sections 10, 15 and 15b; PhaseFrame = VSync - 901): the hardware shake runs 908-1110
+    /// (frames 7-209); the form 2 scene then comes in by the diagonal dissolution of pgtrans.cpp drawn straight on the shown page
+    /// (frames 208-319, VSync 1109-1220, a pause at 1178-1181): phase A, the two fronts (top-left and bottom-right, masks 1 and 2) walk
+    /// towards the middle diagonal at about 1.35 diagonals a tick; phase B, the second masks fill the squares from the middle outwards
+    /// and the form 1 Sariel disappears. The game ticks resume at 1184 (frame 283: the blocking animation ends, the dissolution goes on
+    /// drawn over the first ticks of form 2) and the HUD is drawn at once at 1190 (frame 289). ASSUMPTION: the dissolution is
+    /// towards BOSS6_A5 (rays and helix seal; T5 saw those) and BOSS6_A6 (glyphs) takes over when it ends.
     /// </summary>
     public const int Form1DefeatShakeTicks = 210, Form1DefeatShakeStart = 7;
-    public const int Form1DefeatWave1Start = 208, Form1DefeatWave1Ticks = 69, Form1DefeatWave2Start = 281, Form1DefeatWave2Ticks = 39;
+    public const int TransformStart = 208, TransformFrontTicks = 48, TransformPauseStart = 277, TransformPauseTicks = 4, TransformEnd = 320;
     public const int Form1DefeatTransitionTicks = 283 - Form1DefeatShakeTicks;
-    /// <summary>Ticks of form 2 (drawing only): the second wave still runs for the first ticks and the HUD returns after 6.</summary>
-    public const int Form2HudReturnTick = 6, Form2Wave2EndTick = Form1DefeatWave2Start + Form1DefeatWave2Ticks - 283;
+    /// <summary>Ticks of form 2 (t = 282 + Form2Ticks since VSync 902; drawing only) at which the dissolution ends and the HUD is drawn.</summary>
+    public const int Form2TransformEndTick = TransformEnd - 282, Form2HudReturnTick = 289 - 282;
+
+    /// <summary>
+    /// The frame (0..129) of the diagonal dissolution at tick t of the transformation (PhaseFrame, VSync - 901): -1 before it starts,
+    /// 130 when it is over. Phase A (frames 0-64) 1.35 frames a tick; phase B (frames 65-129) over the remaining ticks but the pause.
+    /// </summary>
+    public static int TransformFrame(int t)
+    {
+        if (t < TransformStart) return -1;
+        if (t >= TransformEnd) return TransitionFrames;
+        int a = t - TransformStart;
+        if (a < TransformFrontTicks) return (a + 1) * 65 / TransformFrontTicks - 1;
+        int k = t - TransformStart - TransformFrontTicks;                       // 0-based tick of phase B
+        if (t >= TransformPauseStart + TransformPauseTicks) k -= TransformPauseTicks;
+        else if (t >= TransformPauseStart) k = TransformPauseStart - TransformStart - TransformFrontTicks - 1;   // the pause: nothing new
+        int bTicks = TransformEnd - TransformStart - TransformFrontTicks - TransformPauseTicks;
+        return 65 + (k + 1) * 65 / bTicks - 1;
+    }
     public int Form2Ticks { get; private set; } = 1000;      // 1000: not coming from the transformation
     bool _form1DefeatStarted;
 

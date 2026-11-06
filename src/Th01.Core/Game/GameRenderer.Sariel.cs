@@ -90,7 +90,7 @@ internal sealed partial class GameRenderer
             return;
         }
         if (s.Phase == Sariel.PhaseForm1Defeated) { DrawSarielTransformation(fb, s, s.PhaseFrame); return; }
-        if (s.Phase == Sariel.PhaseForm2 && s.Form2Ticks < Sariel.Form2Wave2EndTick) { DrawSarielTransformation(fb, s, 283 + s.Form2Ticks); return; }
+        if (s.Phase == Sariel.PhaseForm2 && s.Form2Ticks < Sariel.Form2TransformEndTick) { DrawSarielTransformation(fb, s, 282 + s.Form2Ticks); return; }
         if (s.Phase >= Sariel.PhaseForm2)
         {
             if (Picture(SarielBg(5), out f1))
@@ -144,10 +144,11 @@ internal sealed partial class GameRenderer
             return;
         }
         if (s.Phase is >= 1 and <= 8 or Sariel.PhaseForm2)
+            if (!(s.Phase == Sariel.PhaseForm2 && s.Form2Ticks < Sariel.Form2HudReturnTick))   // the ENEMY bar is part of the HUD drawn at 1190
             DrawHpBar(fb, s, s.InitialHpRendered || s.Phase is not (1 or Sariel.PhaseForm2) ? s.Hp : s.HpShown);
         if (s.Phase is Sariel.PhaseForm2Defeated) return;
         bool shaking99 = s.Phase == Sariel.PhaseForm1Defeated;
-        bool pictureSprites = s.Phase is >= 1 and <= 8 || shaking99 && s.PhaseFrame < Sariel.Form1DefeatShakeTicks;
+        bool pictureSprites = s.Phase is >= 1 and <= 8 || shaking99;       // the form 1 Sariel stays until the dissolution covers it
         if (!pictureSprites && s.Phase != Sariel.PhaseForm2) return;
 
         // the wand, shield and dress (animated sprites on top of the background picture)
@@ -270,53 +271,58 @@ internal sealed partial class GameRenderer
     }
 
     /// <summary>
-    /// The form 1 to form 2 transformation at tick t since VSync 902 (b20m.cpp phase 99, T5 sections 10 and 15): the hardware shake
-    /// (the original strobes palette entry 15 white/black meanwhile), then the scene of form 2 comes in by a dissolution of two waves
-    /// on the shown page: wave 1 (towards BOSS6_A5, the palette ramping to its own) over 69 ticks, a pause, wave 2 (towards BOSS6_A6)
-    /// over 39 ticks. ASSUMPTION: each wave is the diagonal dither of the entrance (two masks) stretched to its ticks; T5 has not yet
-    /// dumped what each wave actually draws.
+    /// Backdrop of the form 1 to form 2 transformation at tick t since VSync 902: the form 1 picture, with the hardware shake and (as the
+    /// original strobes palette entry 15 white/black meanwhile) its soft replacement. The dissolution itself is drawn over the finished
+    /// frame by <see cref="DrawSarielTransformDissolve"/>, because it covers the HUD and the form 1 Sariel too.
     /// </summary>
     void DrawSarielTransformation(Framebuffer fb, Sariel s, int t)
     {
-        bool cur = Picture(SarielBg(s.BackgroundId), out var f1), a5 = Picture(SarielBg(4), out var f2), a6 = Picture(SarielBg(5), out var f3);
-        bool pal1 = cur && f1.Palette.Length == 3 * Framebuffer.ColorCount, pal2 = a5 && f2.Palette.Length == 3 * Framebuffer.ColorCount, pal3 = a6 && f3.Palette.Length == 3 * Framebuffer.ColorCount;
-        int lastFrame = Sariel.TransitionFrames - 1;
-        if (t < Sariel.Form1DefeatWave1Start)
+        if (Picture(SarielBg(s.BackgroundId), out var f1))
         {
-            ComposePictures(fb, cur ? f1 : null, null, (x, y) => false);
-            if (pal1) fb.ApplyPalette(f1);
-        }
-        else if (t < Sariel.Form1DefeatWave2Start)
-        {
-            int frame = Math.Clamp((Math.Min(t - Sariel.Form1DefeatWave1Start + 1, Sariel.Form1DefeatWave1Ticks)) * Sariel.TransitionFrames / Sariel.Form1DefeatWave1Ticks - 1, 0, lastFrame);
-            ComposePictures(fb, cur ? f1 : null, a5 ? f2 : null, DiagonalPageTransition(frame));
-            if (pal1)
-            {
-                fb.ApplyPalette(f1);
-                if (pal2)
-                {
-                    int steps = frame / 8 + 1;                                                  // pagetrans_diagonal_8x8_with_palette: a level per 8 frames
-                    for (int c = 0; c < Framebuffer.ColorCount; c++)
-                    {
-                        fb.GetPalette4(c, out int r, out int g, out int b);
-                        int tr = f2.Palette.Span[c * 3], tg = f2.Palette.Span[c * 3 + 1], tb = f2.Palette.Span[c * 3 + 2];
-                        if (c == 15) tr = tg = tb = 0;                                         // grp_palette[0xF] is zeroed before the call
-                        fb.SetPalette4(c, r + Math.Clamp(tr - r, -steps, steps), g + Math.Clamp(tg - g, -steps, steps), b + Math.Clamp(tb - b, -steps, steps));
-                    }
-                }
-            }
-        }
-        else
-        {
-            int frame = Math.Clamp((Math.Min(t - Sariel.Form1DefeatWave2Start + 1, Sariel.Form1DefeatWave2Ticks)) * Sariel.TransitionFrames / Sariel.Form1DefeatWave2Ticks - 1, 0, lastFrame);
-            ComposePictures(fb, a5 ? f2 : null, a6 ? f3 : null, DiagonalPageTransition(frame));
-            if (pal3) fb.ApplyPalette(f3);
+            ComposePictures(fb, f1, null, (x, y) => false);
+            if (f1.Palette.Length == 3 * Framebuffer.ColorCount) fb.ApplyPalette(f1);
         }
         if (t >= Sariel.Form1DefeatShakeStart && t < Sariel.Form1DefeatShakeTicks)
         {
             if (_s.Visuals.ScreenShake && s.Phase == Sariel.PhaseForm1Defeated && s.Form1DefeatShakeLine != 0) fb.ScrollY = s.Form1DefeatShakeLine;
             if (!_s.Visuals.SoftFlashes) { int v = s.Form1DefeatFlash ? 15 : 0; fb.SetPalette4(15, v, v, v); }
             else SoftStrobe(fb, t - Sariel.Form1DefeatShakeStart);
+        }
+    }
+
+    /// <summary>The tick of the transformation (since VSync 902) the boss is at, or -1 outside it.</summary>
+    static int SarielTransformTick(Sariel s) => s.Phase switch
+    {
+        Sariel.PhaseForm1Defeated => s.PhaseFrame,
+        Sariel.PhaseForm2 when s.Form2Ticks < Sariel.Form2TransformEndTick => 282 + s.Form2Ticks,
+        _ => -1,
+    };
+
+    /// <summary>
+    /// The dissolution of pgtrans.cpp drawn over the finished frame (T5 section 15b): the squares of BOSS6_A5 (rays and helix seal)
+    /// replace the form 1 scene, HUD included, through the two checkerboard masks, the form 2 palette coming in at once (VSync 1111-1113)
+    /// except entry 2, which drops a level every 6 ticks (15 > 12). No palette ramp: the front is continuous.
+    /// </summary>
+    void DrawSarielTransformDissolve(Framebuffer fb, Sariel s)
+    {
+        int t = SarielTransformTick(s);
+        int frame = t < 0 ? -1 : Sariel.TransformFrame(t);
+        if (frame < 0 || frame >= Sariel.TransitionFrames) return;
+        if (!Picture(SarielBg(4), out var a5)) return;
+        var mask = DiagonalPageTransition(frame);
+        var px = a5.Pixels.Span;
+        for (int y = 0; y < Framebuffer.Height; y++)
+            for (int x = 0; x < Framebuffer.Width; x++)
+                if (mask(x, y)) fb.SetPixel(x, y, px[y * a5.Width + x]);
+        if (t >= Sariel.Form1DefeatShakeTicks && a5.Palette.Length == 3 * Framebuffer.ColorCount)
+        {
+            fb.ApplyPalette(a5);
+            int extra = 3 - Math.Clamp((t - Sariel.Form1DefeatShakeTicks) / 6, 0, 3);
+            if (extra > 0)
+            {
+                fb.GetPalette4(2, out int r2, out int g2, out int b2);
+                fb.SetPalette4(2, Math.Min(15, r2 + extra), Math.Min(15, g2 + extra), Math.Min(15, b2 + extra));
+            }
         }
     }
 

@@ -70,9 +70,9 @@ internal sealed partial class GameRenderer
         // The 640x66 mask (MASK.GRF) holds the HUD frame and captions; the original draws it in V_RED, under everything else.
         // Sariel's final defeat: the HUD disappears when the shake starts (measured VSync 1225), the form 2 scene stays behind
         bool hudGone = _s.Phase == SessionPhase.BossDefeat && w.Boss is Sariel && _s.DefeatElapsed >= Sariel.DefeatShakeStart;
-        // ... and when form 1 falls, the form 2 scene stays without HUD until the end of the animation, when it returns whole (measured 1115-1189)
-        hudGone |= w.Boss is Sariel { Phase: Sariel.PhaseForm1Defeated } hf && hf.PhaseFrame >= Sariel.Form1DefeatShakeTicks;
-        hudGone |= w.Boss is Sariel { Phase: Sariel.PhaseForm2 } hf2 && hf2.Form2Ticks < Sariel.Form2HudReturnTick;
+        // when form 1 falls the dissolution covers the HUD with the rest; the HUD is drawn again at once at 1190
+        bool transforming = w.Boss is Sariel { Phase: Sariel.PhaseForm2 } hf2 && hf2.Form2Ticks < Sariel.Form2TransformEndTick;
+        hudGone |= transforming;
         if (!coverEntrance && !hudGone)
         {
             DrawMono(fb, HudMask, 0, 0, 0, ColRed);
@@ -99,6 +99,16 @@ internal sealed partial class GameRenderer
         {
             DrawPlayer(fb, w);
             if (!hudGone) DrawHud(fb, w);
+        }
+        if (w.Boss is Sariel dissolving)
+        {
+            DrawSarielTransformDissolve(fb, dissolving);
+            if (transforming && dissolving.Form2Ticks >= Sariel.Form2HudReturnTick)
+            {
+                DrawMono(fb, HudMask, 0, 0, 0, ColRed);
+                fb.FillRect(Playfield.Left, Playfield.Top - 2, Playfield.Width, 2, ColRed);
+                DrawHud(fb, w);
+            }
         }
         if (w.Player.Bombing) _bomb.Draw(fb, _art, w.BombFrame, _s.Visuals);
         else _bomb.Draw(fb, null, uint.MaxValue);   // lets it forget the squares of the last bomb

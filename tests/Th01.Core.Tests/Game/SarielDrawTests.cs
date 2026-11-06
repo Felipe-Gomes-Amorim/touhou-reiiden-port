@@ -291,36 +291,24 @@ public class SarielDrawTests
             Assert.Equal(3, fb.GetPixel(300, 300));                 // the first form's own picture, not the dark one
         }
         Assert.Contains(16, shakeLines); Assert.Contains(386, shakeLines);
-        // the first wave (towards BOSS6_A5, colour 9 here) over 69 ticks from frame 208, gradual; a pause; the second wave (towards A6, colour 11)
-        while (s.PhaseFrame < Sariel.Form1DefeatWave1Start - 1) g.Step(GameButtons.None);
-        int last = -1, increases = 0;
-        while (s.PhaseFrame < Sariel.Form1DefeatWave1Start + Sariel.Form1DefeatWave1Ticks - 1)
-        {
-            g.Step(GameButtons.None);
-            int shown = Count(Render(g), 9, 2);
-            Assert.True(shown >= last);
-            if (shown > last) increases++;
-            last = shown;
-        }
-        Assert.True(increases > 40, "wave 1 must come in over many ticks, not at once");
-        for (int i = 0; i < 3; i++) { g.Step(GameButtons.None); Assert.Equal(9, Render(g).GetPixel(300, 300)); }   // the pause of 4 ticks: A5 held
-        int last2 = -1, inc2 = 0;
+        // phase A of the dissolution: the fronts come from the two corners, the middle keeps the old scene
+        while (s.PhaseFrame < 230 - 1) g.Step(GameButtons.None);
+        g.Step(GameButtons.None);
+        var mid = Render(g);
+        int Corner(Framebuffer f, int x0, int y0) { int n = 0; for (int y = y0; y < y0 + 8; y++) for (int x = x0; x < x0 + 8; x++) if (f.GetPixel(x, y) == 9) n++; return n; }
+        Assert.True(Corner(mid, 0, 0) > 0 && Corner(mid, 632, 392) > 0);                 // dotted new squares at both corners
+        Assert.Equal(0, Corner(mid, 320, 200));                                         // the middle is still the old scene
+        // phase B: it is covered from the middle outwards; A5 everywhere at the end of the dissolution
+        while (s.PhaseFrame < 270 - 1) g.Step(GameButtons.None);
+        g.Step(GameButtons.None);
+        Assert.True(Corner(Render(g), 320, 200) > 0);
         while (s.Phase == Sariel.PhaseForm1Defeated) g.Step(GameButtons.None);
-        // the game ticks resume at frame 283 while wave 2 still runs over the first ticks of form 2
         Assert.Equal(Sariel.PhaseForm2, s.Phase);
-        for (int t = 0; t < Sariel.Form2Wave2EndTick + 2; t++)
-        {
-            int shown = Count(Render(g), 11, 2);
-            Assert.True(shown >= last2);
-            if (shown > last2) inc2++;
-            last2 = shown;
-            g.Step(GameButtons.None);
-        }
-        Assert.True(inc2 > 15, "wave 2 must come in over many ticks");
-        // form 2 appears all at once
-        int guard = 0;
-        while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 1000) g.Step(GameButtons.None);
-        Assert.Equal(Sariel.PhaseForm2, s.Phase);
+        while (s.Form2Ticks < Sariel.Form2TransformEndTick - 2) g.Step(GameButtons.None);
+        var almost = Render(g);
+        for (int y = 70; y < 400; y += 16) for (int x = 0; x < Framebuffer.Width; x += 16) Assert.Equal(9, almost.GetPixel(x, y));
+        // when the dissolution ends BOSS6_A6 takes over at once
+        while (s.Form2Ticks < Sariel.Form2TransformEndTick + 1) g.Step(GameButtons.None);
         Assert.Equal(11, Render(g).GetPixel(300, 300));
     }
 
@@ -334,14 +322,31 @@ public class SarielDrawTests
         s.Phase = 5; s.BackgroundId = 0; s.Hp = 0;
         g.Step(GameButtons.None);
         int guard = 0;
-        int Other(Framebuffer f) { int n = 0; for (int y = 0; y < 60; y++) for (int x = 0; x < Framebuffer.Width; x++) { int c = f.GetPixel(x, y); if (c != 9 && c != 11) n++; } return n; }
-        while (s.Phase == Sariel.PhaseForm1Defeated && s.PhaseFrame < Sariel.Form1DefeatWave1Start + Sariel.Form1DefeatWave1Ticks + 1 && guard++ < 2000) g.Step(GameButtons.None);
-        Assert.Equal(0, Other(Render(g)));                           // the dissolve has covered the HUD: only the scene pictures are left up there
+        int Other(Framebuffer f) { int n = 0; for (int y = 0; y < 60; y++) for (int x = 0; x < Framebuffer.Width; x++) { int c = f.GetPixel(x, y); if (c != 3 && c != 9 && c != 11) n++; } return n; }
         while (s.Phase == Sariel.PhaseForm1Defeated && guard++ < 4000) g.Step(GameButtons.None);
         Assert.Equal(Sariel.PhaseForm2, s.Phase);
-        Assert.Equal(0, Other(Render(g)));                           // still no HUD when the game ticks resume
-        while (s.Form2Ticks < Sariel.Form2HudReturnTick + 1 && guard++ < 4100) g.Step(GameButtons.None);
+        while (s.Form2Ticks < Sariel.Form2HudReturnTick - 1 && guard++ < 4100) g.Step(GameButtons.None);
+        Assert.Equal(0, Other(Render(g)));                           // the dissolution has covered the HUD and it is not drawn yet
+        g.Step(GameButtons.None);
         Assert.True(Other(Render(g)) > 0);                           // the HUD is back all at once (1190)
+    }
+
+    [Fact]
+    public void The_dissolution_frames_follow_the_measured_phases()
+    {
+        Assert.Equal(-1, Sariel.TransformFrame(207));
+        Assert.Equal(0, Sariel.TransformFrame(208));
+        Assert.Equal(64, Sariel.TransformFrame(Sariel.TransformStart + Sariel.TransformFrontTicks - 1));      // phase A ends at the middle diagonal
+        int prev = -1;
+        for (int t = Sariel.TransformStart; t < Sariel.TransformEnd; t++)
+        {
+            int f = Sariel.TransformFrame(t);
+            Assert.True(f >= prev && f - prev <= 3);
+            if (t >= Sariel.TransformPauseStart && t < Sariel.TransformPauseStart + Sariel.TransformPauseTicks) Assert.Equal(prev, f);   // the pause
+            prev = f;
+        }
+        Assert.Equal(129, Sariel.TransformFrame(Sariel.TransformEnd - 1));
+        Assert.Equal(130, Sariel.TransformFrame(Sariel.TransformEnd));
     }
 
     [Fact]
