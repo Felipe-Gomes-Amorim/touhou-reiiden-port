@@ -1,4 +1,5 @@
 using Th01.Assets.Formats;
+using Th01.Assets.Text;
 
 namespace Th01.Audio.Mdrv;
 
@@ -42,7 +43,9 @@ public sealed class MdrvSong
         for (int i = 0; i < file.VoiceCount; i++)
             voices.Add(FmVoice.Parse(mdt.AsSpan(file.VoiceTableOffset + i * FmVoice.Size, FmVoice.Size)));
         var tempos = tracks.Select(t => t.Tempos).FirstOrDefault(t => t.Count > 0)?.ToList() ?? [];
-        string comment = System.Text.Encoding.ASCII.GetString(file.Text.Span).Replace('\r', ' ').Replace('\n', ' ').Trim();
+        // The header text is Shift-JIS (the music titles are Japanese); invalid bytes fall back to a lossy Latin-1 view.
+        string raw = TextCodec.TryDecode(file.Text.Span, out string sjis) ? sjis : System.Text.Encoding.Latin1.GetString(file.Text.Span);
+        string comment = raw.Replace('\r', ' ').Replace('\n', ' ').Trim();
         return new MdrvSong(tracks, voices, tempos, comment);
     }
 

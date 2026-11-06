@@ -342,6 +342,16 @@ public class PlaybackTests
         Assert.Equal(string.Empty, MusicRoom.ReadTitle(new byte[10]));
     }
 
+    [Fact]
+    public void SongComment_IsDecodedAsShiftJis()
+    {
+        var mdt = Mdt([0xE9, 0x48, 0xFF]);
+        new byte[] { 0x82, 0xA0, (byte)'H', (byte)'i' }.CopyTo(mdt, 0x40);   // あ Hi
+        Assert.Equal("あHi", MdrvSong.Load(mdt).Comment);
+        new byte[] { 0x82, (byte)'H', (byte)'i', 13 }.CopyTo(mdt, 0x40);     // broken lead byte: no exception
+        Assert.Contains("Hi", MdrvSong.Load(mdt).Comment);
+    }
+
     [SkippableFact]
     public void RealFiles_Every_MusicRoom_Track_Has_A_Readable_Title()
     {
