@@ -157,12 +157,23 @@ public class MdrvTests
             t.Notes.Select(n => (n.Tone, n.Noise, n.EnvelopePreset)));
     }
 
-    [Fact]
-    public void SoundEffects_Keep_The_Older_Reading_Of_The_Voice_Byte()
+    [Theory]
+    [InlineData(0, 0, 32.7)]      // octave 0, C
+    [InlineData(9, 0, 55.0)]      // octave 0, A
+    [InlineData(4 * 12 + 9, 0, 880.0)]    // an SSG note sounds one octave above the FM note with the same octave digit
+    [InlineData(6 * 12, 0, 2115.3)]       // period 3816 >> 6 = 59
+    public void SsgFrequency_Follows_The_Chip_Periods(int semitone, int detune, double expected)
     {
-        byte[] bytes = [0xEB, 0x01, 0x40, 0x0C, 0xEB, 0x02, 0x40, 0x0C, 0xFF];
-        var t = TrackDecoder.Decode(bytes, 0, bytes.Length, 0, ChannelKind.Ssg, songSsg: false);
-        Assert.Equal([(false, true, -1), (true, false, -1)], t.Notes.Select(n => (n.Tone, n.Noise, n.EnvelopePreset)));
+        Assert.InRange(NoteSynth.SsgFrequency(semitone, detune), expected * 0.99, expected * 1.01);
+    }
+
+    [Fact]
+    public void SsgFrequency_Subtracts_The_Detune_From_The_Period()
+    {
+        double plain = NoteSynth.SsgFrequency(6 * 12), up = NoteSynth.SsgFrequency(6 * 12, 4), down = NoteSynth.SsgFrequency(6 * 12, -4);
+        Assert.Equal(124800.0 / 59, plain, 6);
+        Assert.Equal(124800.0 / 55, up, 6);
+        Assert.Equal(124800.0 / 63, down, 6);
     }
 
     [Fact]
@@ -498,6 +509,10 @@ public class MdrvTests
         }
         if (outDir is not null) File.WriteAllText(Path.Combine(outDir, "se-report.txt"), report.ToString());
         Assert.NotNull(bank.ForSeId(17));
+        // The effects use the song reading of the voice byte, with the envelope presets stored after the last effect.
+        Assert.NotEmpty(bank.Effects[0].Presets);
+        Assert.Contains(bank.Effects.SelectMany(e => e.Parts).SelectMany(p => p.Notes), n => n.EnvelopePreset >= 0);
+        Assert.Contains(bank.Effects.SelectMany(e => e.Parts).SelectMany(p => p.Notes), n => n.Tone && n.Noise);
         Assert.Null(bank.ForSeId(0));
         Assert.Null(bank.ForSeId(18));
     }

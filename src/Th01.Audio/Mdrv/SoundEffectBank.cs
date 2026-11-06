@@ -3,11 +3,12 @@ using Th01.Assets.Formats;
 namespace Th01.Audio.Mdrv;
 
 /// <summary>One sound effect: one stream per part (kind 0x4001 = 1 part, 0x4002 = 2 parts).</summary>
-public sealed record SoundEffect(int Index, IReadOnlyList<DecodedTrack> Parts);
+public sealed record SoundEffect(int Index, IReadOnlyList<DecodedTrack> Parts, IReadOnlyList<SsgEnvelopePreset> Presets);
 
 /// <summary>
 /// A .MDE file decoded. Each effect starts with one little-endian pointer per part (absolute file offsets);
-/// every part is a command stream like a music track (ending in FF) played as SSG-like tone/noise.
+/// every part is a command stream like a music track (ending in FF) played on an SSG channel: the voice byte picks the mix
+/// and the envelope preset exactly as in the songs, and the presets (6 bytes each) follow the last effect.
 /// </summary>
 public sealed class SoundEffectBank
 {
@@ -19,6 +20,10 @@ public sealed class SoundEffectBank
     {
         var file = MdeFile.Parse(mde);
         var list = new List<SoundEffect>();
+        var presets = new List<SsgEnvelopePreset>();
+        var trailer = file.Trailer.Span;
+        for (int at = 0; at + SsgEnvelopePreset.Size <= trailer.Length; at += SsgEnvelopePreset.Size)
+            presets.Add(SsgEnvelopePreset.Parse(trailer.Slice(at, SsgEnvelopePreset.Size)));
         for (int i = 0; i < file.Effects.Count; i++)
         {
             var e = file.Effects[i];
@@ -31,9 +36,9 @@ public sealed class SoundEffectBank
                 int start = BitConverter.ToUInt16(mde, ptrAt);
                 int end = e.Offset + e.Length;
                 if (start < e.Offset + parts * 2 || start >= end) continue;
-                streams.Add(TrackDecoder.Decode(mde, start, end - start, i * 4 + p, ChannelKind.Ssg, songSsg: false));
+                streams.Add(TrackDecoder.Decode(mde, start, end - start, i * 4 + p, ChannelKind.Ssg));
             }
-            list.Add(new SoundEffect(i, streams));
+            list.Add(new SoundEffect(i, streams, presets));
         }
         return new SoundEffectBank(list);
     }

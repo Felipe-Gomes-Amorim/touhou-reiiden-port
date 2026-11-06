@@ -42,20 +42,17 @@ public sealed class TrackDecoder
     bool _tone = true, _noise, _tie, _loopEnd;
     NoteEvent? _last;
 
-    readonly bool _songSsg;
     int _preset = -1;
 
-    TrackDecoder(byte[] data, int start, int end, ChannelKind kind, bool songSsg)
+    TrackDecoder(byte[] data, int start, int end, ChannelKind kind)
     {
-        _d = data; _pos = start; _end = Math.Min(end, data.Length); _kind = kind; _songSsg = songSsg;
+        _d = data; _pos = start; _end = Math.Min(end, data.Length); _kind = kind;
         _volume = kind == ChannelKind.Fm ? 0x60 : 0x0C;
     }
 
-    /// <param name="songSsg">True for the SSG tracks of a song (EB chooses mix and envelope preset as described above). Sound effects
-    /// pass false and keep the older reading of EB (bit 0 noise, bit 1 tone), which has not been checked against the driver.</param>
-    public static DecodedTrack Decode(byte[] data, int start, int length, int trackId, ChannelKind kind, bool songSsg = true)
+    public static DecodedTrack Decode(byte[] data, int start, int length, int trackId, ChannelKind kind)
     {
-        var t = new TrackDecoder(data, start, start + length, kind, songSsg);
+        var t = new TrackDecoder(data, start, start + length, kind);
         t.Run();
         return new DecodedTrack
         {
@@ -145,7 +142,6 @@ public sealed class TrackDecoder
                 case 0xEB:
                     if (_kind == ChannelKind.Fm) _voice = p0;
                     else if (_kind == ChannelKind.Drum) _drum = p0;
-                    else if (!_songSsg) { _noise = (p0 & 1) != 0; _tone = (p0 & 2) != 0 || !_noise; }
                     else
                     {
                         int mix = p0 & 0xC0;
