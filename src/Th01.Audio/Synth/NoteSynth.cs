@@ -28,6 +28,21 @@ public static class NoteSynth
     public static double Frequency(int semitone, double detuneCents = 0) =>
         440.0 * Math.Pow(2, (semitone - (4 * 12 + 9)) / 12.0 + detuneCents / 1200.0);
 
+    /// <summary>
+    /// Pitch of an SSG note. The chip divides its 1.9968 MHz clock by 16 times a 12-bit period; the driver keeps an
+    /// equal-tempered period for each of the twelve notes of octave 0 (C = 32.7 Hz, A = 55 Hz), halves it once per octave
+    /// (integer shifts) and subtracts the detune value. So an SSG note sounds one octave above the FM note with the same
+    /// octave digit, and its pitch is quantised to whole periods.
+    /// </summary>
+    public static double SsgFrequency(int semitone, int detune = 0)
+    {
+        int octave = Math.Clamp(semitone / 12, 0, 12), note = Math.Max(0, semitone) % 12;
+        int period = (int)Math.Round(SsgClock / (SsgBaseHz * Math.Pow(2, note / 12.0))) >> octave;
+        return SsgClock / Math.Max(1, period - detune);
+    }
+
+    const double SsgClock = 124800.0, SsgBaseHz = 440.0 / 13.454342644059432;   // 1.9968 MHz / 16; C of octave 0 = A4 / 2^(45/12)
+
     const int SineSize = 4096;
     static readonly double[] SineTable = BuildSine();
 

@@ -7,7 +7,7 @@ public static class MdrvRenderer
 {
     // Gains at the loudest channel volume; chosen so that the usual volumes of the songs keep the level they had before the
     // volume curves followed the driver (FM volume 0x7A, SSG volume 13).
-    const double FmGain = 0.34, SsgGain = 0.12, DrumGain = 0.3;
+    const double FmGain = 0.34, SsgGain = 0.12, DrumGain = 0.3, EffectGain = 0.55;
     const int MaxEnvelopeTicks = 1200;   // an envelope that never dies out is cut after about 20 s
 
     /// <summary>Plays the tracks once from the start (loops are not followed) for at most <paramref name="maxSeconds"/>.</summary>
@@ -79,24 +79,9 @@ public static class MdrvRenderer
                     NoteSynth.Fm(buf, start, song.Voices[n.Voice], NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, FmGain * NoteSynth.FmVolumeGain(n.Volume), n.Pan);
                 break;
             case ChannelKind.Ssg:
-            {
-                double freq = NoteSynth.Frequency(n.Semitone, n.Detune * 4.0);
-                if (n.EnvelopePreset >= 0 && n.EnvelopePreset < song.SsgPresets.Count)
-                {
-                    // The envelope runs once per tick and may ring on until the next note of the channel starts.
-                    int total = Math.Clamp(n.SpanTicks > 0 ? n.SpanTicks : n.DurationTicks + 96, 1, MaxEnvelopeTicks);
-                    var levels = SsgEnvelope.Levels(song.SsgPresets[n.EnvelopePreset], n.DurationTicks, total);
-                    int last = levels.Length;
-                    while (last > 1 && NoteSynth.SsgVolumeGain(SsgEnvelope.OutputLevel(n.Volume, levels[last - 1])) == 0) last--;   // trailing silence
-                    var gains = new double[last];
-                    for (int t = 0; t < last; t++) gains[t] = NoteSynth.SsgVolumeGain(SsgEnvelope.OutputLevel(n.Volume, levels[t]));
-                    double fpt = (song.TickToSeconds(n.StartTick + 1) - song.TickToSeconds(n.StartTick)) * NoteSynth.SampleRate;
-                    NoteSynth.Ssg(buf, start, freq, gate, SsgGain, n.Tone, n.Noise, n.NoisePeriod, tickGains: gains, framesPerTick: fpt);
-                }
-                else
-                    NoteSynth.Ssg(buf, start, freq, gate, SsgGain * NoteSynth.SsgVolumeGain(n.Volume), n.Tone, n.Noise, n.NoisePeriod);
+                RenderSsgNote(buf, start, gate, n, song.SsgPresets,
+                    (song.TickToSeconds(n.StartTick + 1) - song.TickToSeconds(n.StartTick)) * NoteSynth.SampleRate, SsgGain, sweep: false);
                 break;
-            }
             default:
                 NoteSynth.Drum(buf, start, n.DrumId, DrumGain);
                 break;
@@ -109,19 +94,42 @@ public static class MdrvRenderer
     /// </summary>
     public static readonly double EffectSecondsPerTick = TempoMap.SecondsPerTick(0x41);
 
+    // An SSG note: shaped by its envelope preset when it has one (the envelope runs once per tick and may ring on until the next
+    // note of the channel starts), otherwise a plain gate at the note's volume.
+    static void RenderSsgNote(StereoBuffer buf, int start, int gate, NoteEvent n, IReadOnlyList<SsgEnvelopePreset> presets,
+                              double framesPerTick, double gain, bool sweep)
+    {
+        double freq = NoteSynth.SsgFrequency(n.Semitone, n.Detune);
+        int sweepDelta = sweep ? n.SweepDelta : 0;
+        double secondsPerTick = framesPerTick / NoteSynth.SampleRate;
+        if (n.EnvelopePreset >= 0 && n.EnvelopePreset < presets.Count)
+        {
+            int total = Math.Clamp(n.SpanTicks > 0 ? n.SpanTicks : n.DurationTicks + 96, 1, MaxEnvelopeTicks);
+            var levels = SsgEnvelope.Levels(presets[n.EnvelopePreset], n.DurationTicks, total);
+            int last = levels.Length;
+            while (last > 1 && NoteSynth.SsgVolumeGain(SsgEnvelope.OutputLevel(n.Volume, levels[last - 1])) == 0) last--;   // trailing silence
+            var gains = new double[last];
+            for (int t = 0; t < last; t++) gains[t] = NoteSynth.SsgVolumeGain(SsgEnvelope.OutputLevel(n.Volume, levels[t]));
+            NoteSynth.Ssg(buf, start, freq, gate, gain, n.Tone, n.Noise, n.NoisePeriod, sweepDelta, secondsPerTick, n.Semitone, gains, framesPerTick);
+        }
+        else
+            NoteSynth.Ssg(buf, start, freq, gate, gain * NoteSynth.SsgVolumeGain(n.Volume), n.Tone, n.Noise, n.NoisePeriod, sweepDelta, secondsPerTick, n.Semitone);
+    }
+
     /// <summary>Renders one effect of a <see cref="SoundEffectBank"/> (all of its parts mixed).</summary>
     public static StereoBuffer RenderEffect(SoundEffect effect)
     {
-        double seconds = effect.Parts.Count == 0 ? 0 : effect.Parts.Max(p => p.TotalTicks) * EffectSecondsPerTick;
-        var buf = new StereoBuffer((int)((seconds + 0.6) * NoteSynth.SampleRate));
+        // The buffer must also hold the release of an enveloped note, which can ring on past the end of the stream.
+        int ticks = effect.Parts.Count == 0 ? 0 : effect.Parts.Max(p => Math.Max(p.TotalTicks,
+            p.Notes.Count == 0 ? 0 : p.Notes.Max(n => n.StartTick + (n.EnvelopePreset >= 0 ? Math.Clamp(n.SpanTicks > 0 ? n.SpanTicks : n.DurationTicks + 96, 1, MaxEnvelopeTicks) : n.DurationTicks))));
+        var buf = new StereoBuffer((int)((ticks * EffectSecondsPerTick + 0.6) * NoteSynth.SampleRate));
         foreach (var part in effect.Parts)
         {
             foreach (var n in part.Notes)
             {
                 int start = (int)(n.StartTick * EffectSecondsPerTick * NoteSynth.SampleRate);
                 int gate = Math.Max(1, (int)(n.DurationTicks * EffectSecondsPerTick * NoteSynth.SampleRate));
-                NoteSynth.Ssg(buf, start, NoteSynth.Frequency(n.Semitone, n.Detune * 4.0), gate, 0.55 * NoteSynth.SsgVolumeGain(n.Volume),
-                    n.Tone, n.Noise, n.NoisePeriod, n.SweepDelta, EffectSecondsPerTick, n.Semitone);
+                RenderSsgNote(buf, start, gate, n, effect.Presets, EffectSecondsPerTick * NoteSynth.SampleRate, EffectGain, sweep: true);
             }
         }
         return buf;
