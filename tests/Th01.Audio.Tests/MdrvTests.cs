@@ -241,8 +241,30 @@ public class MdrvTests
     public void Tempo_Map_Accumulates_Segments()
     {
         var map = new[] { new TempoChange(0, 60), new TempoChange(96, 120) };
-        double slow = TempoMap.ToSeconds(map, 96, 1.0), fast = TempoMap.ToSeconds(map, 192, 1.0) - slow;
+        double slow = TempoMap.ToSeconds(map, 96), fast = TempoMap.ToSeconds(map, 192) - slow;
         Assert.Equal(2 * fast, slow, 6);
+    }
+
+    [Theory]
+    [InlineData(0x48, 60)]    // 4340 / 72 = 60.27 -> 60 timer steps per tick
+    [InlineData(0x41, 66)]    // 4340 / 65 = 66.77 -> 66
+    [InlineData(0x11, 255)]   // 4340 / 17 = 255.3 -> 255
+    [InlineData(0x10, 255)]   // below 17 the timer is set to its slowest
+    [InlineData(0x00, 255)]
+    [InlineData(0xFF, 17)]    // 4340 / 255 = 17.02 -> 17
+    public void Tempo_Is_Whole_Timer_Steps_Per_Tick(int tempo, int steps)
+    {
+        Assert.Equal(steps * TempoMap.TimerStepSeconds, TempoMap.SecondsPerTick(tempo), 12);
+    }
+
+    [Fact]
+    public void Tempo_Byte_Is_Quarter_Notes_Per_Minute_Within_The_Timer_Resolution()
+    {
+        for (int tempo = 0x30; tempo <= 0xA0; tempo++)
+        {
+            double quarter = 48 * TempoMap.SecondsPerTick(tempo);
+            Assert.InRange(60.0 / quarter / tempo, 0.997, 1.003 + tempo / 4340.0);   // dropping the fraction of 4340/tempo speeds it up by up to 1/steps
+        }
     }
 
     static double DominantFrequency(float[] s, int from, int count)

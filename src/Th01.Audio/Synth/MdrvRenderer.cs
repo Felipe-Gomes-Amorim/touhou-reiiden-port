@@ -88,7 +88,7 @@ public static class MdrvRenderer
     /// Seconds per tick of sound effects. ASSUMPTION: the effects run on the driver's one timer, which INIT.MDT (loaded at
     /// start-up, the only thing in it is a tempo command) sets to 0x41; so they tick like a song of tempo 0x41.
     /// </summary>
-    public static readonly double EffectSecondsPerTick = 60.0 / (0x41 * MdrvSong.TempoScale * 24.0);
+    public static readonly double EffectSecondsPerTick = TempoMap.SecondsPerTick(0x41);
 
     /// <summary>Renders one effect of a <see cref="SoundEffectBank"/> (all of its parts mixed).</summary>
     public static StereoBuffer RenderEffect(SoundEffect effect)
