@@ -292,15 +292,17 @@ internal sealed partial class GameRenderer
         }
     }
 
-    /// <summary>The final defeat of Sariel: the picture shakes for 230 frames and the palette fades to black after frame 190.</summary>
+    /// <summary>
+    /// The final defeat of Sariel, as measured by T5: from tick 5 the picture shakes by hardware scroll with a period of 4 ticks
+    /// (2 ticks 16 lines up, 2 ticks 14 down; no colour flash), the palette fades to black one level every 4 ticks from tick 384, and
+    /// from 464 the scroll is back at 0 and the screen stays black. ScreenShake only controls the scroll.
+    /// </summary>
     void DrawSarielDefeat(Framebuffer fb, Sariel s)
     {
-        int frame = _s.DefeatElapsed / 2 + 1;
-        if (frame < 230 && _s.Visuals.ScreenShake) fb.ScrollY = (frame % 2 == 0 ? Framebuffer.Height + 16 : Framebuffer.Height - 14) % Framebuffer.Height;
-        if (frame > 190)
-        {
-            int steps = (frame - 190) / 2;
-            MapPalette(fb, c => Math.Max(0, c - steps));
-        }
+        int t = _s.DefeatElapsed;
+        if (t >= Sariel.DefeatShakeStart && t < Sariel.DefeatShakeEnd && _s.Visuals.ScreenShake)
+            fb.ScrollY = ((t / 2) % 2 == 0 ? Framebuffer.Height + 16 : Framebuffer.Height - 14) % Framebuffer.Height;
+        int steps = t >= Sariel.DefeatShakeEnd ? 15 : t > Sariel.DefeatFadeStart ? (t - Sariel.DefeatFadeStart) / Sariel.DefeatFadeTicksPerStep : 0;
+        if (steps > 0) MapPalette(fb, c => Math.Max(0, c - steps));
     }
 }

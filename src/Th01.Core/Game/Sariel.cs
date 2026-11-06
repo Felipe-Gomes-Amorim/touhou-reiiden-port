@@ -117,7 +117,12 @@ public sealed class Sariel : Boss
     public override bool ClearsGame => true;
 
     /// <summary>Placeholder until the second form's defeat sequence is ported (a later part).</summary>
-    public override int DefeatTicks() => 231 * 2;       // phase 101: 231 iterations of frame_delay(2) (shake, fade out)
+    /// <summary>
+    /// Measured by T5 (MEASURED-GAMEPLAY.md section 12, ticks from the final blow at VSync 1220): the hardware shake runs to 464 and its
+    /// palette fades to black from 384 to ~442; the scroll returns to 0 at 464 and the screen stays black until ~590, then the game ends.
+    /// </summary>
+    public const int DefeatShakeStart = 5, DefeatShakeEnd = 464, DefeatFadeStart = 384, DefeatFadeTicksPerStep = 4, DefeatTotal = 590;
+    public override int DefeatTicks() => DefeatTotal;
 
     int Irand() => World.Rng.Next();
 

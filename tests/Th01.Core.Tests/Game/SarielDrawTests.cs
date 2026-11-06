@@ -341,7 +341,9 @@ public class SarielDrawTests
         s.Hp = 0;
         g.Step(GameButtons.None); g.Step(GameButtons.None);
         Assert.Equal(SessionPhase.BossDefeat, g.Phase);
-        Assert.NotEqual(0, Render(g).ScrollY);                      // shaking
+        for (int i = 0; i < 8; i++) g.Step(GameButtons.None);
+        var shakes = new HashSet<int>(); for (int i = 0; i < 8; i++) { g.Step(GameButtons.None); shakes.Add(Render(g).ScrollY); }
+        Assert.Contains(16, shakes); Assert.Contains(386, shakes);   // shaking, period of 4 ticks
         static int Brightness(Framebuffer f)
         {
             int sum = 0;
@@ -350,7 +352,7 @@ public class SarielDrawTests
         }
         int before = Brightness(Render(g));
         int guard = 0, previous = before, drops = 0;
-        while (g.DefeatElapsed < 2 * 215 && guard++ < 9000)
+        while (g.DefeatElapsed < Sariel.DefeatFadeStart + 60 && guard++ < 9000)
         {
             g.Step(GameButtons.None);
             int now = Brightness(Render(g));
@@ -360,6 +362,13 @@ public class SarielDrawTests
         }
         Assert.True(previous < before);                             // the palette has faded towards black
         Assert.True(drops > 5);                                     // step by step, not in one go
+        Assert.Equal(15, drops);                                    // 15 levels, one every 4 ticks
+        while (g.DefeatElapsed < Sariel.DefeatShakeEnd && guard++ < 9000) g.Step(GameButtons.None);
+        g.Step(GameButtons.None);
+        var black = Render(g);
+        Assert.Equal(0, black.ScrollY);                             // the scroll is back at 0 and the screen stays black
+        Assert.Equal(0, Brightness(black));
+        Assert.Equal(590, Sariel.DefeatTotal);
     }
 
     [Fact]
