@@ -78,10 +78,17 @@ public sealed class GameSession : IGameSession, ITraceSource
     public const int EntranceTicks = EntranceOverlay.BannerTicks;
     public const int EntranceTitleTicks = EntranceOverlay.TitleTicks;
 
-    /// <summary>ASSUMPTION (not measured): fade after the white-out lines, 15 palette levels x 15 frames, and the
-    /// 50-frame pause before the route menu accepts input. TODO(T5).</summary>
-    public const int BossDefeatFadeTicks = 15 * 15;
+    /// <summary>Fade after the white-out lines: 15 palette levels x 15 frames, plus the one more pass that finds every component
+    /// done (defeat_animate's loop). MEASURED (T5 16a): the picture is static for 238 ticks.</summary>
+    public const int BossDefeatFadeTicks = 16 * 15;
+    /// <summary>Drawing the menu takes 23 ticks (MEASURED 16a), then the original waits frame_delay(50) before it reads keys.</summary>
+    public const int RouteMenuDrawTicks = 23;
     public const int RouteSelectDelayTicks = 50;
+    /// <summary>The menu loop reads the keys every frame_delay(5).</summary>
+    public const int RoutePollTicks = 5;
+    /// <summary>true: a key pressed and released between two reads still counts (the original would lose it; a deliberate
+    /// kindness). false: exactly as the original.</summary>
+    public static readonly bool RouteTapLatch = true;
 
     int _defeatWait;
     /// <summary>Drawing only: total ticks of the defeat animation and the row its white lines start from.</summary>
@@ -90,7 +97,10 @@ public sealed class GameSession : IGameSession, ITraceSource
     public int DefeatElapsed => DefeatTotal - Math.Max(_defeatWait, 0);
     public bool RouteMenuActive => Phase == SessionPhase.RouteSelect;
     public int RouteMenuDelayLeft => _routeDelay;
-    int _routeDelay;
+    int _routeDelay, _routeTick, _routePoll;
+    GameButtons _routeLatch;
+    /// <summary>Drawing only: ticks since the route menu began to be drawn.</summary>
+    internal int RouteElapsed => _routeTick;
     bool _routePrevUp, _routePrevDown, _routePrevOk;
 
     int _entranceWait;
@@ -121,6 +131,8 @@ public sealed class GameSession : IGameSession, ITraceSource
     /// <summary>Drawing only: ticks since the HARRY UP banner began.</summary>
     internal int HarryUpElapsed => HarryUpBannerTicks - Math.Max(_harryUpWait, 0);
     int _bonusSteps;
+    TotleTimeline.DigitSlot[] _totleSlots = [];
+    int _totleStepsDone, _totleInputAt = BonusBoxTicks;
     int _missStage;
     int _missTick;
     int _missFrame;
@@ -240,7 +252,9 @@ public sealed class GameSession : IGameSession, ITraceSource
                 else if (_defeatWait <= 0)
                 {
                     Phase = SessionPhase.RouteSelect;
-                    _routeDelay = RouteSelectDelayTicks;
+                    _routeDelay = RouteMenuDrawTicks + RouteSelectDelayTicks;
+                    _routeTick = _routePoll = 0;
+                    _routeLatch = GameButtons.None;
                     _routePrevUp = _routePrevDown = _routePrevOk = false;
                 }
                 return;
@@ -386,10 +400,16 @@ public sealed class GameSession : IGameSession, ITraceSource
         Phase = SessionPhase.BossDefeat;
     }
 
-    /// <summary>The original polls every 5th frame and waits for a press edge; here every tick, same edges.</summary>
+    /// <summary>The original reads the keys every 5th frame (frame_delay(5)) and waits for a press edge; so do we.</summary>
     void StepRouteSelect(GameButtons input)
     {
+        _routeTick++;
         if (_routeDelay > 0) { _routeDelay--; return; }
+        if (RouteTapLatch) _routeLatch |= input; else _routeLatch = input;
+        if (_routePoll > 0) { _routePoll--; return; }
+        _routePoll = RoutePollTicks - 1;
+        input = _routeLatch;
+        _routeLatch = GameButtons.None;
         bool up = (input & GameButtons.Up) != 0, down = (input & GameButtons.Down) != 0;
         bool ok = (input & (GameButtons.Shot | GameButtons.Ok)) != 0;
         if ((up && !_routePrevUp) || (down && !_routePrevDown)) _w.RouteChosen = _w.RouteChosen == 0 ? 1 : 0;
@@ -419,6 +439,9 @@ public sealed class GameSession : IGameSession, ITraceSource
         // The boss bonus (TOTLE) scrambles its digits with a sound per step. ASSUMPTION: one step per tick (the original
         // waits delay(4) per step) and the input is not blocked meanwhile. TODO(T5)
         _bonusSteps = boss ? b.TotleSoundSteps() : 0;
+        _totleSlots = boss ? TotleTimeline.Slots(b, out _) : [];
+        _totleStepsDone = 0;
+        _totleInputAt = boss ? TotleTimeline.InputAt(b) : BonusBoxTicks;
         // The stage bonus box opens from its middle row outwards first (stagebonus_box_open_animate), and the original
         // only starts sensing the keys once everything is drawn. The boss bonus slides its picture in instead (TotleTimeline).
         _bonusTick = 0;
@@ -430,14 +453,20 @@ public sealed class GameSession : IGameSession, ITraceSource
     void StepBonus(GameButtons input)
     {
         bool totle = _w.Boss != null;
-        int sensingFrom = totle ? TotleTimeline.InputAt : BonusBoxTicks;
+        int sensingFrom = _totleInputAt;
         int tick = _bonusTick;
         if (_bonusTick < sensingFrom) _bonusTick++;
-        // The digits of the boss bonus count up one after the other once the picture is in, each step with a sound.
+        // The digits of the boss bonus count up one after the other once the picture is in, each step with a sound. The
+        // steps are 4 ms apart (several per tick), so the sound is played once for every tick that had any.
         if (totle && tick >= TotleTimeline.TimeAt && _bonusSteps > 0)
         {
-            _bonusSteps--;
-            _w.Sound.PlaySe(2);
+            int stepsNow = TotleTimeline.StepsDone(_totleSlots, (tick + 1 - TotleTimeline.TimeAt) * 1000);
+            if (stepsNow > _totleStepsDone)
+            {
+                _bonusSteps -= stepsNow - _totleStepsDone;
+                _totleStepsDone = stepsNow;
+                _w.Sound.PlaySe(2);
+            }
         }
         if (tick < sensingFrom) return;                   // still drawing: the original is not sensing keys yet
         bool shot = (input & GameButtons.Shot) != 0, ok = (input & GameButtons.Ok) != 0;
@@ -612,7 +641,7 @@ public sealed class GameSession : IGameSession, ITraceSource
         h.Add(w.PelletSpeed);
         if (Phase == SessionPhase.StageBonus) h.Add(_bonusTick);
         h.Add(_harryUpWait); h.Add(_defeatWait); h.Add(_routeDelay); h.Add(_routePrevUp); h.Add(_routePrevDown); h.Add(_routePrevOk); h.Add(w.RouteChosen);
-        w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk); h.Add(_bonusSteps);
+        w.Boss?.Hash(ref h); if (GameOverResult != null) h.Add(GameOverResult.Score); h.Add(_entranceWait); h.Add(_bonusPrevShot); h.Add(_bonusPrevOk); h.Add(_bonusSteps); h.Add(_routeTick); h.Add(_routePoll); h.Add((int)_routeLatch); h.Add(_totleStepsDone);
         if (Bonus is { } bn) { h.Add(bn.Time); h.Add(bn.CardCombo); h.Add(bn.Resources); h.Add(bn.StageNumber); h.Add(bn.Total); }
         foreach (var v in w.BonusPerStage) h.Add(v); h.Add(w.StageCleared); h.Add(w.GameCleared); h.Add(w.CardFlipCycle); h.Add(w.PointValue);
         w.Items.Hash(ref h); w.Sparkles.Hash(ref h); w.Particles.Hash(ref h); w.Missiles.Hash(ref h); w.Lasers.Hash(ref h); w.Pellets.Hash(ref h); w.Timer.Hash(ref h); w.Stage?.Hash(ref h);

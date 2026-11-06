@@ -74,8 +74,35 @@ public class TotleScreenTests
         Assert.Equal(70, TotleTimeline.Steps);                       // 50 groups of 8 rows, plus 20 steps for the last
         Assert.Equal(190, TotleTimeline.PictureAt);
         Assert.Equal(220, TotleTimeline.TimeAt);
-        Assert.Equal(new[] { 225, 230, 235, 240, 245 },
-            new[] { TotleTimeline.ComboAt, TotleTimeline.ResourcesAt, TotleTimeline.StageMetricAt, TotleTimeline.TotalAt, TotleTimeline.InputAt });
+    }
+
+    [Fact]
+    public void The_digits_count_for_about_the_measured_time()
+    {
+        // MEASURED (T5 16d): the screen changes every tick for ~106 ticks, then the keys are read. A typical result.
+        var b = StageBonus.ComputeTotle(5, 700, 12, 3, 2);
+        int ticks = TotleTimeline.InputAt(b) - TotleTimeline.TimeAt;
+        Assert.InRange(ticks, 95, 125);
+        // Every digit counts 10 + its value steps (two loops), five frame_delay(5) in all
+        var slots = TotleTimeline.Slots(b, out int end);
+        Assert.Equal(27, slots.Length);
+        Assert.Equal(slots.Sum(s => s.Steps) * TotleTimeline.StepMilli + 5 * TotleTimeline.GroupDelayMilli, end);
+        // after the first loop the original indexes the sheet without % 10 (bonus.cpp scramble table)
+        Assert.Equal(new[] { 2, 3, 0, 1, 6, 7, 4, 5, -1, -1 }, Enumerable.Range(10, 10).Select(i => TotleTimeline.Numeral(i, 25, 0)).ToArray());
+        Assert.Equal(7, TotleTimeline.Numeral(7, 17, 7));
+        Assert.Equal(7, TotleTimeline.Numeral(17, 17, 7));              // settled on its value
+    }
+
+    [Fact]
+    public void The_palette_steps_one_level_every_four_ticks_from_44_ticks_into_the_sweep()
+    {
+        int start = TotleTimeline.SceneTicks;
+        Assert.Equal(0, TotleTimeline.PaletteSteps(start + 42));
+        Assert.Equal(1, TotleTimeline.PaletteSteps(start + 44));
+        Assert.Equal(1, TotleTimeline.PaletteSteps(start + 47));
+        Assert.Equal(2, TotleTimeline.PaletteSteps(start + 48));
+        Assert.Equal(15, TotleTimeline.PaletteSteps(start + 44 + 14 * 4));          // every level reachable by here (T5: done by ~94)
+        Assert.Equal(25, TotleTimeline.PaletteSteps(TotleTimeline.PictureAt));
     }
 
     [Fact]
@@ -138,9 +165,9 @@ public class TotleScreenTests
         Assert.Equal(Picture, Render(g).GetPixel(224 + 4, 86 + 4));  // the time is not there yet
 
         StepTo(g, TotleTimeline.TimeAt);
-        Assert.Equal(Digit, Render(g).GetPixel(224 + 4, 86 + 4));    // 16x16 numerals from x = 224, row 86
-        Assert.Equal(Picture, Render(g).GetPixel(224 + 4, 107 + 4));
-        StepTo(g, TotleTimeline.TotalAt);
+        Assert.Equal(Digit, Render(g).GetPixel(224 + 4, 86 + 4));    // 16x16 numerals from x = 224, row 86 (counting from 0)
+        Assert.Equal(Picture, Render(g).GetPixel(224 + 4, 107 + 4)); // one metric at a time, top to bottom
+        StepTo(g, TotleTimeline.InputAt(g.Bonus!.Value));
         var fb = Render(g);
         Assert.Equal(Digit, fb.GetPixel(224 + 4, 107 + 4));
         Assert.Equal(Digit, fb.GetPixel(224 + 4, 128 + 4));
@@ -149,13 +176,28 @@ public class TotleScreenTests
     }
 
     [Fact]
+    public void The_route_menu_stays_on_screen_under_the_sweep_with_its_own_palette()
+    {
+        var g = AfterABoss(new Art());
+        g.World.RouteChosen = 1;
+        StepTo(g, 10);                                               // the 50 ticks before the sweep: the menu is still up
+        var fb = Render(g);
+        Assert.Equal(9 * 17u, fb.Palette[1] >> 16 & 0xFF);
+        Assert.Equal(15 * 17u, fb.Palette[3] >> 16 & 0xFF);          // Jigoku selected: white, the other grey
+        Assert.Equal(7, fb.GetPixel(128 + 4, 300 + 4));              // the cursor beside 地獄へ (plain block: no sprite in the test)
+        StepTo(g, TotleTimeline.PictureAt);
+        Assert.Equal(Picture, Render(g).GetPixel(128 + 4, 300 + 4)); // the sweep has replaced it
+    }
+
+
+    [Fact]
     public void Keys_are_ignored_until_the_numbers_are_drawn_and_then_a_release_closes_the_screen()
     {
         var g = AfterABoss(null);
         for (int i = 0; i < 20; i++) { g.Step(GameButtons.Shot); g.Step(GameButtons.None); }
         Assert.Equal(SessionPhase.StageBonus, g.Phase);
         Assert.Equal(SessionOutcome.Running, g.Outcome);
-        while (g.BonusElapsedForTests < TotleTimeline.InputAt) g.Step(GameButtons.None);
+        while (g.BonusElapsedForTests < TotleTimeline.InputAt(g.Bonus!.Value)) g.Step(GameButtons.None);
         g.Step(GameButtons.Shot); g.Step(GameButtons.None);
         Assert.Equal(SessionOutcome.Cleared, g.Outcome);
     }
@@ -175,7 +217,7 @@ public class TotleScreenTests
         var plain = AfterABoss(null);
         var drawn = AfterABoss(new Art());
         var fb = new Framebuffer();
-        for (int i = 0; i < TotleTimeline.InputAt + 5; i++)
+        for (int i = 0; i < TotleTimeline.InputAt(plain.Bonus!.Value) + 5; i++)
         {
             plain.Step(GameButtons.None); drawn.Step(GameButtons.None);
             drawn.Render(fb);

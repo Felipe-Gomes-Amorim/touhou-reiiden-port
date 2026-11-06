@@ -84,7 +84,8 @@ internal sealed partial class GameRenderer
             DrawCards(fb, w.Stage);
             DrawObstacles(fb, w.Stage);
         }
-        bool bossGone = _s.Phase == SessionPhase.RouteSelect
+        bool menuUp = _s.Phase == SessionPhase.RouteSelect || _s.Phase == SessionPhase.StageBonus && w.Boss is { HasRouteSelect: true };
+        bool bossGone = menuUp
             || _s.Phase == SessionPhase.BossDefeat && w.Boss is not Sariel && _s.DefeatElapsed >= DefeatLineTicks(w.Boss!);
         if (w.Boss != null && !bossGone) DrawBoss(fb, w.Boss);
         DrawItems(fb, w.Items);
@@ -94,7 +95,7 @@ internal sealed partial class GameRenderer
         DrawParticles(fb, w.Particles);
         DrawSparkles(fb, w.Sparkles);
         DrawShots(fb, w.Shots);
-        if (_s.Phase != SessionPhase.RouteSelect && !coverEntrance) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
+        if (!menuUp && !coverEntrance) DrawOrb(fb, w);   // the Orb is gone once the boss is beaten; the menu cursor is a separate sprite
         if (!coverEntrance)
         {
             DrawPlayer(fb, w);
@@ -116,7 +117,8 @@ internal sealed partial class GameRenderer
         else if (_s.Phase == SessionPhase.BossDefeat) DrawDefeat(fb, w.Boss!);
         else if (w.Boss is { } flashing && (_s.Visuals.SoftFlashes ? flashing.FlashSteady : flashing.FlashOn)) FlashColors(fb, flashing.FlashColors);
         // The route menu is drawn over the stage picture (the boss is gone, the HUD and Reimu stay), under a darker palette.
-        if (_s.Phase == SessionPhase.RouteSelect) DrawRouteMenu(fb);
+        // (it stays on screen under the results sweep: the original only replaces it row by row, MEASURED 16b)
+        if (menuUp) DrawRouteMenu(fb);
         if (_s.Phase == SessionPhase.StageBonus && !(w.Boss != null && DrawTotle(fb))) DrawBonus(fb);
         // The scene title and the red "STAGE nn" letters live on the PC-98 text layer, over everything else.
         if (_s.Phase == SessionPhase.Entrance)
@@ -201,8 +203,15 @@ internal sealed partial class GameRenderer
 
     const int MakaiTop = 250, JigokuTop = 300, CursorLeft = 128, ColMakai = 1, ColJigoku = 3;
 
+    /// <summary>
+    /// Ticks into the menu at which each part appears (ASSUMPTION: the original draws the five captions and the cursor in
+    /// 23 ticks, MEASURED 16a, but not in which order or at what moments; evenly spaced here, top to bottom).
+    /// </summary>
+    static readonly int[] RouteReveal = [2, 6, 10, 14, 18, 22];
+
     void DrawRouteMenu(Framebuffer fb)
     {
+        int shown = _s.Phase == SessionPhase.RouteSelect ? _s.RouteElapsed : int.MaxValue;
         // The original repurposes colours 1 and 3 for the two route captions: the selected one white, the other 9/15.
         // The rest of the palette is the stage's, each component lowered by 4. The picture stays: the stage background
         // without the boss, the HUD and Reimu.
@@ -215,12 +224,13 @@ internal sealed partial class GameRenderer
         {
             // Every caption is drawn at twice its size (graph_glyphrow_2xscale_1_to_0). ref: th01/main/boss/defeat.cpp
             var t = _s.Texts;
-            PutText(fb, t.RouteRound, 64, 64, ColWhiteIdx, scale: 2);
-            PutText(fb, t.RouteCongrats, 32, 96, ColWhiteIdx, scale: 2);
-            PutText(fb, t.RouteSelect, 32, 180, ColWhiteIdx, scale: 2);
-            PutText(fb, t.RouteMakai, 256, MakaiTop, ColMakai, scale: 2);
-            PutText(fb, t.RouteJigoku, 256, JigokuTop, ColJigoku, scale: 2);
+            if (shown >= RouteReveal[0]) PutText(fb, t.RouteRound, 64, 64, ColWhiteIdx, scale: 2);
+            if (shown >= RouteReveal[1]) PutText(fb, t.RouteCongrats, 32, 96, ColWhiteIdx, scale: 2);
+            if (shown >= RouteReveal[2]) PutText(fb, t.RouteSelect, 32, 180, ColWhiteIdx, scale: 2);
+            if (shown >= RouteReveal[3]) PutText(fb, t.RouteMakai, 256, MakaiTop, ColMakai, scale: 2);
+            if (shown >= RouteReveal[4]) PutText(fb, t.RouteJigoku, 256, JigokuTop, ColJigoku, scale: 2);
         }
+        if (shown < RouteReveal[5]) return;
         int cy = makai ? MakaiTop : JigokuTop;
         if (!Draw(fb, Stg, 3, CursorLeft, cy)) fb.FillRect(CursorLeft, cy, Playfield.OrbW, Playfield.OrbH, ColWhiteIdx);
     }
@@ -1079,16 +1089,17 @@ internal sealed partial class GameRenderer
             }
         }
 
-        // The palette steps from the stage's to the picture's while the rows slide.
+        // The palette steps from the menu's (or the stage's) to the picture's one level at a time, every 4 ticks once the
+        // first rows have finished (z_palette_step_to in totle_pagetrans_animate).
         if (pic.Palette.Length == 3 * Framebuffer.ColorCount)
         {
-            int progress = TotleTimeline.SlideProgress(t);
+            int n = TotleTimeline.PaletteSteps(t);
             var target = pic.Palette.Span;
             for (int i = 0; i < Framebuffer.ColorCount; i++)
             {
                 uint p = fb.Palette[i];
-                int Mix(int from, int to) => from + (to - from) * progress / TotleTimeline.Steps;
-                fb.SetPalette4(i, Mix(Comp(p, 16), target[i * 3]), Mix(Comp(p, 8), target[i * 3 + 1]), Mix(Comp(p, 0), target[i * 3 + 2]));
+                int Step(int from, int to) => from + Math.Clamp(to - from, -n, n);
+                fb.SetPalette4(i, Step(Comp(p, 16), target[i * 3]), Step(Comp(p, 8), target[i * 3 + 1]), Step(Comp(p, 0), target[i * 3 + 2]));
             }
         }
 
@@ -1098,22 +1109,20 @@ internal sealed partial class GameRenderer
             Draw(fb, NumbSheet, stage / 10, TotleTimeline.StageNumberLeft, TotleTimeline.StageNumberTop);
             Draw(fb, NumbSheet, stage % 10, TotleTimeline.StageNumberLeft + 32, TotleTimeline.StageNumberTop);
         }
-        // Each number is a run of 16x16 numerals starting at place `first` (it can be -1: one column to the left).
-        void Number(int at, int top, int first, params int[] digits)
+        // Every digit counts through two loops of 0..9 before it settles (totle_metric_digit_animate); the numerals are
+        // 16x16 quarters starting at x = 224, one column per place.
+        int milli = (t - TotleTimeline.TimeAt) * 1000;
+        if (milli >= 0)
         {
-            if (t < at) return;
-            for (int i = 0; i < digits.Length; i++)
-                DrawQuarter(fb, NumbSheet, 10 + digits[i] / 4, digits[i] % 4, TotleTimeline.MetricLeft + (first + i) * TotleTimeline.DigitW, top);
+            foreach (var slot in TotleTimeline.Slots(b, out _))
+            {
+                if (milli < slot.StartMilli) break;
+                int done = Math.Min(slot.Steps, (milli - slot.StartMilli) / TotleTimeline.StepMilli);
+                int n = TotleTimeline.Numeral(done, slot.Steps, slot.Digit);
+                if (n < 0) continue;
+                DrawQuarter(fb, NumbSheet, 10 + n / 4, n % 4, TotleTimeline.MetricLeft + slot.Place * TotleTimeline.DigitW, slot.Top);
+            }
         }
-        int[] Four(int v) => [v / 1000 % 10, v / 100 % 10, v / 10 % 10, v % 10];
-        Number(TotleTimeline.TimeAt, TotleTimeline.TimeTop, 0, [.. Four(b.Time), 0]);
-        Number(TotleTimeline.ComboAt, TotleTimeline.ComboTop, 0, [.. Four(b.CardCombo), 0]);
-        Number(TotleTimeline.ResourcesAt, TotleTimeline.ResourcesTop, 0, [.. Four(b.Resources), 0]);
-        int s = b.StageNumber;
-        Number(TotleTimeline.StageMetricAt, TotleTimeline.StageMetricTop, -1, s / 10000 % 10, s / 1000 % 10, s / 100 % 10, s / 10 % 10, 0, 0);
-        uint total = b.Total;
-        Number(TotleTimeline.TotalAt, TotleTimeline.TotalTop, -1,
-            (int)(total / 100000 % 10), (int)(total / 10000 % 10), (int)(total / 1000 % 10), (int)(total / 100 % 10), (int)(total / 10 % 10), (int)(total % 10));
         return true;
     }
 

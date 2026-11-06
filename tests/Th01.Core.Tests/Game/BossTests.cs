@@ -506,16 +506,14 @@ public class BossTests
         while (g.Phase == SessionPhase.BossDefeat && ticks++ < 2000) g.Step(GameButtons.None);
         Assert.Equal(SessionPhase.RouteSelect, g.Phase);
         Assert.Equal(SessionOutcome.Running, g.Outcome);
-        for (int i = 0; i < SessionRouteDelay; i++) g.Step(GameButtons.Shot);   // pause before input counts
+        for (int i = 0; i < SessionRouteDelay; i++) g.Step(GameButtons.Shot);   // drawing + pause before input counts
         Assert.Equal(SessionPhase.RouteSelect, g.Phase);
-        g.Step(GameButtons.None);
-        g.Step(GameButtons.Down);                          // Makai -> Jigoku
-        g.Step(GameButtons.None);
+        StageTests.RoutePoll(g, GameButtons.None);
+        StageTests.RoutePoll(g, GameButtons.Down);         // Makai -> Jigoku, on the read
         Assert.Equal(1, g.World.RouteChosen);
-        g.Step(GameButtons.Up);                            // and back
-        g.Step(GameButtons.None);
+        StageTests.RoutePoll(g, GameButtons.Up);           // and back
         Assert.Equal(0, g.World.RouteChosen);
-        g.Step(GameButtons.Down); g.Step(GameButtons.None);
+        StageTests.RoutePoll(g, GameButtons.Down);
         g.Step(GameButtons.Shot);
         Assert.Equal(SessionPhase.StageBonus, g.Phase);
         var b = g.Bonus!.Value;
@@ -649,5 +647,5 @@ public class BossTests
 
 static class SessionConstants
 {
-    public const int RouteDelay = GameSession.RouteSelectDelayTicks;
+    public const int RouteDelay = GameSession.RouteMenuDrawTicks + GameSession.RouteSelectDelayTicks;
 }

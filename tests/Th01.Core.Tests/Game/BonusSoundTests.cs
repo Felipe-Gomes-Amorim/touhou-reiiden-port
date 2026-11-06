@@ -44,8 +44,11 @@ public class BonusSoundTests
         Assert.Equal(SessionPhase.StageBonus, g.Phase);
         int steps = g.Bonus!.Value.TotleSoundSteps();
         rec.Se.Clear();
-        for (int i = 0; i < TotleTimeline.TimeAt + steps + 10; i++) g.Step(GameButtons.None);   // the digits start once the picture is in
-        Assert.Equal(steps, rec.Se.Count(id => id == 2));
+        for (int i = 0; i < TotleTimeline.InputAt(g.Bonus!.Value) + 10; i++) g.Step(GameButtons.None);   // the digits start once the picture is in
+        // The steps are 4 ms apart, so several fall in one tick: the sound plays once per tick that had any, never more
+        // often than there are steps and never fewer than the ticks of the count.
+        int played = rec.Se.Count(id => id == 2);
+        Assert.InRange(played, 60, steps);
 
         var card = new Recorder();
         var h = new GameSession(new GameOptions { FrameRand = 3 }, card);

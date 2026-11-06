@@ -188,11 +188,11 @@ public class WaveFourTests : IDisposable
         o.Left = b.Left + 32; o.Top = b.Top + 32; o.Y.Force = 0; o.ForceFrame = 0; o.PrevLeft = o.Left; o.PrevTop = o.Top;
         for (int i = 0; i < 3000 && f.Game.Phase != SessionPhase.RouteSelect; i++) f.Tick(GameButtons.None);
         Assert.Equal(SessionPhase.RouteSelect, f.Game.Phase);
-        for (int i = 0; i < GameSession.RouteSelectDelayTicks; i++) f.Tick(GameButtons.None);
-        for (int i = 0; i < pickDowns; i++) { f.Tick(GameButtons.Down); f.Tick(GameButtons.None); }
+        for (int i = 0; i < GameSession.RouteMenuDrawTicks + GameSession.RouteSelectDelayTicks; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < pickDowns; i++) { f.Tick(GameButtons.Down); for (int k = 1; k < GameSession.RoutePollTicks; k++) f.Tick(GameButtons.None); }   // keys are read every 5 ticks
         f.Tick(GameButtons.Shot);                                   // confirm
         Assert.Equal(SessionPhase.StageBonus, f.Game.Phase);
-        for (int i = 0; i < TotleTimeline.InputAt; i++) f.Tick(GameButtons.None);       // the results picture slides in first
+        for (int i = 0; i < TotleTimeline.InputAt(f.Game.Bonus!.Value); i++) f.Tick(GameButtons.None);       // the results picture slides in first
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);                             // release edge closes the bonus
         Assert.Equal(2, stages.Requests.Count);
         Assert.Equal((StageSetup.BossStage + 1, expectedRoute), stages.Requests[1]);
@@ -210,7 +210,7 @@ public class WaveFourTests : IDisposable
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.None);
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
-        for (int i = 0; i < TotleTimeline.InputAt; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < TotleTimeline.InputAt(f.Game!.Bonus!.Value); i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         Assert.Equal(Screen.Cutscene, f.Screen);              // the Makai ending
         Assert.Single(stages.Requests);
@@ -228,7 +228,7 @@ public class WaveFourTests : IDisposable
         f.Game!.World.StageCleared = true;
         f.Tick(GameButtons.None);
         for (int i = 0; i < 5 && f.Game!.Phase != SessionPhase.StageBonus; i++) f.Tick(GameButtons.None);
-        for (int i = 0; i < TotleTimeline.InputAt; i++) f.Tick(GameButtons.None);
+        for (int i = 0; i < TotleTimeline.InputAt(f.Game!.Bonus!.Value); i++) f.Tick(GameButtons.None);
         f.Tick(GameButtons.Shot); f.Tick(GameButtons.None);
         Assert.Equal(Screen.Cutscene, f.Screen);              // the ending, not the "stages ported so far" note
         Assert.Single(stages.Requests);
