@@ -68,8 +68,8 @@ public sealed class Konngara : Boss
     // Fitted to T5's measurement of the original (MEASURED-GAMEPLAY.md section 9, VSync from the start of REIIDEN, the scroll
     // starting at 14): the 7 GRZ images load for about 9 ticks before the 40-tick wait; the pan (Konngara appears) is 499-511;
     // the four seal pictures are drawn 579-630 and the palette fade runs 630-780; the first game tick is at 781.
-    public const int GrzLoadTicks = 8, WaitTicks = 40, ShakeBelowTicks = 28, PanTicks = 13, ShakeTicks = 32, WaitSealTicks = 30;
-    public const int SealDrawTicks = 58, SealFadeTicks = 150, SealSteps = 16;
+    public const int GrzLoadTicks = 5, WaitTicks = 40, ShakeBelowTicks = 34, PanTicks = 13, ShakeTicks = 32, WaitSealTicks = 30;
+    public const int SealDrawTicks = 58, SealFadeTicks = 147, SealSteps = 16;
     /// <summary>The tick, within the drawing of the seal pictures, at which each of the four appears (measured: first 579-585, the rest 606-629).</summary>
     public static readonly int[] SealAppearTicks = { 6, 33, 44, 56 };
 
@@ -192,6 +192,8 @@ public sealed class Konngara : Boss
     /// </summary>
     public const int KujiCount = 9, KujiTicks = 10, KujiHoldTicks = 4, DefeatShakeTicks = 56, FinalScrollTicks = 398;
     public const int DefeatSequenceTicks = KujiCount * KujiTicks + KujiHoldTicks + DefeatShakeTicks + FinalScrollTicks;
+    /// <summary>The shake during the fade-out: the scroll alternates every tick between lines 8 and 24 over ticks 91-160 (T5 section 13b).</summary>
+    public const int DefeatShakeFirst = 91, DefeatShakeLast = 160;
     public const int DefeatPictureAppears = 155, DefeatFadeInStart = 162, DefeatScrollStart = 166, DefeatScrollEnd = 426, DefeatFadeOutStart = 318, DefeatBlankAt = 427;
     /// <summary>The kuji ticks on which the background (palette entry 0) is lit in the original mode: 12 on, 8 off, four times.</summary>
     public static bool KujiBackgroundLit(int tick) => tick is >= 10 and < 82 && (tick - 10) % 20 < 12;

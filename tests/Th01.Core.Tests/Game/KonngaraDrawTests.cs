@@ -64,6 +64,20 @@ public class KonngaraDrawTests
     }
 
     [Fact]
+    public void The_entrance_shake_and_pan_sit_where_T5_measured_them()
+    {
+        var k = (Konngara)Session(null).World.Boss!;
+        Assert.Equal(767, Konngara.EntranceTotal);
+        int V(int vsync) => k.ViewAt(vsync - 14).ScrollLine % 400;   // 416 is line 16 (the page wraps)
+        Assert.Equal(0, V(467));                                   // standing still
+        Assert.Equal((16, 384, 16, 384), (V(468), V(469), V(470), V(471)));   // up first, every tick
+        Assert.Equal(384, V(501));                                 // and down last: 34 beats
+        Assert.Equal(400, k.ViewAt(502 - 14).PanLine);             // the pan starts at 502
+        Assert.Equal(368, k.ViewAt(503 - 14).PanLine);
+        Assert.Equal(336, k.ViewAt(504 - 14).PanLine);
+    }
+
+    [Fact]
     public void The_scroll_follows_the_measured_speeds_and_ends_on_line_0()
     {
         var k = (Konngara)Session(null).World.Boss!;

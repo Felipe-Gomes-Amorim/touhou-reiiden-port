@@ -14,11 +14,16 @@ internal sealed partial class GameRenderer
     /// <summary>
     /// Draws the whole screen of the defeat sequence at the given tick of it (see Konngara.DefeatSequenceTicks for the measured timeline).
     /// The background (palette entry 0) blinks four times during the kuji in the original mode; with soft flashes it stays black.
-    /// ASSUMPTIONS: the lit colour is white (T5 could not read R); the 56-tick fade also shakes as the b20j.cpp loop does (not measured
-    /// either way); the stage picture is BOSS7_D1; the scroll of ~128 lines per 4 ticks is read as 32 lines a tick, in the direction
-    /// of the picture (the measurement may alias).
+    /// ASSUMPTIONS: the lit colour is white (source b20j.cpp, G=B measured); the shake over ticks 91-160 is measured (T5 13b); the stage picture is BOSS7_D1; the scroll is +32 lines a tick (T5 confirmed, no aliasing).
     /// </summary>
     void DrawKonngaraDefeat(Framebuffer fb, int tick)
+    {
+        DrawKonngaraDefeatScreen(fb, tick);
+        if (_s.Visuals.ScreenShake && tick is >= Konngara.DefeatShakeFirst and <= Konngara.DefeatShakeLast)
+            fb.ScrollY = 8 + (tick - Konngara.DefeatShakeFirst + 1) % 2 * 16;                  // measured: lines 8 and 24, every tick
+    }
+
+    void DrawKonngaraDefeatScreen(Framebuffer fb, int tick)
     {
         fb.Clear(0);
         int kujiEnd = Konngara.KujiCount * Konngara.KujiTicks, fadeStart = kujiEnd + Konngara.KujiHoldTicks, fadeEnd = fadeStart + Konngara.DefeatShakeTicks;
@@ -31,7 +36,6 @@ internal sealed partial class GameRenderer
             if (tick >= fadeStart)
             {
                 int f = tick - fadeStart + 1;
-                if (_s.Visuals.ScreenShake) fb.ScrollY = (Framebuffer.Height + 8 + f % 2 * 16) % Framebuffer.Height;
                 int steps = f / 4;                                                    // z_palette_black_out_step every 4 ticks
                 MapPalette(fb, c => Math.Max(0, c - steps));
             }
