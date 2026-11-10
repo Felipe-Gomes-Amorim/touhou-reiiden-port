@@ -177,6 +177,24 @@ public class MdrvTests
     }
 
     [Fact]
+    public void Envelope_Rate_Zero_Holds_The_Level_And_Never_Releases()
+    {
+        // The preset most effects use: full level, nothing to decay, no sustain fade and no release.
+        var preset = new SsgEnvelopePreset(255, 255, 0, 255, 0, 0);
+        var levels = SsgEnvelope.Levels(preset, gateTicks: 6, totalTicks: 400);
+        Assert.All(levels, l => Assert.Equal(255, l));
+    }
+
+    [Fact]
+    public void Envelope_Rate_Zero_Stage_Already_At_Its_Target_Is_Passed_On_Next_Tick()
+    {
+        // Decay rate 0 with the sustain level equal to the level reached: the stage counts as done, so the sustain fade starts.
+        var levels = SsgEnvelope.Levels(new SsgEnvelopePreset(255, 255, 0, 255, 5, 5), gateTicks: 1000, totalTicks: 100);
+        Assert.Equal(255, levels[0]);
+        Assert.True(levels[60] < levels[2]);
+    }
+
+    [Fact]
     public void Note_Span_Reaches_The_Next_Note_Through_Rests()
     {
         var t = Decode(ChannelKind.Ssg, 0x40, 0x0C, 0x90, 0x0C, 0x42, 0x0C, 0xFF);
@@ -508,6 +526,19 @@ public class MdrvTests
             if (outDir is not null) { Directory.CreateDirectory(outDir); WavWriter.Save(Path.Combine(outDir, $"se{e.Index + 1:D2}.wav"), pcm); }
         }
         if (outDir is not null) File.WriteAllText(Path.Combine(outDir, "se-report.txt"), report.ToString());
+        // An effect is silenced the moment its stream ends: no release tail, whatever the envelope would still do.
+        foreach (var e in bank.Effects)
+        {
+            int ticks = e.Parts.Max(p => p.TotalTicks);
+            foreach (double spt in new[] { MdrvRenderer.EffectSecondsPerTick, TempoMap.SecondsPerTick(0x5B) })
+            {
+                var buf = MdrvRenderer.RenderEffect(e, spt);
+                Assert.True(buf.Frames <= (ticks * spt + 0.06) * NoteSynth.SampleRate, $"effect {e.Index + 1} is longer than its stream");
+                Assert.True(buf.Left.Max(Math.Abs) > 0.001f, $"effect {e.Index + 1} is silent");
+            }
+        }
+        // They tick with the music's timer: a faster song makes them shorter.
+        Assert.True(MdrvRenderer.RenderEffect(bank.Effects[4], TempoMap.SecondsPerTick(0x5B)).Frames < MdrvRenderer.RenderEffect(bank.Effects[4], TempoMap.SecondsPerTick(0x41)).Frames);
         Assert.NotNull(bank.ForSeId(17));
         // The effects use the song reading of the voice byte, with the envelope presets stored after the last effect.
         Assert.NotEmpty(bank.Effects[0].Presets);

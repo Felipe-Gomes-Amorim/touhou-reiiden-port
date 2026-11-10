@@ -17,6 +17,9 @@ public readonly record struct SsgEnvelopePreset(byte Initial, byte Attack, byte 
 /// level (0..255) towards a target, in up to three stages (attack to full level, decay to the sustain level, fade of the
 /// sustain to silence), and a fourth stage once the key is released. The audible SSG level is then (volume + 1) * level / 256.
 /// The state machine below follows the behaviour observed in the driver; the preset values come from the song file.
+/// A stage ends when its level reaches or passes its target; a rate of 0 never moves the level, so such a stage only ends if the level
+/// already is at (or past) the target, and a release rate of 0 holds the note at its level until the next note on the channel starts.
+/// The note is over (level 0) when the sustain fade or the release reaches its target.
 /// </summary>
 public static class SsgEnvelope
 {
