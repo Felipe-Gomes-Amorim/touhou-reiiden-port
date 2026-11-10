@@ -7,7 +7,9 @@ public static class MdrvRenderer
 {
     // Gains at the loudest channel volume; chosen so that the usual volumes of the songs keep the level they had before the
     // volume curves followed the driver (FM volume 0x7A, SSG volume 13).
-    const double FmGain = 0.34, SsgGain = 0.12, DrumGain = 0.3, EffectGain = 0.55;
+    const double FmGain = 0.34, SsgGain = 0.12, DrumGain = 0.3;
+    /// <summary>Effect gain: a full-volume square tone peaks at -14.5 dBFS, as in the recordings of the original's effects.</summary>
+    const double EffectGain = 0.195;
     const int MaxEnvelopeTicks = 1200;   // an envelope that never dies out is cut after about 20 s
 
     /// <summary>Plays the tracks once from the start (loops are not followed) for at most <paramref name="maxSeconds"/>.</summary>

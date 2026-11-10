@@ -537,6 +537,10 @@ public class MdrvTests
                 Assert.True(buf.Left.Max(Math.Abs) > 0.001f, $"effect {e.Index + 1} is silent");
             }
         }
+        // Level: the recordings of the original peak at -14.5 dBFS for the full-volume effects (shot, hit, item, life lost -14.4).
+        var shot = MdrvRenderer.ToPcm16(MdrvRenderer.RenderEffect(bank.ForSeId(1)!, TempoMap.SecondsPerTick(0x48)));
+        double peakDb = 20 * Math.Log10(shot.Max(v => Math.Abs((int)v)) / 32768.0);
+        Assert.InRange(peakDb, -16.0, -13.0);
         // They tick with the music's timer: a faster song makes them shorter.
         Assert.True(MdrvRenderer.RenderEffect(bank.Effects[4], TempoMap.SecondsPerTick(0x5B)).Frames < MdrvRenderer.RenderEffect(bank.Effects[4], TempoMap.SecondsPerTick(0x41)).Frames);
         Assert.NotNull(bank.ForSeId(17));
