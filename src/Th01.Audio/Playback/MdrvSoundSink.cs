@@ -31,7 +31,10 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
     public const double CrossfadeOutSeconds = 1.0, CrossfadeInSeconds = 0.4;
 
     readonly Func<string, byte[]?> _load;
-    readonly Dictionary<int, short[]> _effects = [];
+    SoundEffectBank? _bank;
+    readonly Dictionary<(int Id, int Tempo), short[]> _effects = [];   // rendered at the tempo the driver's timer has when they play
+    const int StartupTempo = 0x41;
+    int _tempo = StartupTempo;   // the tempo byte last set by a song (the effects share the music's timer)
     readonly object _lock = new();
     CancellationTokenSource? _cancel;
     string? _current;
@@ -56,9 +59,8 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
         {
             if (loadFile(effectsFile) is { } bytes)
             {
-                var bank = SoundEffectBank.Load(bytes);
-                foreach (var e in bank.Effects)
-                    _effects[e.Index + 1] = MdrvRenderer.ToPcm16(MdrvRenderer.RenderEffect(e));
+                _bank = SoundEffectBank.Load(bytes);
+                foreach (var e in _bank.Effects) EffectPcm(e.Index + 1, StartupTempo);
             }
         }
         catch (Exception ex) when (ex is InvalidDataException or ArgumentException or IndexOutOfRangeException or IOException)
@@ -90,7 +92,8 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
                 lock (_lock)
                 {
                     if (_disposed || request != _request) { cts.Cancel(); return; }   // another request came in meanwhile
-                    _secondsPerTick = TempoMap.SecondsPerTick(song.Tempos.Count > 0 ? song.Tempos[0].Tempo : TempoMap.DefaultTempo);
+                    _tempo = song.Tempos.Count > 0 ? song.Tempos[0].Tempo : TempoMap.DefaultTempo;
+                    _secondsPerTick = TempoMap.SecondsPerTick(_tempo);
                     bool crossfade = Mixer.MusicPlaying;
                     Mixer.PlayMusic(rendering, crossfade ? CrossfadeOutSeconds : 0, crossfade ? CrossfadeInSeconds : 0);
                 }
@@ -127,7 +130,20 @@ public sealed class MdrvSoundSink : ISoundSink, IDisposable
 
     public void PlaySe(int effectId)
     {
-        if (_effects.TryGetValue(effectId, out var pcm)) Mixer.PlayEffect(effectId, pcm);
+        int tempo;
+        lock (_lock) tempo = _tempo;
+        if (EffectPcm(effectId, tempo) is { } pcm) Mixer.PlayEffect(effectId, pcm);
+    }
+
+    // Effects tick with the driver's one timer, so they run at the speed of the song that set its tempo last.
+    short[]? EffectPcm(int effectId, int tempo)
+    {
+        lock (_effects)
+        {
+            if (_effects.TryGetValue((effectId, tempo), out var pcm)) return pcm;
+            if (_bank?.ForSeId(effectId) is not { } effect) return null;
+            return _effects[(effectId, tempo)] = MdrvRenderer.ToPcm16(MdrvRenderer.RenderEffect(effect, TempoMap.SecondsPerTick(tempo)));
+        }
     }
 
     public void Dispose()

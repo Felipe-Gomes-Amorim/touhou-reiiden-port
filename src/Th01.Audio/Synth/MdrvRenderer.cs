@@ -88,16 +88,10 @@ public static class MdrvRenderer
         }
     }
 
-    /// <summary>
-    /// Seconds per tick of sound effects. ASSUMPTION: the effects run on the driver's one timer, which INIT.MDT (loaded at
-    /// start-up, the only thing in it is a tempo command) sets to 0x41; so they tick like a song of tempo 0x41.
-    /// </summary>
-    public static readonly double EffectSecondsPerTick = TempoMap.SecondsPerTick(0x41);
-
     // An SSG note: shaped by its envelope preset when it has one (the envelope runs once per tick and may ring on until the next
-    // note of the channel starts), otherwise a plain gate at the note's volume.
+    // note of the channel starts, or until endTicks when the stream ends first), otherwise a plain gate at the note's volume.
     static void RenderSsgNote(StereoBuffer buf, int start, int gate, NoteEvent n, IReadOnlyList<SsgEnvelopePreset> presets,
-                              double framesPerTick, double gain, bool sweep)
+                              double framesPerTick, double gain, bool sweep, int endTicks = 0)
     {
         double freq = NoteSynth.SsgFrequency(n.Semitone, n.Detune);
         int sweepDelta = sweep ? n.SweepDelta : 0;
@@ -105,6 +99,7 @@ public static class MdrvRenderer
         if (n.EnvelopePreset >= 0 && n.EnvelopePreset < presets.Count)
         {
             int total = Math.Clamp(n.SpanTicks > 0 ? n.SpanTicks : n.DurationTicks + 96, 1, MaxEnvelopeTicks);
+            if (endTicks > 0) total = Math.Clamp(Math.Min(total, endTicks), 1, MaxEnvelopeTicks);
             var levels = SsgEnvelope.Levels(presets[n.EnvelopePreset], n.DurationTicks, total);
             int last = levels.Length;
             while (last > 1 && NoteSynth.SsgVolumeGain(SsgEnvelope.OutputLevel(n.Volume, levels[last - 1])) == 0) last--;   // trailing silence
@@ -116,20 +111,31 @@ public static class MdrvRenderer
             NoteSynth.Ssg(buf, start, freq, gate, gain * NoteSynth.SsgVolumeGain(n.Volume), n.Tone, n.Noise, n.NoisePeriod, sweepDelta, secondsPerTick, n.Semitone);
     }
 
-    /// <summary>Renders one effect of a <see cref="SoundEffectBank"/> (all of its parts mixed).</summary>
-    public static StereoBuffer RenderEffect(SoundEffect effect)
+    /// <summary>
+    /// Seconds per tick of sound effects when no song has set a tempo: the start-up file (INIT.MDT) sets 0x41. The effects run on
+    /// the driver's one timer, so once a song has set a tempo they tick at that song's speed (see the overload taking a tick length).
+    /// </summary>
+    public static readonly double EffectSecondsPerTick = TempoMap.SecondsPerTick(0x41);
+
+    /// <summary>Renders one effect of a <see cref="SoundEffectBank"/> (all of its parts mixed) at the start-up tempo.</summary>
+    public static StereoBuffer RenderEffect(SoundEffect effect) => RenderEffect(effect, EffectSecondsPerTick);
+
+    /// <summary>
+    /// Renders an effect with the given tick length. A part is silenced the moment its stream ends, whatever its envelope would
+    /// still do: there is no release tail after the last command.
+    /// </summary>
+    public static StereoBuffer RenderEffect(SoundEffect effect, double secondsPerTick)
     {
-        // The buffer must also hold the release of an enveloped note, which can ring on past the end of the stream.
-        int ticks = effect.Parts.Count == 0 ? 0 : effect.Parts.Max(p => Math.Max(p.TotalTicks,
-            p.Notes.Count == 0 ? 0 : p.Notes.Max(n => n.StartTick + (n.EnvelopePreset >= 0 ? Math.Clamp(n.SpanTicks > 0 ? n.SpanTicks : n.DurationTicks + 96, 1, MaxEnvelopeTicks) : n.DurationTicks))));
-        var buf = new StereoBuffer((int)((ticks * EffectSecondsPerTick + 0.6) * NoteSynth.SampleRate));
+        int ticks = effect.Parts.Count == 0 ? 0 : effect.Parts.Max(p => p.TotalTicks);
+        var buf = new StereoBuffer((int)((ticks * secondsPerTick + 0.05) * NoteSynth.SampleRate));
         foreach (var part in effect.Parts)
         {
             foreach (var n in part.Notes)
             {
-                int start = (int)(n.StartTick * EffectSecondsPerTick * NoteSynth.SampleRate);
-                int gate = Math.Max(1, (int)(n.DurationTicks * EffectSecondsPerTick * NoteSynth.SampleRate));
-                RenderSsgNote(buf, start, gate, n, effect.Presets, EffectSecondsPerTick * NoteSynth.SampleRate, EffectGain, sweep: true);
+                int start = (int)(n.StartTick * secondsPerTick * NoteSynth.SampleRate);
+                int gate = Math.Max(1, (int)(n.DurationTicks * secondsPerTick * NoteSynth.SampleRate));
+                RenderSsgNote(buf, start, gate, n, effect.Presets, secondsPerTick * NoteSynth.SampleRate, EffectGain, sweep: true,
+                    endTicks: Math.Max(1, part.TotalTicks - n.StartTick));
             }
         }
         return buf;
