@@ -8,11 +8,11 @@
 An engine-free C# (.NET 8) re-implementation of the 1997 PC-98 game. The community decompilation
 [ReC98](https://github.com/nmlgc/ReC98) is used only as a behavioural reference; no ReC98 code is included.
 
-**Status: v0.8.0, both routes can be played to the end, with a launcher and the boss drawings filled in.** Launcher (English and Japanese, options, mouse support), logo, title/menu (rebuilt after the original), the card stages, stage bonus,
+**Status: v0.9.0, both routes can be played to the end, with a launcher and the boss drawings filled in.** Launcher (English and Japanese, options, mouse support), logo, title/menu (rebuilt after the original), the card stages, stage bonus,
 game over, ranking (saved to disk), Japanese text, music and sound effects (synthesized from your own game files), and the bosses
 SinGyoku (stage 5), YuugenMagan and Mima (stage 10), Kikuri and Elis (stage 15), Konngara (stage 20, Jigoku route) and Sariel (stage 20, Makai route) work, followed by the
-ending pictures, captions and the final verdict screen (`--cutscene 4..7`). The boss entrances, Sariel's form change and the defeats of Konngara and Sariel were fitted to measurements of the original; some
-drawing details are still estimates, and sound and some boss details are still being checked against the original; expect differences.
+ending pictures, captions and the final verdict screen (`--cutscene 4..7`). The boss entrances, Sariel's form change, the defeats of Konngara and Sariel, the route menu and the results screen, and the music and sound effects were fitted to measurements of the original; some
+drawing details are still estimates, and the drums and some boss details are still being checked against the original; expect differences.
 
 **Photosensitivity warning:** the game contains flashing lights and intense visual effects.
 
