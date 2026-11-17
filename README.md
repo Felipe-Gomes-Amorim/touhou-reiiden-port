@@ -1,3 +1,6 @@
+<img width="2012" height="782" alt="touhou-reiiden-banner" src="https://github.com/user-attachments/assets/6d281945-4623-4a55-b5bc-cdd075ba3164" />
+
+
 # Touhou Reiiden — fan port (東方靈異伝 ~ The Highly Responsive to Prayers)
 
 > **Unofficial fan work. Not affiliated with or endorsed by ZUN / Team Shanghai Alice.**
